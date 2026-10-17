@@ -152,6 +152,13 @@ for (const [file, needle, label] of docs) {
     ok(`${label}写着 ${n}`, readDoc(file).includes(needle), `缺「${needle}」`);
 }
 
+// README 的版本徽章是手写的，而 @version 才是版本唯一事实来源：
+// 发版时只改了 @version 却忘了改徽章，读者看到的还是旧版本号，所以在这里对一次。
+const ver = (readDoc(SCRIPT.replace(/^.*[\\/]/, '')).match(/^\/\/ @version\s+(\S+)/m) || [])[1] || '';
+ok(`README 版本徽章与 @version 一致（${ver}）`,
+    !!ver && readDoc('README.md').includes(`version-${ver}-blue`),
+    `缺「version-${ver}-blue」`);
+
 // panel-smoke 的断言数在 Node 里跑不出来（要真浏览器），但可以数它源码里的 ok(...)
 // 调用：改了那个数字却忘了同步 README / CHANGELOG，这里就会红。
 const m = (readDoc('tools/panel-smoke.mjs').match(/^\s+ok\(/gm) || []).length;

@@ -1,8 +1,10 @@
 // 面板冒烟测试：把用户脚本内联进一个最小页面，用真实的 Chromium 内核（Edge / Chrome）
 // 跑一遍「面板能不能建起来、按钮还全不全、导出文件名对不对」。
 //
-// 用法： node tools/panel-smoke.mjs [用户脚本路径]
-// 找不到浏览器时会跳过（退出码 0），方便在没装浏览器的机器上跑。
+// 用法： node tools/panel-smoke.mjs [用户脚本路径] [--require-browser]
+// 找不到浏览器时默认跳过（退出码 0），方便在没装浏览器的机器上跑；
+// 加 --require-browser（或设置 FX_REQUIRE_BROWSER=1）则改为失败（退出码 2），
+// CI 用它来防止「没装浏览器 → 静默跳过 → 假绿」。
 import { readFileSync, writeFileSync, mkdtempSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -10,7 +12,10 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SCRIPT = resolve(process.argv[2] || join(HERE, '..', 'faxuanyun-legal-exam-assistant.user.js'));
+// 参数里可能混着 --require-browser 这类开关，先滤掉再取脚本路径
+const CLI_ARGS = process.argv.slice(2).filter(a => !a.startsWith('--'));
+const SCRIPT = resolve(CLI_ARGS[0] || join(HERE, '..', 'faxuanyun-legal-exam-assistant.user.js'));
+const REQUIRE_BROWSER = process.argv.includes('--require-browser') || process.env.FX_REQUIRE_BROWSER === '1';
 
 const BROWSERS = [
     process.env.FX_BROWSER,
@@ -26,6 +31,10 @@ const BROWSERS = [
 if (!BROWSERS) {
     console.log('未找到 Edge / Chrome，跳过面板冒烟测试。');
     console.log('（想强制指定可用 FX_BROWSER=/path/to/chrome 环境变量。）');
+    if (REQUIRE_BROWSER) {
+        console.error('❌ 指定了 --require-browser，但没找到浏览器：面板冒烟测试无法执行。');
+        process.exit(2);
+    }
     process.exit(0);
 }
 

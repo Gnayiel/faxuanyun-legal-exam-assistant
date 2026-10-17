@@ -6,13 +6,24 @@ on:
   pull_request:
   workflow_dispatch:
 
+# 只读仓库内容即可，不给 token 多余权限
+permissions:
+  contents: read
+
+# 同一分支连续推送时取消旧的一次，省 runner 时间
+concurrency:
+  group: selftest-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   selftest:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      # 第三方 action 全部 pin 到 commit SHA（行尾注释是版本号）；
+      # 升级由 .github/dependabot.yml 自动开 PR 完成。
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
           node-version: '20'
 
@@ -20,6 +31,7 @@ jobs:
       - name: 内置自检
         run: node tools/selftest.mjs
 
-      # 用 GitHub runner 自带的 Chrome 起一个真实内核，验证面板能建起来、导出文件名正确
+      # GitHub runner 自带 Chrome；--require-browser 让「找不到浏览器」直接失败，
+      # 避免面板冒烟被静默跳过、CI 假绿。
       - name: 面板冒烟测试
-        run: node tools/panel-smoke.mjs
+        run: node tools/panel-smoke.mjs --require-browser

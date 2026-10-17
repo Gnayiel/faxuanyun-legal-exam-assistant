@@ -1,6 +1,7 @@
 # 甘肃省国家工作人员学法考试平台自动答题助手
 
 [![version](https://img.shields.io/badge/version-2.0.1-blue)](CHANGELOG.md)
+[![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![self-test](https://img.shields.io/badge/self--test-73%20passing-success)](#开发与自检)
 [![panel--smoke](https://img.shields.io/badge/panel--smoke-33%20passing-success)](#开发与自检)
@@ -60,6 +61,11 @@
 2. 安装脚本，任选其一：
    - 打开原始文件地址，油猴会直接弹出安装页：
      `https://raw.githubusercontent.com/GNAYIEL/faxuanyun-legal-exam-assistant/main/faxuanyun-legal-exam-assistant.user.js`
+   - **国内网络打不开 raw 时**，用 jsDelivr 镜像安装（只影响这一次安装；装好后自动更新仍走上面的原始地址）：
+     `https://cdn.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@main/faxuanyun-legal-exam-assistant.user.js`
+     ⚠️ 镜像路径**区分大小写**，请照抄 `Gnayiel`；镜像也不通时见下面两条。
+   - 到 [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 下载最新版本的
+     `.user.js` 附件，拖进浏览器窗口安装
    - 或下载仓库里的 [`faxuanyun-legal-exam-assistant.user.js`](faxuanyun-legal-exam-assistant.user.js)，
      拖进浏览器窗口安装
 3. 打开考试页面，右上角会出现控制面板
@@ -114,7 +120,9 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
   题库、错题记录、AI 设置、面板位置都保留。只有改 `@name` / `@namespace` 才会被当成新脚本
   （v2.0.0 就是这么一次，迁移见上一节）。
 - **更新失败的兜底**：`raw.githubusercontent.com` 在部分网络（尤其国内）下可能连不上，
-  自动检查会静默失败。可以开代理后重试；也可以直接下载仓库里的 `.user.js` 拖进浏览器窗口安装，
+  自动检查会静默失败（不会损坏数据）。可以开代理后重试；也可以到
+  [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 下载该版本的
+  `.user.js` 附件，或直接下载仓库里的文件，拖进浏览器窗口安装——
   同一脚本的新版本会覆盖旧版本，效果与自动更新一致，数据同样不丢。
 
 ### 维护者：每次发版的固定动作
@@ -253,18 +261,20 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 单文件、纯前端、**无构建步骤**，改完直接安装即可。验证有两条命令，都不需要安装依赖：
 
 ```bash
-node tools/selftest.mjs       # 校验 @-metadata + 跑脚本内置的 73 项断言，不联网
-node tools/panel-smoke.mjs    # 用真实 Chromium 内核（Edge / Chrome）建面板，33 项断言
+node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 73 项断言，不联网
+node tools/panel-smoke.mjs --require-browser # 用真实 Chromium 内核（Edge / Chrome）建面板，33 项断言
 ```
 
 - `tools/selftest.mjs` 在最小 DOM / 油猴打桩下加载脚本，跑的就是面板「自检」按钮调用的同一批用例；
   它还会校验 `@-metadata` 是否完整、`@downloadURL` / `@updateURL` 是否指向仓库里真实存在的文件名、
-  脚本里的 `CONNECT_HOSTS` 常量和头部 `@connect` 白名单是否一一对应，
-  以及 README 徽章 / 脚本文案里写明的断言数是否与真实用例数一致（数字写死会过期）。
-- `tools/panel-smoke.mjs` 找不到浏览器时会**跳过而不是失败**，
-  也可以用 `FX_BROWSER=/path/to/chrome` 指定。
+  脚本里的 `CONNECT_HOSTS` 常量和头部 `@connect` 白名单是否一一对应、
+  README 徽章 / 脚本文案里写明的断言数是否与真实用例数一致，以及 **README 版本徽章是否与 `@version` 一致**（数字和版本写死都会过期）。
+- `tools/panel-smoke.mjs` 找不到浏览器时默认**跳过**（退出码 0）；
+  加 `--require-browser`（或设 `FX_REQUIRE_BROWSER=1`）则直接失败，CI 用的就是强制模式，
+  避免「没装浏览器 → 静默跳过 → 假绿」。也可以用 `FX_BROWSER=/path/to/chrome` 指定浏览器。
 - 面板里**「自检」（`Alt + T`）**是同一批断言，失败项会逐条写进日志。
-- CI：`.github/workflows/selftest.yml` 在 push 到 `main`、以及每个 PR 上跑上面两条（也可手动触发）。
+- CI：`.github/workflows/selftest.yml` 在 push 到 `main`、以及每个 PR 上跑上面两条（也可手动触发）；
+  第三方 action 全部固定到 commit SHA，由 Dependabot 每周开 PR 升级。
 
 改动前请留意两点：
 
@@ -305,10 +315,16 @@ node tools/panel-smoke.mjs    # 用真实 Chromium 内核（Edge / Chrome）建�
 ├── faxuanyun-legal-exam-assistant.user.js   # 用户脚本本体（.user.js 后缀是油猴识别安装所必需，勿改）
 ├── README.md
 ├── CHANGELOG.md                  # 版本更新记录
+├── CONTRIBUTING.md               # 贡献与发版流程
+├── SECURITY.md                   # 安全问题报告方式
+├── CODE_OF_CONDUCT.md            # 行为准则
 ├── LICENSE                       # MIT
 ├── .gitignore
 ├── .gitattributes
 ├── .github/
+│   ├── dependabot.yml            # 自动升级 GitHub Actions
+│   ├── ISSUE_TEMPLATE/           # issue 模板（bug 报告 + 安全引导）
+│   ├── pull_request_template.md  # PR 自查清单
 │   └── workflows/
 │       └── selftest.yml          # CI：元数据校验 + 内置自检 + 面板冒烟
 ├── data/
@@ -317,7 +333,7 @@ node tools/panel-smoke.mjs    # 用真实 Chromium 内核（Edge / Chrome）建�
 │   └── faxuanyun-legal-exam-bank-20261017.json   # 同上，字段完整版
 └── tools/
     ├── selftest.mjs              # 无依赖自检（元数据 + 73 项断言）
-    └── panel-smoke.mjs           # 真实浏览器面板冒烟测试（33 项）
+    └── panel-smoke.mjs           # 真实浏览器面板冒烟测试（33 项），CI 用强制模式
 ```
 
 从面板「导出答案库」拿到的文件按日期命名，可以直接放进 `data/` 归档；
@@ -326,10 +342,11 @@ node tools/panel-smoke.mjs    # 用真实 Chromium 内核（Edge / Chrome）建�
 
 ## 贡献
 
-- 报 bug / 提需求请开 issue，并尽量附上：浏览器与油猴版本、脚本 `@version`、面板日志（`Alt + E` 导出）
-- 提交代码前请本地跑通上面两条命令
+- 报 bug / 提需求请用 [issue 模板](.github/ISSUE_TEMPLATE/bug_report.yml)，附上浏览器与油猴版本、脚本 `@version`、面板日志（`Alt + E` 导出）
+- 提交代码前请本地跑通上面两条测试命令；完整约定、代码风格、发版流程见 [CONTRIBUTING.md](CONTRIBUTING.md)
 - 平台改版导致选择器失配时，改动范围应限制在「站点适配层」，不要在业务逻辑里散落新的选择器
 - 版本号只在 `@version` 里改，同时把改动写进 [`CHANGELOG.md`](CHANGELOG.md)
+- 安全问题（含泄露的 API Key）请按 [SECURITY.md](SECURITY.md) 私下报告，**不要**公开贴；参与讨论请遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 ## 许可
 

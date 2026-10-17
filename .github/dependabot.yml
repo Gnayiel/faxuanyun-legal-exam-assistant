@@ -1,0 +1,10 @@
+# 只跟踪 GitHub Actions 的版本更新：仓库本身没有 npm 依赖（纯单文件 userscript）。
+# Dependabot 会把 pin 到 SHA 的 action 升到新版本，并同步行尾注释里的版本号。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(ci)"

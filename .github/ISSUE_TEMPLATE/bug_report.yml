@@ -1,0 +1,75 @@
+name: Bug 报告
+description: 脚本行为不对、面板报错、导入导出异常、平台改版导致失配等
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！提交前请先确认：
+        - 用的是最新版本（面板标题栏或油猴「已安装脚本」里能看到 `@version`）
+        - 已经看过 README 的[常见问题](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant#常见问题)和[已知限制](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant#已知限制)
+
+        **不要在 issue 里贴 AI 接口的 API Key。** 日志里如果带出来了，请先删掉再贴。
+  - type: input
+    id: script-version
+    attributes:
+      label: 脚本版本
+      description: 面板标题栏 / 油猴「已安装脚本」里显示的版本号
+      placeholder: "2.0.1"
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: 浏览器与版本
+      placeholder: "Edge 141 / Chrome 141 / Firefox 145 …"
+    validations:
+      required: true
+  - type: input
+    id: manager
+    attributes:
+      label: 脚本管理器与版本
+      placeholder: "Tampermonkey 5.x / Violentmonkey 2.x"
+    validations:
+      required: true
+  - type: dropdown
+    id: page
+    attributes:
+      label: 出问题的位置
+      options:
+        - 考试答题页
+        - 成绩 / 答题卡页
+        - 面板本身（按钮、日志、快捷键）
+        - 题库导入 / 导出
+        - 其它
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 越具体越好（点了什么、页面处于什么状态）
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为 / 实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 面板日志（可选，注意先删掉 Key）
+      description: 面板「日志与自检」里复制相关片段即可，不要贴整段含 Key 的配置
+      render: text
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我已阅读常见问题与已知限制，并确认使用的是最新版本
+          required: true
+        - label: 我确认贴出的内容里没有 API Key / 个人隐私
+          required: true

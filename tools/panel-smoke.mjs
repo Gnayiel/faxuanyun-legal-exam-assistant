@@ -119,7 +119,9 @@ ${userscript}
         await sleep(10);
         ok('点分类标题能展开', $('fx-group-bank').classList.contains('open'));
         ok('展开后 aria-expanded 同步', $('fx-group-bank').querySelector('.group-head').getAttribute('aria-expanded') === 'true');
-        ok('展开后摘要让位（CSS 类仍在，文案不变）', badge('bank').length > 0);
+        ok('展开后摘要按 CSS 隐藏（display:none）',
+            window.getComputedStyle($('fx-gb-bank')).display === 'none',
+            window.getComputedStyle($('fx-gb-bank')).display);
         ok('展开状态落盘到 panelGroups', (window.GM_getValue('panelGroups', {}) || {}).bank === true,
             JSON.stringify(window.GM_getValue('panelGroups', {})));
 

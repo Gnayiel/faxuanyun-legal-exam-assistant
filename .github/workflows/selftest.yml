@@ -1,0 +1,25 @@
+name: 自检
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 元数据校验 + 脚本内置的 61 项断言，无第三方依赖
+      - name: 内置自检
+        run: node tools/selftest.mjs
+
+      # 用 GitHub runner 自带的 Chrome 起一个真实内核，验证面板能建起来、导出文件名正确
+      - name: 面板冒烟测试
+        run: node tools/panel-smoke.mjs

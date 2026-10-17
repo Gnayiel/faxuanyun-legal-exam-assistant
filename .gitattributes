@@ -1,0 +1,9 @@
+# 源码、文档统一按文本处理，统一 LF
+* text=auto eol=lf
+
+# 用户脚本：油猴不关心换行符，统一 LF 便于 diff
+*.user.js text eol=lf
+
+# 题库 CSV 保持字节原样：脚本导出的是 UTF-8 BOM + CRLF（Excel 双击不乱码），
+# 交给脚本 / Excel 自己处理，不要让 git 转换换行或编码
+*.csv -text

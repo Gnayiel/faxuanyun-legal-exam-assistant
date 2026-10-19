@@ -18,8 +18,10 @@
 ## 本地验证（提交前必跑）
 
 ```bash
-node tools/selftest.mjs                      # 元数据 + 74 项内置断言 + 文档数字校验，不联网
-node tools/panel-smoke.mjs --require-browser # 真实浏览器面板冒烟（33 项）
+node tools/selftest.mjs                      # 元数据 + 83 项内置断言 + 文档数字校验，不联网
+node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致
+node tools/merge-bank.mjs data/*.json -o /tmp/merged.json   # 题库合并工具冒烟（幂等）
+node tools/panel-smoke.mjs --require-browser # 真实浏览器面板冒烟（37 项）
 ```
 
 - `panel-smoke.mjs` 找不到浏览器时默认**跳过**（退出码 0）；加 `--require-browser`（或设 `FX_REQUIRE_BROWSER=1`）则改为失败——CI 用的就是强制模式，防止「没装浏览器 → 静默跳过 → 假绿」。
@@ -53,12 +55,13 @@ node tools/panel-smoke.mjs --require-browser # 真实浏览器面板冒烟（33 
    git commit -m "fix: 一句话说明"
    git push origin main
    ```
-5. 打 tag 并在 GitHub 建 Release（**Release 不是自动更新的必要条件**，只是里程碑 + 国内下载入口）：
+5. 打 tag：推送后 `.github/workflows/release.yml` 会自动跑自检、建 Release 并上传
+   该版本的 `.user.js` 与同名 `.sha256`（**Release 不是自动更新的必要条件**，只是里程碑 + 国内下载入口）：
    ```bash
    git tag -a vX.Y.Z -m "vX.Y.Z"
    git push origin vX.Y.Z
    ```
-   在该 tag 的 Release 里附上该版本的 `.user.js` 文件。
+   也可以在工作流跑完后到 Release 页面核对附件与发布说明。
 6. 发布后自查：浏览器打开 `@updateURL` 指向的 raw 文件确认新 `@version`；或留一个旧版装油猴点「检查更新」，验证自动更新链路（raw 走 CDN，可能需要等几分钟）。
 
 ## 报告问题

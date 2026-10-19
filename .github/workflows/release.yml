@@ -1,0 +1,63 @@
+name: 发版
+
+# 推送 vX.Y.Z tag 时自动发布 Release：先跑一遍自检与数据校验，再建 Release、
+# 上传 .user.js 与同名 .sha256。tag 打错可以删掉重打，脚本用 --clobber 覆盖附件。
+on:
+  push:
+    tags: ['v*']
+
+# 建 Release / 上传附件需要写权限；其余步骤用不到更多权限
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # 第三方 action 全部 pin 到 commit SHA，升级由 Dependabot 开 PR。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: '22'
+
+      # 发版门禁：语法、元数据、内置断言、数据/文档数字漂移
+      - name: 发版前自检
+        run: |
+          node --check faxuanyun-legal-exam-assistant.user.js
+          node tools/selftest.mjs
+          node tools/check-data.mjs
+
+      - name: 生成校验和与发布说明
+        run: |
+          sha256sum faxuanyun-legal-exam-assistant.user.js > faxuanyun-legal-exam-assistant.user.js.sha256
+          {
+            awk -v v="$GITHUB_REF_NAME" 'BEGIN{p=0} $0 ~ "^## "v"$" {p=1; next} p && /^## v/ {exit} p && /^---$/ {exit} p {print}' CHANGELOG.md
+            printf '\n## 安装 / 更新\n\n'
+            printf -- '- 已安装旧版：油猴会按 `@updateURL` 自动检查更新，也可在油猴面板点「检查脚本更新」。\n'
+            printf -- '- 首次安装：[安装脚本](https://github.com/%s/raw/main/faxuanyun-legal-exam-assistant.user.js)\n' "$GITHUB_REPOSITORY"
+            printf -- '- 附件含 `.user.js` 与本版同名 `.sha256` 校验文件。\n'
+          } > release-notes.md
+          awk 'NF==0{exit} {print}' release-notes.md
+
+      - name: 创建或更新 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit  "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+            gh release upload "$GITHUB_REF_NAME" --clobber \
+              faxuanyun-legal-exam-assistant.user.js faxuanyun-legal-exam-assistant.user.js.sha256
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md \
+              faxuanyun-legal-exam-assistant.user.js faxuanyun-legal-exam-assistant.user.js.sha256
+          fi
+
+      - name: 验证 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release view "$GITHUB_REF_NAME" --json tagName,isDraft,isLatest,assets

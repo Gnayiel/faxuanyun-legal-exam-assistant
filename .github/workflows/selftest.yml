@@ -27,9 +27,19 @@ jobs:
         with:
           node-version: '22'
 
-      # 元数据校验 + 脚本内置的 74 项断言，无第三方依赖
+      # 元数据校验 + 脚本内置的 83 项断言，无第三方依赖
       - name: 内置自检
         run: node tools/selftest.mjs
+
+      # 随仓库分发的题库快照与 README / data/README 里的数字必须一致
+      - name: 数据与文档一致性
+        run: node tools/check-data.mjs
+
+      # 题库合并工具冒烟：同一份快照合并两次结果幂等
+      - name: 题库合并工具冒烟
+        run: |
+          node tools/merge-bank.mjs data/faxuanyun-legal-exam-bank-*.json -o /tmp/merged.json --quiet
+          node -e "const a=require('/tmp/merged.json');if(!a.count||a.count!==Object.keys(a.bank).length)process.exit(1);console.log('合并结果',a.count,'题')"
 
       # GitHub runner 自带 Edge；--require-browser 让「找不到浏览器」直接失败，
       # 避免面板冒烟被静默跳过、CI 假绿。

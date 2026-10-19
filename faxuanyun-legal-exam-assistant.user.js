@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.2
-// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 74 项内置自检
+// @version      2.0.3
+// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 83 项内置自检
 // @author       GNAYIEL
 // @license      MIT
 // @match        *://gs.faxuanyun.com/*
@@ -73,6 +73,8 @@
  *   面板按钮按用途分成 4 类（答题模式与节奏 / 接口设置 / 题库与本场 / 日志与自检），默认收起；
  *   点分类标题展开同类按钮，收起时标题右侧显示状态摘要，展开状态会记住。
  *   「开始 / 暂停 / 收起」常驻顶栏，不随分类收起。
+   「题库与本场 → 关闭页」设置交卷后自动关闭本页的秒数（倒计时中再点一下取消）。
+   「答题模式与节奏 → 二源」打开后每题都追加第二个来源交叉验证（更准但更慢，默认关）。
  *
  * ------------------------------------------------------------------ 文件结构
  *
@@ -88,7 +90,7 @@
  *   作答策略          多选组合枚举、chooseAnswer 决策、answerCurrent 单题流程
  *   成绩解析          答题卡颜色判定、分数读取、交卷对账入库
  *   考试流程控制      退出原因、暂停等待、倒计时、弹窗、最后一题、mainLoop
- *   内置自检          74 项纯函数断言 + window.__FX_TEST__ 测试钩子
+ *   内置自检          83 项纯函数断言 + window.__FX_TEST__ 测试钩子
  *   面板              UI 构建、分类折叠、拖拽、状态摘要、AI 设置、导入导出与日志按钮
  */
 
@@ -169,6 +171,9 @@
         // ---------- 最后一题与交卷 ----------
         autoSubmit: GM_getValue('autoSubmit', false),  // 默认不自动交卷，答完只提示
         autoCloseSec: GM_getValue('autoCloseSec', 8),  // 成绩解析/入库流程走完后自动关闭本页的秒数（0 = 不关闭）
+        forceCrossCheck: GM_getValue('forceCrossCheck', false), // 强制二源交叉验证：每题都追加第二个来源（更准但更慢）
+        baiduConfFactor: 0.9,        // 百度通道把握度系数（搜索结果页回显容易虚高，统一降一点再参与合并）
+        crossCheckConflictMin: 2,    // 题库同一题答案冲突过多少次后，不再直接采信题库、改为联网交叉验证
 
         // ---------- 回退与倒计时 ----------
         maxBackwardStreak: 3,        // 连续回退超过此次数就停下
@@ -997,6 +1002,40 @@
         return n;
     }
 
+    // ==================== 多标签页写锁 ====================
+    // 「读盘 → 合并 → 写盘」不是事务：两个标签页同一瞬间落盘仍可能互相覆盖。
+    // 这里加一把带过期时间的软锁，把同时写的窗口从「整次落盘」缩到几毫秒；
+    // 抢不到锁的一方不丢数据（脏标记还在），过一会儿自动重试。
+    // 油猴存储没有 CAS，锁做不到强事务，但足以消掉日常「两个标签页在同一秒交卷」的覆盖问题。
+    const WRITE_LOCK_KEY = 'fxWriteLock';
+    const WRITE_LOCK_TTL = 3000;        // 锁过期时间（毫秒）；持锁方异常退出也会自动释放
+    let writeLockMe = '';
+    /** 写锁的标签页标识（惰性生成，刷新页面后换新） */
+    function writeLockId() {
+        if (!writeLockMe) writeLockMe = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        return writeLockMe;
+    }
+    /** 锁是否已过期/可抢（纯函数，便于自检）：没有锁、自己的锁、或别的标签页持锁超时都算可抢 */
+    function lockIsStale(lock, now, ttl, me) {
+        if (!lock || !lock.owner) return true;
+        if (lock.owner === me) return true;
+        return now - (lock.ts || 0) >= (ttl || WRITE_LOCK_TTL);
+    }
+    function acquireWriteLock() {
+        const lock = GM_getValue(WRITE_LOCK_KEY, null);
+        if (!lockIsStale(lock, Date.now(), WRITE_LOCK_TTL, writeLockId())) return false;
+        GM_setValue(WRITE_LOCK_KEY, { owner: writeLockId(), ts: Date.now() });
+        // 二次确认：刚写完若被别的标签页覆盖，说明撞上了，让出一轮
+        const chk = GM_getValue(WRITE_LOCK_KEY, null);
+        return !!(chk && chk.owner === writeLockId());
+    }
+    function releaseWriteLock() {
+        try {
+            const lock = GM_getValue(WRITE_LOCK_KEY, null);
+            if (lock && lock.owner === writeLockId()) GM_setValue(WRITE_LOCK_KEY, null);
+        } catch { }
+    }
+
     /**
      * 落盘：先读盘合并再写回，两个标签页先后落盘时不会把对方的记录冲掉。
      * 同一道题两边都改过时以本标签页为准（本页刚答完，更新）。
@@ -1008,8 +1047,15 @@
      * 以前是先淘汰再合并，刚淘汰的条目立刻被盘上副本搬回来，于是容量上限形同虚设，
      * 「答错删掉库里的错答案」也永远删不掉。
      */
+    let flushRetryTimer = null;
     function flushBank() {
         if (!dirty) return;
+        // 抢写锁：别的标签页正在落盘时先让路，稍后自动重试（脏标记还在，数据不丢）
+        if (!acquireWriteLock()) {
+            if (CONFIG.debug) dbg('检测到另一标签页正在写库，稍后重试');
+            if (!flushRetryTimer) flushRetryTimer = setTimeout(() => { flushRetryTimer = null; flushBank(); }, 800);
+            return;
+        }
         try {
             if (bankCache) {
                 const foreign = mergeFromStore('questionBank', bankCache, pendingDeletes);
@@ -1035,6 +1081,12 @@
         } catch (e) {
             log(`❌ 题库落盘失败：${(e && e.message) || e}`);   // 墓碑保留，下次重试继续压制旧键
             notify(`题库写入失败：${(e && e.message) || e}`, 'error');
+        } finally {
+            releaseWriteLock();
+            // 写失败/中途又变脏：过一会儿再试一次，避免这次落盘丢了
+            if (dirty && !flushRetryTimer) {
+                flushRetryTimer = setTimeout(() => { flushRetryTimer = null; flushBank(); }, 2000);
+            }
         }
     }
 
@@ -2196,6 +2248,52 @@
 
     const SRC_NAME = { ai: 'AI', baidu: '百度' };
 
+    /**
+     * 去掉搜索结果里「我们自己的查询词」回显。
+     * 百度会把查询词原样放进标题/摘要，而查询词里带着「正确答案」字样，
+     * 回显就会被 extractAnswer 的 keyed 分支当成答案线索，虚增把握度。
+     */
+    function stripQueryEcho(text, queries) {
+        let t = String(text || '');
+        for (const q of queries || []) {
+            const s = String(q || '').trim();
+            if (s.length < 6) continue;
+            t = t.split(s).join(' ');
+        }
+        return t.replace(/\s+/g, ' ').trim();
+    }
+
+    /**
+     * 解析 AI 的结构化回答：优先 JSON（{"answer":"B","confidence":0.9}），
+     * 兼容 ```json 代码块、前后夹带解释文字；不是 JSON 就退回原来的文本抽取。
+     * 让模型自己给把握度，比从自然语言里猜置信度稳得多；也更省输出 token。
+     */
+    function extractAIAnswer(content, options, type) {
+        const raw = String(content || '').trim();
+        const letters = options.map(o => o.letter);
+        if (!raw) return null;
+        // 先找代码块里的 JSON，再找正文里第一个 {…}
+        const bodies = [...raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map(m => m[1]);
+        const inline = raw.match(/\{[\s\S]*\}/);
+        if (inline) bodies.push(inline[0]);
+        for (const body of bodies) {
+            let obj = null;
+            try { obj = JSON.parse(String(body).trim()); } catch { continue; }
+            if (!obj || typeof obj !== 'object') continue;
+            const ans = String(obj.answer || obj.letters || obj['答案'] || '').toUpperCase().replace(/[^A-Z]/g, '');
+            if (!ans) continue;
+            if (!ans.split('').every(l => letters.includes(l))) continue;
+            if (type === 'multi' && ans.length < CONFIG.multiMinChoices) continue;
+            const lettersOut = type === 'multi' ? ans.split('').sort().join('') : ans.slice(0, 1);
+            const conf = Math.max(0.3, Math.min(0.99, Number(obj.confidence) || 0.9));
+            const reason = obj.reason || obj['理由'] || '';
+            return { letters: lettersOut, conf, why: `AI 结构化${reason ? `：${String(reason).slice(0, 40)}` : ''}` };
+        }
+        // 3) 不是 JSON → 退回文本抽取（兼容不支持 JSON 输出的接口/模型）
+        const fb = extractAnswer(raw, options, type);
+        return fb ? { ...fb, why: `${fb.why}（AI 文本兜底）` } : null;
+    }
+
     /** 百度：多个入口 + 跟进具体结果页正文 */
     async function queryBaidu(stem) {
         const q = stem.replace(/^\d+[、.．)]\s*[（(].*?[)）]\s*/, '').slice(0, 60);
@@ -2203,6 +2301,7 @@
             `https://www.baidu.com/s?wd=${encodeURIComponent(q + ' 正确答案')}`,
             `https://www.baidu.com/s?wd=${encodeURIComponent(q + ' 答案')}`,
         ];
+        const queries = [q + ' 正确答案', q + ' 答案', q];   // 需要从结果正文里剔除的查询词回显
         let text = '', note = '';
         for (const url of entries) {
             const r = await request({ url, headers: { 'User-Agent': UA }, desc: '百度' });
@@ -2215,14 +2314,14 @@
             if (!/class="result|result c-container|c-container/.test(r.text)) {
                 note = '百度未返回搜索结果（可能被跳转或需登录）';
             }
-            text += stripHtml(r.text);
+            text += stripQueryEcho(stripHtml(r.text), queries);
             // 跟进前 N 条结果页正文，避免只看标题摘要
             const links = [...r.text.matchAll(/href="(https?:\/\/(?:www\.)?baidu\.com\/link\?url=[^"]+)"/g)]
                 .map(m => m[1].replace(/&amp;/g, '&'))
                 .slice(0, CONFIG.baiduFollowLinks);
             for (const u of links) {
                 const pr = await request({ url: u, headers: { 'User-Agent': UA }, desc: '结果页' });
-                if (pr.ok && pr.text) text += stripHtml(pr.text);
+                if (pr.ok && pr.text) text += stripQueryEcho(stripHtml(pr.text), queries);
             }
             if (text.trim().length >= CONFIG.baiduMinChars) break;
         }
@@ -2243,8 +2342,11 @@
                 : `本题只有一个正确选项。`;
         let prompt = `你是考试答题助手。下面是${typeTxt}，请从选项中选出正确答案。\n${rule}\n\n题目：${stem}\n选项：\n`;
         options.forEach(o => prompt += `${o.letter}. ${o.text}\n`);
-        prompt += `\n严格按下列格式回答，不要任何解释、不要复述题目：答案：X` +
-                  `（多选写成如「答案：AB」，字母必须来自 ${options.map(o => o.letter).join('/')}）`;
+        // 结构化输出：答案与把握度分开给，脚本不用再从自然语言里猜置信度。
+        prompt += `\n只输出一个 JSON 对象，不要代码块外的任何文字，也不要复述题目：` +
+                  `{"answer":"X","confidence":0.9,"reason":"一句话理由"}` +
+                  `（answer 的字母必须来自 ${options.map(o => o.letter).join('/')}；多选写成 "AB"；` +
+                  `confidence 是你对答案的把握，0~1 之间的小数）`;
 
         const r = await request({
             method: 'POST', url, timeout: CONFIG.aiTimeout, desc: 'AI',
@@ -2278,7 +2380,8 @@
      * 3. 主源把握不足（或题目是多选）→ 追加备源做交叉验证
      * 返回 { cand, notes }：cand 为 { letters, conf, srcs, why } 或 null
      */
-    async function queryAnswer(stem, options, type) {
+    async function queryAnswer(stem, options, type, opts = {}) {
+        const forceTwoSources = !!opts.forceTwoSources;   // 强制两个来源都查（冲突题交叉验证用）
         const notes = [];
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             return { cand: null, notes: ['当前离线，已跳过联网查询'] };
@@ -2293,12 +2396,17 @@
             }
             const r = src === 'ai' ? await queryAI(stem, options, type) : await queryBaidu(stem);
             if (!r.text) { notes.push(`${SRC_NAME[src]}：${r.note || '未搜到相关内容'}`); continue; }
-            const c = extractAnswer(r.text, options, type);
+            const c = src === 'ai' ? extractAIAnswer(r.text, options, type) : extractAnswer(r.text, options, type);
             if (!c) { notes.push(`${SRC_NAME[src]}：有返回但解析不出答案`); continue; }
+            if (src === 'baidu') {
+                // 百度结果页回显容易虚高，统一打折；低了自然会追加第二源交叉验证
+                c.conf = Math.max(0.3, Math.round(c.conf * CONFIG.baiduConfFactor * 100) / 100);
+                c.why = `${c.why}·已按百度可信度折减`;
+            }
             cands.push({ ...c, src });
             notes.push(`${SRC_NAME[src]}：${c.letters}（${c.why}，把握 ${(c.conf * 100).toFixed(0)}%）`);
-            // 主源把握足够且不是多选题时，不再打扰备源
-            needSecond = c.conf < CONFIG.crossCheckBelow || type === 'multi';
+            // 主源把握足够、不是多选题、也没开强制二源时，不再打扰备源
+            needSecond = forceTwoSources || c.conf < CONFIG.crossCheckBelow || type === 'multi';
         }
         const merged = mergeCandidates(cands, type, options);
         return { cand: merged, notes };
@@ -2638,7 +2746,7 @@
         if (firstTry) { session.attempted.add(statKey); session.ans++; }
 
         // 查答案：本地题库优先（精确 → 旧键 → 相似题），命中就不再花钱查 AI/百度
-        let valid = null;
+        let valid = null, networkDone = false;
         const hitE = lookupBank(stem, type);
         if (hitE) {
             // 只有「同一题的旧键/截断版本」才升级键。
@@ -2656,8 +2764,27 @@
             } else {
                 log(`⚠️ 题库命中但${conv.reason}，改查网络`);
             }
+            // 冲突题（同一题历史答案被改过 ≥ N 次）：题库不再算数，必须联网交叉验证；
+            // 网络与题库一致才放心用，不一致时采用更新鲜的网络结果（题库正是靠交卷结果自纠错的）。
+            if (valid && (hitE.e.cft || 0) >= CONFIG.crossCheckConflictMin) {
+                log(`⚔️ 题库该题历史冲突 ${hitE.e.cft} 次，不直接采信：联网交叉验证`);
+                const qr2 = await queryAnswer(stem, opts, type, { forceTwoSources: true });
+                qr2.notes.forEach(n => log(`🔍 ${n}`));
+                if (qr2.cand) {
+                    if (qr2.cand.letters === valid) {
+                        log(`✅ 冲突题交叉验证：题库与网络一致（${valid}），采用`);
+                    } else {
+                        log(`⚠️ 冲突题交叉验证：题库(${valid}) 与网络(${qr2.cand.letters}) 不一致，采用网络结果`);
+                        valid = qr2.cand.letters;
+                    }
+                } else {
+                    log('⚠️ 冲突题网络也没给出答案，交回排除/兜底');
+                    valid = null;
+                }
+                networkDone = true;
+            }
         }
-        if (!valid) {
+        if (!valid && !networkDone) {
             const qr = await queryAnswer(stem, opts, type);
             qr.notes.forEach(n => log(`🔍 ${n}`));
             if (qr.cand) {
@@ -2802,9 +2929,9 @@
     }
 
     /** 结果页正文：顶层 + 同源 iframe，并剔除脚本自己的面板（面板日志里可能出现「正确答案」等字样） */
-    function resultBodyText() {
+    function resultBodyText(roots) {
         const texts = [];
-        for (const root of resultRoots()) {
+        for (const root of roots || resultRoots()) {
             const body = root.body;
             if (!body) continue;
             let t = body.innerText || body.textContent || '';
@@ -2822,8 +2949,8 @@
      * 解析失败时的自诊断：把「为什么没认出来」写进日志。
      * 不联网、不改页面；只用于用户反馈时判断是页面结构问题还是颜色问题。
      */
-    function resultDiag() {
-        const roots = resultRoots();
+    function resultDiag(rootsIn, legendIn) {
+        const roots = rootsIn || resultRoots();
         let elements = 0, numeric = 0, visible = 0;
         const samples = [];
         for (const root of roots) {
@@ -2846,7 +2973,7 @@
                 }
             }
         }
-        const legend = readLegendColors();
+        const legend = legendIn || readLegendColors(roots);
         const opens = [];
         for (const root of roots) {
             for (const el of root.querySelectorAll('a, button, span, div, li')) {
@@ -2884,15 +3011,19 @@
      * 结果页一般有「●正确 ●错误 ●未答」图例，用它自己的颜色当基准，
      * 换主题、换配色都不用改代码。
      */
-    function readLegendColors() {
+    function readLegendColors(roots) {
         const out = {};
         if (typeof window.getComputedStyle !== 'function') return out;
         // 图例可能在顶层文档，也可能在同源 iframe 里，全部扫一遍
         const els = [];
-        for (const root of resultRoots()) {
+        for (const root of roots || resultRoots()) {
             try { els.push(...root.querySelectorAll('span, div, li, p, td, i, em, b, strong')); } catch { }
         }
         for (const el of els) {
+            // 性能：先用原始 textContent 的「短文本」做预过滤（整页几千个节点时便宜得多），
+            // 只有可能是图例的短文本才做 elText 归一化。
+            const raw = String(el.textContent || '').trim();
+            if (!raw || raw.length > 10) continue;
             const t = elText(el);
             if (!t || t.length > 10) continue;
             const key = /未答|放弃|未做/.test(t) ? 'unanswered'
@@ -2906,6 +3037,7 @@
                 // 「未答」图例本来就是灰色，不能被 isGrayish 过滤掉（否则 legend.unanswered 永远取不到）
                 if (col && (key === 'unanswered' || !isGrayish(col))) { out[key] = col; break; }
             }
+            if (out.correct && out.wrong && out.unanswered) break;   // 三色都拿到就不用再扫剩余节点
         }
         return out;
     }
@@ -2953,17 +3085,21 @@
      * 题号上限提到 500，数字允许 1~3 位，可见性判断也不再只认 offsetParent，
      * 结果落在 { 题号: 'correct' | 'wrong' | 'unanswered' }
      */
-    function collectResult() {
-        const legend = readLegendColors();
+    function collectResult(rootsIn, legendIn) {
+        const roots = rootsIn || resultRoots();
+        const legend = legendIn || readLegendColors(roots);
         if (Object.keys(legend).length) dbg(`图例参考色：${JSON.stringify(legend)}`);
         const seen = {};
         const rank = { unanswered: 1, wrong: 2, correct: 3 };
         // 1) 先收集「整段文本就是一个数字」的可见元素（答题卡格子）
         const cells = [];
-        const roots = resultRoots();
         for (const root of roots) {
             for (const el of root.querySelectorAll(CONFIG.resultScanSelector)) {
-                const n = cellNumberText(elText(el));
+                // 性能：先用原始 textContent 排除绝大多数非数字节点（长文本 / 空节点），
+                // 只对短文本做归一化与可见性判断，避免整页几千个节点都跑一遍正则。
+                const raw = el.textContent;
+                if (!raw || raw.length > 40) continue;
+                const n = cellNumberText(raw.trim());
                 if (!n) continue;                       // 不是题号格子，排除 "10/10"、分数、页码
                 if (!isVisible(el)) continue;
                 cells.push({ el, n });
@@ -3003,8 +3139,8 @@
     }
 
     /** 从页面读分数与总分 */
-    function readScore() {
-        const txt = resultBodyText();
+    function readScore(body) {
+        const txt = body === undefined ? resultBodyText() : body;
         let m = txt.match(/您的分数\s*(?:为)?\s*[:：]?\s*(\d{1,3})\s*分/)
             || txt.match(/(?:得\s*分|成绩|本次得分|考试成绩)\s*[:：]?\s*(\d{1,3})\s*分/);
         const score = m ? +m[1] : null;
@@ -3012,18 +3148,55 @@
         return { score, total: mt ? +mt[1] : null };
     }
 
-    /** 这个页面像不像考试结果页 */
-    function isResultPage() {
-        const body = resultBodyText();
-        const sc = readScore();
+    /**
+     * 结果页快照：把正文 / 分数 / 图例 / 答题卡判定一次算好。
+     * 解析有 10 次重试机会，旧实现每次都要把「正文 innerText + 图例背景色 + 扫描所有格子」
+     * 重复算 2~3 遍（isResultPage 一遍、collectResult 再一遍），大页面上单次要 1 秒左右。
+     * 现在每次尝试只算一次快照，结果页判定与入库都复用它。
+     */
+    /**
+     * 轻量快照：只取正文与分数，不扫图例颜色、不逐格判定。
+     * 解析重试时先用它做「像不像成绩页」的便宜判断，只有可能是成绩页才做昂贵扫描——
+     * 旧实现每次重试都把整页图例色和答题卡扫一遍，大页面上单次要 1 秒。
+     */
+    function resultPageInfo(rootsIn) {
+        const roots = rootsIn || resultRoots();
+        const body = resultBodyText(roots);
+        return { roots, body, score: readScore(body), hasCard: /答题卡/.test(body) };
+    }
+
+    /** 页面是否已有「成绩页专属」的明确证据（不依赖逐格判定，成本低） */
+    function lightLooksLikeResult(light) {
+        if (/答题结果|成绩解析|正确率|答对\s*\d+\s*题|您的分数/.test(light.body)) return true;
+        return light.score.score !== null && (light.hasCard || /未答|答错|答对/.test(light.body));
+    }
+
+    function resultSnapshot(rootsIn, lightIn) {
+        const roots = rootsIn || resultRoots();
+        const light = lightIn || resultPageInfo(roots);
+        const legend = readLegendColors(roots);
+        const verdicts = collectResult(roots, legend);
+        return { roots, body: light.body, score: light.score, hasCard: light.hasCard, legend, verdicts };
+    }
+
+    /** 用快照判断是不是结果页（判断口径与旧版一致，只是不再重复扫描） */
+    function isResultPageFrom(body, score, verdicts) {
         const hasCard = /答题卡/.test(body);
         // 结果页专有措辞：到成绩页才会出现「正确率 / 答对N题 / 答题结果 / 成绩解析」这类字样
         if (/答题结果|成绩解析|正确率|答对\s*\d+\s*题|您的分数/.test(body)) return true;
         // 光有分数不够：考试列表页每门课都显示「考试成绩：100分」，
         // 旧实现会把它当成成绩页，空转十几次解析后提示「确认停在结果页」——用户以为解析坏了。
-        if (sc.score !== null && (hasCard || /未答|答错|答对/.test(body))) return true;
+        if (score && score.score !== null && (hasCard || /未答|答错|答对/.test(body))) return true;
         // 答题卡上真的能读出对错（≥3 个题号有判定）
-        return hasCard && Object.keys(collectResult()).length >= 3;
+        return hasCard && Object.keys(verdicts || {}).length >= 3;
+    }
+
+    /** 这个页面像不像考试结果页（先做便宜判断，必要时才扫答题卡） */
+    function isResultPage() {
+        const light = resultPageInfo();
+        if (lightLooksLikeResult(light)) return true;
+        // 答题卡上真的能读出对错（≥3 个题号有判定）
+        return light.hasCard && Object.keys(collectResult(light.roots)).length >= 3;
     }
 
     /**
@@ -3066,21 +3239,33 @@
         log('正在解析考试结果...');
         let attempt = 0;
         const tryParse = () => {
+            const t0 = TS();
+            // 1) 便宜判断：只取正文/分数。不是成绩页就别做昂贵扫描（图例色 + 整页逐格判定）。
+            const light = resultPageInfo();
+            if (!lightLooksLikeResult(light) && !light.hasCard) {
+                if (attempt++ < CONFIG.parseMaxRetry) { setTimeout(tryParse, CONFIG.parseRetryInterval); return; }
+                parseRunning = false;
+                log('⚠️ 当前页面不像成绩页，本次不解析（成绩页出来后点面板「解析成绩」可再试）');
+                return;
+            }
+            // 2) 可能是成绩页 → 做一次完整快照，结果页判定与入库都复用它
+            const snap = resultSnapshot(light.roots, light);
+            const verdicts = snap.verdicts;
             // 先确认真的停在成绩页：watchSubmit 触发解析时可能还在考试页或成绩页未加载完，
             // 旧实现会对着考试页空转重试，白等十几秒还可能在考试页误判。
-            if (!isResultPage()) {
+            if (!isResultPageFrom(snap.body, snap.score, verdicts)) {
                 if (attempt++ < CONFIG.parseMaxRetry) { setTimeout(tryParse, CONFIG.parseRetryInterval); return; }
                 parseRunning = false;
                 log('⚠️ 当前页面不像成绩页，本次不解析（成绩页出来后点面板「解析成绩」可再试）');
                 return;
             }
             markPendingSubmitted();      // 已经确认停在成绩页 → 这场一定交过了，给残留会话打标
-            const verdicts = collectResult();
             const nums = Object.keys(verdicts);
             if (!nums.length) {
                 if (attempt++ < CONFIG.parseMaxRetry) { setTimeout(tryParse, CONFIG.parseRetryInterval); return; }
                 parseRunning = false;
-                const diag = resultDiag();
+                if (CONFIG.debug) dbg(`解析重试 ${attempt} 次仍无判定，最后一次快照用时 ${TS() - t0}ms`);
+                const diag = resultDiag(snap.roots, snap.legend);
                 log('⚠️ 答题卡上没识别到任何对错标记，本次不入库');
                 if (diag.opens.length) {
                     log(`👉 页面上有「${diag.opens[0]}」入口：点开它，脚本会自动再解析一次`);
@@ -3091,18 +3276,19 @@
             }
             parseRunning = false;
             parsedOnce = true;
-            reportResult(verdicts);
+            if (CONFIG.debug) dbg(`成绩页解析成功，用时 ${TS() - t0}ms（${nums.length} 个题号）`);
+            reportResult(verdicts, snap.score);
         };
         setTimeout(tryParse, CONFIG.parseFirstDelay);
     }
 
     /** 输出明细、分数、正确率，并按判定对账入库 */
-    function reportResult(verdicts) {
+    function reportResult(verdicts, scoreInfo) {
         const nums = Object.keys(verdicts).map(Number).sort((a, b) => a - b);
         const good = nums.filter(n => verdicts[n] === 'correct');
         const bad = nums.filter(n => verdicts[n] === 'wrong');
         const blank = nums.filter(n => verdicts[n] === 'unanswered');
-        const { score, total: paper } = readScore();
+        const { score, total: paper } = scoreInfo || readScore();
 
         // 逐题明细
         log(`📋 答题卡识别到 ${nums.length} 个题号：${nums.join(', ')}`);
@@ -3248,14 +3434,34 @@
      * 浏览器只允许脚本关闭「自己打开的」标签页；考试页通常是用户自己点开的，
      * window.close() 可能被拒绝——这时只提示手动关闭，不反复尝试。
      */
-    let autoCloseTimer = null;
+    let autoCloseTimer = null, autoCloseTick = null, autoCloseLeft = 0;
+
+    /** 取消「关闭页」倒计时（用户点按钮取消，或重新设置档位时调用） */
+    function cancelAutoClose(reason) {
+        if (autoCloseTimer) { clearTimeout(autoCloseTimer); autoCloseTimer = null; }
+        if (autoCloseTick) { clearInterval(autoCloseTick); autoCloseTick = null; }
+        const had = autoCloseLeft > 0;
+        autoCloseLeft = 0;
+        updateAutoCloseBtn();
+        if (had) log(`🛑 已取消自动关闭${reason ? `（${reason}）` : ''}，本页保持打开`);
+    }
+
     function scheduleAutoClose() {
         const sec = +CONFIG.autoCloseSec || 0;
         if (!sec) return;
         if (autoCloseTimer) clearTimeout(autoCloseTimer);
-        log(`🕒 ${sec} 秒后自动关闭本页（「题库与本场 → 关闭页」可改设置）`);
+        if (autoCloseTick) clearInterval(autoCloseTick);
+        autoCloseLeft = sec;
+        updateAutoCloseBtn();
+        log(`🕒 ${sec} 秒后自动关闭本页；倒计时期间点「关闭页」按钮可取消`);
+        autoCloseTick = setInterval(() => {
+            autoCloseLeft = Math.max(0, autoCloseLeft - 1);
+            updateAutoCloseBtn();
+        }, 1000);
         autoCloseTimer = setTimeout(() => {
             autoCloseTimer = null;
+            if (autoCloseTick) { clearInterval(autoCloseTick); autoCloseTick = null; }
+            autoCloseLeft = 0;
             try { window.close(); } catch { }
             // 关成功时页面已卸载，下面的定时器不会执行；只有「浏览器拒绝关闭」才会走到这里。
             // 考试页大多是用户自己点开的，脚本无权关掉——退而求其次：返回上一页，没有上一页就置空白页。
@@ -3967,6 +4173,48 @@
                 && no.every(s => cellNumberText(s) === 0);
         });
 
+        // ---------- v2.0.3：百度回显过滤 / AI 结构化输出 / 成绩页轻量判定 / 多标签页写锁 ----------
+        t('stripQueryEcho：剔除查询词回显，答案线索保留', () => {
+            const q = '下列说法是否正确的表述中哪一项符合要求';
+            const raw = `${q} 正确答案 答案：B 解析：人民政府应当依法行政`;
+            const out = stripQueryEcho(raw, [q + ' 正确答案', q + ' 答案', q]);
+            return out.includes('答案：B') && out.includes('人民政府应当依法行政') && !out.includes(q);
+        });
+        t('stripQueryEcho：过短的查询词不动（避免误删正常文字）', () =>
+            stripQueryEcho('abc xyz', ['abc']) === 'abc xyz');
+
+        t('extractAIAnswer：JSON 结构化答案与把握度', () => {
+            const judgeOpts = [{ letter: 'A', text: '正确' }, { letter: 'B', text: '错误' }];
+            const o = extractAIAnswer('{"answer":"B","confidence":0.93,"reason":"法条"}', judgeOpts, 'single');
+            return !!o && o.letters === 'B' && Math.abs(o.conf - 0.93) < 1e-9 && /结构化/.test(o.why);
+        });
+        t('extractAIAnswer：```json 代码块 + 多选题排序', () => {
+            const threeOpts = ['A', 'B', 'C'].map(l => ({ letter: l, text: '选项' + l }));
+            const o = extractAIAnswer('```json\n{"answer":"BA","confidence":0.8}\n```', threeOpts, 'multi');
+            return !!o && o.letters === 'AB';
+        });
+        t('extractAIAnswer：不是 JSON 就退回文本抽取', () => {
+            const threeOpts = ['A', 'B', 'C'].map(l => ({ letter: l, text: '选项' + l }));
+            const o = extractAIAnswer('答案：C', threeOpts, 'single');
+            return !!o && o.letters === 'C' && /文本兜底/.test(o.why);
+        });
+        t('extractAIAnswer：答案字母不在选项里时不采信', () => {
+            const judgeOpts = [{ letter: 'A', text: '正确' }, { letter: 'B', text: '错误' }];
+            return extractAIAnswer('{"answer":"Z","confidence":0.99}', judgeOpts, 'single') === null;
+        });
+
+        t('lightLooksLikeResult：课程列表页「考试成绩：100分」不再算成绩页', () =>
+            lightLooksLikeResult({ body: '已完成必修课 27 考试成绩：100分', score: { score: 100, total: null }, hasCard: false }) === false);
+        t('lightLooksLikeResult：「您的分数」/答题结果算成绩页', () =>
+            lightLooksLikeResult({ body: '您的分数为 100 分', score: { score: 100, total: 100 }, hasCard: false }) === true
+            && lightLooksLikeResult({ body: '答题结果', score: { score: null, total: null }, hasCard: true }) === true);
+
+        t('lockIsStale：无锁/自己的锁可抢，别人的新锁要等，过期锁可抢', () =>
+            lockIsStale(null, 1000, 3000, 'me') === true
+            && lockIsStale({ owner: 'me', ts: 900 }, 1000, 3000, 'me') === true
+            && lockIsStale({ owner: 'other', ts: 900 }, 1000, 3000, 'me') === false
+            && lockIsStale({ owner: 'other', ts: 0 }, 5000, 3000, 'me') === true);
+
         return cases;
     }
 
@@ -3993,10 +4241,11 @@
     try {
         window.__FX_TEST__ = {
             normStem, fpKey, similarity, prefixSame, matchOption, entryToLetters, extractAnswer,
+            stripQueryEcho, extractAIAnswer,
             mergeCandidates, chooseAnswer, combosOf, multiCombos, comboKey, parseDelimited, sniffDelim,
             csvCell, validateRow, resolveType, isUserEntry, blankEntry, stopReasonText, fuzzyUsable,
             normalizeGroupState, groupBadge, collapseLabel,
-            connectRoot, validateApi, cellNumberText,
+            connectRoot, validateApi, cellNumberText, lockIsStale, lightLooksLikeResult,
             dayStamp, timeStamp, bankFileNames, logFileName, parseBankPayload,
             selfTestCases, runSelfTest,
         };
@@ -4257,6 +4506,7 @@
                         <button id="fx-speed">节奏：${SPEED_NAME[CONFIG.speed] || '标准'}</button>
                         <button id="fx-submit" class="${CONFIG.autoSubmit ? 'active' : ''}" aria-pressed="${CONFIG.autoSubmit ? 'true' : 'false'}">交卷：${CONFIG.autoSubmit ? '自动' : '手动'}</button>
                         <button id="fx-debug" class="${CONFIG.debug ? 'active' : ''}" aria-pressed="${CONFIG.debug ? 'true' : 'false'}">调试：${CONFIG.debug ? '开' : '关'}</button>
+                        <button id="fx-crosscheck" class="${CONFIG.forceCrossCheck ? 'active' : ''}" aria-pressed="${CONFIG.forceCrossCheck ? 'true' : 'false'}">二源：${CONFIG.forceCrossCheck ? '强制' : '自动'}</button>
                     </div>
                 `)}
                 ${groupHtml('api', `
@@ -4394,6 +4644,15 @@
             syncGroupBadges(['mode']);   // 收起时摘要里的「调试」也要跟着变
             log(CONFIG.debug ? '🔍 调试模式已打开，会输出更详细的日志' : '已关闭调试模式');
         };
+        // 二源交叉验证开关：自动（把握不足/多选才查第二源）↔ 强制（每题都查两个来源）
+        $('fx-crosscheck').onclick = () => {
+            CONFIG.forceCrossCheck = !CONFIG.forceCrossCheck;
+            GM_setValue('forceCrossCheck', CONFIG.forceCrossCheck);
+            syncRunBtns();
+            log(CONFIG.forceCrossCheck
+                ? '🛡️ 已开启强制二源交叉验证：每题都会再查一个来源（更准，但更慢、更费额度）'
+                : '已关闭强制二源交叉验证：只在主源把握不足或多选题时查第二源');
+        };
 
         // AI 设置：面板内表单，带格式校验与连接测试
         const apiFormErr = msg => {
@@ -4492,8 +4751,10 @@
             clearSession('手动清空');
             notify('已清空本场作答记录，可重新开始答题', 'info');
         });
-        // 关闭页：成绩解析/入库流程走完后自动关闭本页（浏览器可能不允许，见 scheduleAutoClose）
+        // 关闭页：成绩解析/入库流程走完后自动关闭本页（浏览器可能不允许，见 scheduleAutoClose）；
+        // 倒计时进行中再点一下 = 取消本次自动关闭，页面保持打开
         $('fx-autoclose').onclick = safe('关闭页设置', () => {
+            if (autoCloseLeft > 0 || autoCloseTimer) { cancelAutoClose('手动取消'); return; }
             const idx = AUTO_CLOSE_STEPS.indexOf(+CONFIG.autoCloseSec);
             CONFIG.autoCloseSec = AUTO_CLOSE_STEPS[(idx + 1) % AUTO_CLOSE_STEPS.length];
             GM_setValue('autoCloseSec', CONFIG.autoCloseSec);
@@ -4693,10 +4954,16 @@
 
     const AUTO_CLOSE_STEPS = [8, 15, 30, 0];   // 「关闭页」按钮循环档位（秒，0 = 不关闭）
 
-    /** 「关闭页」按钮文案跟随设置 */
+    /** 「关闭页」按钮文案跟随设置；倒计时期间显示剩余秒数，点一下就是取消 */
     function updateAutoCloseBtn() {
         const b = $('fx-autoclose');
         if (!b) return;
+        if (autoCloseLeft > 0) {
+            b.textContent = `关闭页：${autoCloseLeft} 秒（点击取消）`;
+            b.classList.add('active');
+            b.setAttribute('aria-pressed', 'true');
+            return;
+        }
         b.textContent = CONFIG.autoCloseSec ? `关闭页：${CONFIG.autoCloseSec} 秒` : '关闭页：不关';
         b.classList.toggle('active', !!CONFIG.autoCloseSec);
         b.setAttribute('aria-pressed', String(!!CONFIG.autoCloseSec));
@@ -4721,6 +4988,12 @@
             sb.textContent = `交卷：${CONFIG.autoSubmit ? '自动' : '手动'}`;
             sb.classList.toggle('active', !!CONFIG.autoSubmit);
             sb.setAttribute('aria-pressed', String(!!CONFIG.autoSubmit));
+        }
+        const cc = $('fx-crosscheck');
+        if (cc) {
+            cc.textContent = `二源：${CONFIG.forceCrossCheck ? '强制' : '自动'}`;
+            cc.classList.toggle('active', !!CONFIG.forceCrossCheck);
+            cc.setAttribute('aria-pressed', String(!!CONFIG.forceCrossCheck));
         }
         const tg = $('fx-toggle');
         const pn = $('fx-panel');

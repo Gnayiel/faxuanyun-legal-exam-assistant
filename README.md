@@ -1,11 +1,11 @@
 # 甘肃省国家工作人员学法考试平台自动答题助手
 
-[![version](https://img.shields.io/badge/version-2.0.2-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.3-blue)](CHANGELOG.md)
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
-[![self-test](https://img.shields.io/badge/self--test-74%20passing-success)](#开发与自检)
-[![panel--smoke](https://img.shields.io/badge/panel--smoke-33%20passing-success)](#开发与自检)
+[![self-test](https://img.shields.io/badge/self--test-83%20passing-success)](#开发与自检)
+[![panel--smoke](https://img.shields.io/badge/panel--smoke-37%20passing-success)](#开发与自检)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-4.0%2B-black)](https://www.tampermonkey.net/)
 
 用于 **法宣在线**（`*.faxuanyun.com`）学法考试平台的 Tampermonkey 用户脚本。
@@ -46,18 +46,18 @@
 - **自我纠错**：答错会删掉库里记错的答案并记下错误选项 / 已失败的多选组合；
   判定答对会清掉本题错题记录并修正答案
 - **多源查询**：题库 → AI（OpenAI 兼容接口）→ 百度搜索；主源把握不足或是多选题时自动追加次源交叉验证，
-  两源冲突且优势不足时宁可不答
+  两源冲突且优势不足时宁可不答。面板「二源」可强制每题交叉验证；题库里冲突过的题会自动改走联网复核
 - **失败分类与退避**：题干未渲染 / 选项未渲染 / 算不出答案 / 点击没生效 / 选中项没文本各有容忍次数，
   连续失败递增退避，不会一有风吹草动就整场停掉
 - **考试流程控制**：自适应切题等待、最后一题识别、暂停 / 继续 / 续答、回退保护、倒计时提醒与末段提速、
   弹窗安全处理（涉及交卷 / 提交的弹窗一个按钮都不会被自动点，包括「取消」）
 - **交卷后自动收尾**：成绩解析与入库流程走完后按设置自动关闭考试页（默认 8 秒，可在面板
-  「题库与本场 → 关闭页」切 8 / 15 / 30 秒或关闭）；浏览器不允许脚本关闭自己没打开的标签页时，
-  日志会提示手动关闭，脚本不重复尝试
+  「题库与本场 → 关闭页」切 8 / 15 / 30 秒或关闭，倒计时中再点一下可取消）；浏览器不允许脚本关闭
+  自己没打开的标签页时，日志会提示手动关闭，脚本不重复尝试
 - **面板**：可拖拽、一键收起（收成一条写着自己名字的窄条）、**按钮按用途分类折叠**、分类标题带实时状态摘要、
   快捷键、Shadow DOM 隔离站点样式（面板样式不污染页面，页面样式也不会打乱面板）、日志分级与导出、题库导入导出
-- **内置自检**：74 项纯函数断言，面板一键运行；不联网、不读写题库数据
-- **多标签页写保护**：落盘前先读盘合并，并用「墓碑」确保删除不会被旧副本搬回来
+- **内置自检**：83 项纯函数断言，面板一键运行；不联网、不读写题库数据
+- **多标签页写保护**：落盘前先读盘合并、用 3 秒短时写锁串行化两个标签页的写入，再用「墓碑」确保删除不会被旧副本搬回来
 
 ## 安装
 
@@ -162,9 +162,9 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
 | 开始 / 停止 | 常驻顶栏。停止后再点「开始」会从当前题接着答，已答过的题不重答 |
 | 暂停 / 继续 | 常驻顶栏。暂停期间不会再去点页面；继续后从原位置接着走 |
 | 收起 / 展开 | 常驻顶栏。一个按钮：收成一条写着自己名字的窄条（还能拖动），再点一下还原 |
-| **答题模式与节奏** | AI智能 / 百度搜索（选主查询通道，另一条作为备源）；节奏（慢速 3~6 秒 / 标准 1~3 秒 / 快速 0.3~0.8 秒）；交卷（手动默认，答完只提示 ／ 自动，需谨慎）；调试（输出更详细的日志）。摘要显示当前模式与节奏 |
+| **答题模式与节奏** | AI智能 / 百度搜索（选主查询通道，另一条作为备源）；二源（默认关，打开后每题都追加第二个来源交叉验证）；节奏（慢速 3~6 秒 / 标准 1~3 秒 / 快速 0.3~0.8 秒）；交卷（手动默认，答完只提示 ／ 自动，需谨慎）；调试（输出更详细的日志）。摘要显示当前模式与节奏 |
 | **接口设置** | AI 设置（接口地址 / API Key / 模型名，保存前逐项校验）；测试连接。摘要显示接口是否已配置 |
-| **题库与本场** | 导出 / 导入答案库（见 [导入 / 导出](#导入--导出)）；解析成绩（交卷后手动再解析一次）；关闭页（成绩解析/入库完成后自动关闭本页的秒数，默认 8 秒，可切 8/15/30/不关）；清空本场（丢弃本场记录）。摘要显示题库题数与已答数 |
+| **题库与本场** | 导出 / 导入答案库（见 [导入 / 导出](#导入--导出)）；解析成绩（交卷后手动再解析一次）；关闭页（成绩解析/入库完成后自动关闭本页的秒数，默认 8 秒，可切 8/15/30/不关，倒计时中再点一下取消）；清空本场（丢弃本场记录）。摘要显示题库题数与已答数 |
 | **日志与自检** | 清空 / 复制 / 导出日志（最多留 300 行）；自检（跑内置断言）。摘要显示日志行数 |
 
 收起时分类标题右侧的摘要是活的：切模式、改节奏、答了几题、写了几行日志都会即时刷新，
@@ -231,6 +231,9 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
 
 仓库 [`data/`](data/) 里随附了一份 300 题（单选 96 / 多选 54 / 判断 150，无错误记录）的题库快照，可以直接导入。
 
+想合并多台电脑 / 多份导出的题库，用 `node tools/merge-bank.mjs a.json b.csv -o merged.json`：
+同一题自动去重、用户手改答案优先、脚本答案冲突保留较新的并累加冲突次数、错题记录取并集，输出可直接导入。
+
 ## 数据与隐私
 
 脚本使用油猴存储保存：题库、错题记录、未交卷会话、面板位置、面板收起状态与分类展开状态、AI 设置。
@@ -266,11 +269,13 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 
 ## 开发与自检
 
-单文件、纯前端、**无构建步骤**，改完直接安装即可。验证有两条命令，都不需要安装依赖：
+单文件、纯前端、**无构建步骤**，改完直接安装即可。验证命令都不需要安装依赖：
 
 ```bash
-node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 74 项断言，不联网
-node tools/panel-smoke.mjs --require-browser # 用真实 Chromium 内核（Edge / Chrome）建面板，33 项断言
+node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 83 项断言，不联网
+node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致
+node tools/merge-bank.mjs data/*.json -o /tmp/merged.json   # 题库合并工具冒烟（幂等）
+node tools/panel-smoke.mjs --require-browser # 用真实 Chromium 内核（Edge / Chrome）建面板，37 项断言
 ```
 
 - `tools/selftest.mjs` 在最小 DOM / 油猴打桩下加载脚本，跑的就是面板「自检」按钮调用的同一批用例；
@@ -280,8 +285,13 @@ node tools/panel-smoke.mjs --require-browser # 用真实 Chromium 内核（Edge 
 - `tools/panel-smoke.mjs` 找不到浏览器时默认**跳过**（退出码 0）；
   加 `--require-browser`（或设 `FX_REQUIRE_BROWSER=1`）则直接失败，CI 用的就是强制模式，
   避免「没装浏览器 → 静默跳过 → 假绿」。也可以用 `FX_BROWSER=/path/to/chrome` 指定浏览器。
+- `tools/check-data.mjs` 校验 `data/` 下最新的题库快照：JSON / CSV 成对、条数与题型分布自洽、
+  且与 README / `data/README.md` 里写死的数字一致——改快照或改文档时能第一时间发现数字漂移。
+- `tools/merge-bank.mjs` 是题库合并工具：把多台电脑 / 多份导出的 `.json`、`.csv` 合成一份可直接导入的 `.json`
+  （规则见 [导入 / 导出](#导入--导出)）。
 - 面板里**「自检」（`Alt + T`）**是同一批断言，失败项会逐条写进日志。
-- CI：`.github/workflows/selftest.yml` 在 push 到 `main`、以及每个 PR 上跑上面两条（也可手动触发）；
+- CI：`.github/workflows/selftest.yml` 在 push 到 `main`、以及每个 PR 上跑上面的检查（也可手动触发）；
+  推送 `v*` tag 时 `.github/workflows/release.yml` 自动跑同样的门禁并创建 Release、上传 `.user.js` 与同名 `.sha256`。
   环境固定为 `ubuntu-24.04` + Node 22，第三方 action 全部固定到 commit SHA，由 Dependabot 每周开 PR 升级。
 
 改动前请留意两点：
@@ -337,14 +347,17 @@ node tools/panel-smoke.mjs --require-browser # 用真实 Chromium 内核（Edge 
 │   ├── ISSUE_TEMPLATE/           # issue 模板（bug 报告 + 安全引导）
 │   ├── pull_request_template.md  # PR 自查清单
 │   └── workflows/
-│       └── selftest.yml          # CI：元数据校验 + 内置自检 + 面板冒烟
+│       ├── selftest.yml          # CI：元数据校验 + 内置自检 + 数据一致性 + 面板冒烟
+│       └── release.yml           # 推送 v* tag 时自动建 Release 并上传 .user.js + .sha256
 ├── data/
 │   ├── README.md                 # 题库快照的命名规范与提交规则
 │   ├── faxuanyun-legal-exam-bank-20261017.csv    # 随仓库分发的 300 题快照（6 列）
 │   └── faxuanyun-legal-exam-bank-20261017.json   # 同上，字段完整版
 └── tools/
-    ├── selftest.mjs              # 无依赖自检（元数据 + 74 项断言）
-    └── panel-smoke.mjs           # 真实浏览器面板冒烟测试（33 项），CI 用强制模式
+    ├── selftest.mjs              # 无依赖自检（元数据 + 83 项断言）
+    ├── check-data.mjs            # 题库快照与文档数字一致性校验
+    ├── merge-bank.mjs            # 多份题库导出合并成一份可导入 JSON
+    └── panel-smoke.mjs           # 真实浏览器面板冒烟测试（37 项），CI 用强制模式
 ```
 
 从面板「导出答案库」拿到的文件按日期命名，可以直接放进 `data/` 归档；
@@ -365,11 +378,13 @@ node tools/panel-smoke.mjs --require-browser # 用真实 Chromium 内核（Edge 
 
 ## 更新记录
 
-当前版本 **v2.0.2**（2026-10-19）：针对「交卷后成绩页解析不出答题卡」的兼容修复与残留会话清理
+当前版本 **v2.0.3**（2026-10-19）：答题准确率与成绩解析性能优化、自动关闭倒计时、题库合并工具、数据一致性校验与发版自动化
 
-- 成绩解析：题号识别兼容「第12题 / 12题 / 12.」等写法，支持同源 iframe 里的答题卡，扫描选择器覆盖 label / mark / th 等容器
-- 解析失败时输出诊断信息（文档数 / 元素数 / 候选数 / 图例色），看到「查看答题卡 / 查看解析」入口时点开会自动再解析
-- 残留会话：成绩页出现后给会话打「已交卷」标记，新开一场时自动清空，不再提示「清空本场」
-- 同步：自检断言 73 → 74，章节与徽章数字一并更新
+- 新增：面板「二源」强制交叉验证；题库里冲突过的题自动改走联网复核
+- 新增：`tools/merge-bank.mjs` 题库合并工具、`tools/check-data.mjs` 数据 / 文档一致性校验（已接入 CI）
+- 新增：推送 `v*` tag 自动发版（`.github/workflows/release.yml`，Release 附 `.user.js` + `.sha256`）
+- 优化：成绩解析更快（轻量快照预筛 + 单次全量扫描）；百度把握度降权并剔除查询词回显；AI 支持结构化 JSON 输出
+- 优化：多标签页用 3 秒短锁串行化落盘，同一瞬间写也不会互相覆盖；关闭页支持倒计时与取消
+- 同步：自检断言 74 → 83，面板冒烟 33 → 37，章节与徽章数字一并更新
 
 完整清单见 [CHANGELOG.md](CHANGELOG.md)。

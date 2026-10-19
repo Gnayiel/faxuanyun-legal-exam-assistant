@@ -109,12 +109,31 @@ ${userscript}
             'fx-speed', 'fx-submit', 'fx-debug',
             'fx-settings-btn', 'fx-test', 'fx-f-url', 'fx-f-key', 'fx-f-model', 'fx-f-save', 'fx-f-cancel',
             'fx-export', 'fx-import', 'fx-reparse', 'fx-autoclose', 'fx-clear-session',
+            'fx-crosscheck',
             'fx-log-clear', 'fx-log-copy', 'fx-log-export', 'fx-selftest',
         ];
         const missing = WANT_IDS.filter(id => !$(id));
-        ok('22 个具名控件一个不少', missing.length === 0, missing.join(','));
+        ok('23 个具名控件一个不少', missing.length === 0, missing.join(','));
         ok('两个模式按钮在', $$('.mode-btn').length === 2, $$('.mode-btn').length + ' 个');
-        ok('控件总数 24（22 具名 + 2 模式）', $$('button, input').length === 24, $$('button, input').length + ' 个');
+        ok('控件总数 25（23 具名 + 2 模式）', $$('button, input').length === 25, $$('button, input').length + ' 个');
+
+        // ---- 新增开关：二源交叉验证 / 关闭页档位 ----
+        ok('二源按钮默认「自动」且 aria-pressed 同步',
+            $('fx-crosscheck').textContent === '二源：自动' && $('fx-crosscheck').getAttribute('aria-pressed') === 'false',
+            $('fx-crosscheck').textContent);
+        $('fx-crosscheck').click();
+        await sleep(10);
+        ok('二源按钮点击切到「强制」并落盘',
+            $('fx-crosscheck').textContent === '二源：强制'
+            && $('fx-crosscheck').getAttribute('aria-pressed') === 'true'
+            && window.GM_getValue('forceCrossCheck', null) === true,
+            $('fx-crosscheck').textContent + ' / ' + JSON.stringify(window.GM_getValue('forceCrossCheck', null)));
+        ok('关闭页按钮默认 8 秒档', $('fx-autoclose').textContent === '关闭页：8 秒', $('fx-autoclose').textContent);
+        $('fx-autoclose').click();
+        await sleep(10);
+        ok('关闭页按钮点击切到 15 秒并落盘',
+            $('fx-autoclose').textContent === '关闭页：15 秒' && window.GM_getValue('autoCloseSec', null) === 15,
+            $('fx-autoclose').textContent + ' / ' + JSON.stringify(window.GM_getValue('autoCloseSec', null)));
 
         // ---- 摘要 ----
         const badge = k => $('fx-gb-' + k).textContent;

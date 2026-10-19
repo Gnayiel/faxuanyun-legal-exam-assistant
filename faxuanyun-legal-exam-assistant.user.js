@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.1
-// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 73 项内置自检
+// @version      2.0.2
+// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 74 项内置自检
 // @author       GNAYIEL
 // @license      MIT
 // @match        *://gs.faxuanyun.com/*
@@ -88,7 +88,7 @@
  *   作答策略          多选组合枚举、chooseAnswer 决策、answerCurrent 单题流程
  *   成绩解析          答题卡颜色判定、分数读取、交卷对账入库
  *   考试流程控制      退出原因、暂停等待、倒计时、弹窗、最后一题、mainLoop
- *   内置自检          73 项纯函数断言 + window.__FX_TEST__ 测试钩子
+ *   内置自检          74 项纯函数断言 + window.__FX_TEST__ 测试钩子
  *   面板              UI 构建、分类折叠、拖拽、状态摘要、AI 设置、导入导出与日志按钮
  */
 
@@ -168,6 +168,7 @@
 
         // ---------- 最后一题与交卷 ----------
         autoSubmit: GM_getValue('autoSubmit', false),  // 默认不自动交卷，答完只提示
+        autoCloseSec: GM_getValue('autoCloseSec', 8),  // 成绩解析/入库流程走完后自动关闭本页的秒数（0 = 不关闭）
 
         // ---------- 回退与倒计时 ----------
         maxBackwardStreak: 3,        // 连续回退超过此次数就停下
@@ -184,7 +185,10 @@
         // ---------- 题目范围与解析 ----------
         maxTotalQ: 100,              // 题号上限（用于推算总题数）
         maxQuestionNum: 500,         // 解析答题卡时识别的最大题号（原来 50，长卷子会漏）
-        resultScanSelector: 'a, span, div, button, li, td, i, em, b, strong, p',
+        // 答题卡可能裸放在 td / li / span 里，也可能包在 label / mark 里；扫描选择器宁宽勿窄，
+        // 数字格子的文本变体（第12题 / 12. / 12题）交给 cellNumberText() 兜底，容器锁再排除误伤。
+        resultScanSelector: 'a, span, div, button, li, td, i, em, b, strong, p, label, mark, u, small, font, ins, th, dt, dd, text',
+        resultOpenWords: ['查看答题卡', '答题卡', '查看解析', '查看试卷', '查看答卷', '核对答案', '查看答案'],
         greenDelta: 20,              // 备用绿/红判定：通道之间的最小差值
         colorMatchTolerance: 60,     // 与图例参考色的最大色差
         defaultTotalQ: 10,           // 总题数推断失败时的兜底值
@@ -1847,8 +1851,24 @@
                 url: location.pathname + location.search,   // 完整地址，便于判断是不是同一场
                 path: location.pathname,
                 ts: TS(),
+                submitted: submittedMark,   // 已交卷的会话，下次开考直接丢弃
                 history,
             });
+        } catch { }
+    }
+
+    /**
+     * 交卷后给未交卷会话打「已交卷」标记。
+     * 成绩页出现时这场考试已经结束，这份记录只对「重新解析成绩」有用；新开一场时
+     * 直接清掉，不再让用户看到「若这是新一场请点清空本场」而不知所措。
+     */
+    let submittedMark = false;
+    function markPendingSubmitted() {
+        if (submittedMark) return;
+        submittedMark = true;
+        try {
+            const s = GM_getValue('pendingSession', null);
+            if (s) { s.submitted = true; GM_setValue('pendingSession', s); }
         } catch { }
     }
     let sessionRestored = false;
@@ -1885,6 +1905,13 @@
             log('上次的答题记录已过期，已清空');
             return;
         }
+        // 上一场已经交卷：这份记录只剩「重新解析成绩」的用途，对新一场毫无意义。
+        // 成绩页里保留（刷新后还能重新对账），其它页面直接清掉——不再弹「若这是新一场请点清空本场」。
+        if (s.submitted && !isResultPage()) {
+            GM_setValue('pendingSession', null);
+            log('ℹ️ 上一场已交卷，已自动清空残留的作答记录（题库数据不受影响）');
+            return;
+        }
         const storePath = String(s.path || s.url || '').split('?')[0];
         if (storePath && storePath !== location.pathname && !isResultPage()) {
             log(`ℹ️ 上次记录来自其它页面（${storePath}），本次不恢复`);
@@ -1898,7 +1925,7 @@
         log(`♻️ 已恢复 ${age >= 60000 ? Math.round(age / 60000) + ' 分钟前' : ''}未交卷的 ${s.history.length} 条答题记录，交卷后一并核对入库${restoredUnsure ? '（本次进入地址与上次不同，按「可能不是同一场」处理）' : ''}`);
         if (!isResultPage()) {
             notify(restoredUnsure
-                ? `恢复了 ${s.history.length} 条记录，但本次进入地址与上次不同：若这是新一场请点「清空本场」；本场不会自动交卷`
+                ? `恢复了 ${s.history.length} 条记录，但本次进入地址与上次不同：若是新一场，开始答题后脚本核对题目会自动清掉这份记录；本场不会自动交卷`
                 : `恢复了 ${s.history.length} 条未交卷记录；若这是新一场考试，请点「清空本场」`, 'warn');
         }
         updateStats();
@@ -2738,6 +2765,120 @@
         return `${s || ''} ${(el && el.parentElement && el.parentElement.className) || ''}`;
     };
 
+    /** 取计算样式：同源 iframe 里的元素要用它自己文档的 window，顶层 window 取不到 */
+    function csOf(el) {
+        try {
+            const w = (el && el.ownerDocument && el.ownerDocument.defaultView) || window;
+            return typeof w.getComputedStyle === 'function' ? w.getComputedStyle(el) : null;
+        } catch { return null; }
+    }
+
+    /**
+     * 结果页可能被平台放在同源 iframe 里（有的版本把答题卡嵌在内嵌框架）。
+     * 顶层文档扫不到就会漏判，所以统一按「顶层 + 同源 iframe」取根节点；
+     * 跨域 iframe 读不到 contentDocument，直接跳过。
+     */
+    function resultRoots() {
+        const roots = [document];
+        for (const f of document.querySelectorAll('iframe, frame')) {
+            try {
+                const d = f.contentDocument;
+                if (d && d.body) roots.push(d);
+            } catch { /* 跨域 iframe 读不了，忽略 */ }
+        }
+        return roots;
+    }
+
+    /**
+     * 答题卡格子的文本要「整段就是一个题号」：1 / 12. / 12、/ 12题 / 第12题。
+     * 旧实现只认纯数字，「第12题」这种写法会整题漏掉；而「10/10」「答案12」「85分」
+     * 这类不能算题号（把评分区、进度条上的数字当成题号，会覆盖真实判定）。
+     */
+    function cellNumberText(t) {
+        const m = String(t || '').match(/^(?:第\s*)?(\d{1,3})(?:\s*题)?\s*[.、．:：]?$/);
+        if (!m) return 0;
+        const n = +m[1];
+        return n >= 1 && n <= CONFIG.maxQuestionNum ? n : 0;
+    }
+
+    /** 结果页正文：顶层 + 同源 iframe，并剔除脚本自己的面板（面板日志里可能出现「正确答案」等字样） */
+    function resultBodyText() {
+        const texts = [];
+        for (const root of resultRoots()) {
+            const body = root.body;
+            if (!body) continue;
+            let t = body.innerText || body.textContent || '';
+            if (root === document) {
+                const panel = document.getElementById('fx-panel');
+                const pt = panel && panel.innerText;
+                if (pt) t = t.split(pt).join(' ');
+            }
+            texts.push(t);
+        }
+        return texts.join('\n');
+    }
+
+    /**
+     * 解析失败时的自诊断：把「为什么没认出来」写进日志。
+     * 不联网、不改页面；只用于用户反馈时判断是页面结构问题还是颜色问题。
+     */
+    function resultDiag() {
+        const roots = resultRoots();
+        let elements = 0, numeric = 0, visible = 0;
+        const samples = [];
+        for (const root of roots) {
+            let list = [];
+            try { list = root.querySelectorAll(CONFIG.resultScanSelector); } catch { continue; }
+            for (const el of list) {
+                elements++;
+                const t = elText(el);
+                const n = cellNumberText(t);
+                if (!n) {
+                    if (samples.length < 8 && /^\d{1,3}[^\d]{0,4}$/.test(t)) samples.push(`~${t}`);
+                    continue;
+                }
+                numeric++;
+                if (!isVisible(el)) continue;
+                visible++;
+                if (samples.length < 8) {
+                    const st = csOf(el);
+                    samples.push(`${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}.${(classOf(el).split(' ')[0] || '-')} bg=${st ? st.backgroundColor : '?'} fg=${st ? st.color : '?'}`);
+                }
+            }
+        }
+        const legend = readLegendColors();
+        const opens = [];
+        for (const root of roots) {
+            for (const el of root.querySelectorAll('a, button, span, div, li')) {
+                const t = elText(el);
+                if (t && t.length <= 8 && /查看答题卡|答题卡|查看解析|查看试卷|查看答卷|核对答案|查看答案/.test(t) && !opens.includes(t)) opens.push(t);
+            }
+        }
+        dbg(`成绩页诊断：${roots.length} 个文档 / ${elements} 个元素 / ${numeric} 个数字候选 / ${visible} 个可见格子 / 图例 ${Object.keys(legend).join('/') || '无'}`);
+        if (samples.length) dbg(`成绩页诊断样例：${samples.join(' | ')}`);
+        if (opens.length) dbg(`成绩页诊断入口：${opens.slice(0, 6).join(' / ')}`);
+        return { opens };
+    }
+
+    let resultOpenHooked = false;
+    /** 用户点开「查看答题卡 / 查看解析」后，等渲染完自动再解析一次（答题卡默认收起时旧流程只能手点解析） */
+    function watchResultOpen() {
+        if (resultOpenHooked) return;
+        resultOpenHooked = true;
+        const re = new RegExp(CONFIG.resultOpenWords.join('|'));
+        document.addEventListener('click', e => {
+            let el = e.target;
+            for (let i = 0; el && i < 4; i++, el = el.parentElement) {
+                const t = el.nodeType === 1 ? elText(el) : '';
+                if (t && t.length <= 8 && re.test(t)) {
+                    log('👀 看到你点开答题卡入口，2 秒后自动再解析一次…');
+                    setTimeout(parseResult, 2000);
+                    return;
+                }
+            }
+        }, true);
+    }
+
     /**
      * 从图例取参考色
      * 结果页一般有「●正确 ●错误 ●未答」图例，用它自己的颜色当基准，
@@ -2746,7 +2887,12 @@
     function readLegendColors() {
         const out = {};
         if (typeof window.getComputedStyle !== 'function') return out;
-        for (const el of document.querySelectorAll('span, div, li, p, td, i, em, b, strong')) {
+        // 图例可能在顶层文档，也可能在同源 iframe 里，全部扫一遍
+        const els = [];
+        for (const root of resultRoots()) {
+            try { els.push(...root.querySelectorAll('span, div, li, p, td, i, em, b, strong')); } catch { }
+        }
+        for (const el of els) {
             const t = elText(el);
             if (!t || t.length > 10) continue;
             const key = /未答|放弃|未做/.test(t) ? 'unanswered'
@@ -2754,8 +2900,8 @@
             if (!key || out[key]) continue;
             for (const c of [el.firstElementChild, el, el.previousElementSibling, el.nextElementSibling]) {
                 if (!c) continue;
-                let st;
-                try { st = window.getComputedStyle(c); } catch { continue; }
+                const st = csOf(c);
+                if (!st) continue;
                 const col = parseRgb(st.backgroundColor) || parseRgb(st.color);
                 // 「未答」图例本来就是灰色，不能被 isGrayish 过滤掉（否则 legend.unanswered 永远取不到）
                 if (col && (key === 'unanswered' || !isGrayish(col))) { out[key] = col; break; }
@@ -2783,9 +2929,8 @@
         if (/[✓✔√]|答对|正确/.test(marks)) return 'correct';
         if (/[×✕✗]|答错|错误/.test(marks)) return 'wrong';
 
-        if (typeof window.getComputedStyle !== 'function') return null;
-        let st;
-        try { st = window.getComputedStyle(el); } catch { return null; }
+        const st = csOf(el);
+        if (!st) return null;
         const bg = parseRgb(st.backgroundColor);
         const fg = parseRgb(st.color);
         // 取最近的图例色，而不是「正确优先」逐条试：未答灰和答对绿在某些换肤下只差十几点，
@@ -2815,15 +2960,19 @@
         const rank = { unanswered: 1, wrong: 2, correct: 3 };
         // 1) 先收集「整段文本就是一个数字」的可见元素（答题卡格子）
         const cells = [];
-        for (const el of document.querySelectorAll(CONFIG.resultScanSelector)) {
-            if (!isVisible(el)) continue;
-            const t = elText(el);
-            if (!/^\d{1,3}$/.test(t)) continue;        // 整个文本就是数字，排除 "10/10"
-            const n = +t;
-            if (n < 1 || n > CONFIG.maxQuestionNum) continue;
-            cells.push({ el, n });
+        const roots = resultRoots();
+        for (const root of roots) {
+            for (const el of root.querySelectorAll(CONFIG.resultScanSelector)) {
+                const n = cellNumberText(elText(el));
+                if (!n) continue;                       // 不是题号格子，排除 "10/10"、分数、页码
+                if (!isVisible(el)) continue;
+                cells.push({ el, n });
+            }
         }
-        if (!cells.length) return seen;
+        if (!cells.length) {
+            dbg(`答题卡扫描：${roots.length} 个文档里没找到题号格子`);
+            return seen;
+        }
         // 2) 锁定「答题卡容器」：取包含最多格子的祖先，避免把页面上孤立的数字（分数、页码、
         //    题号导航）也当成题号，更避免它们用一个误判的 correct 覆盖真实判定
         let card = null, bestCount = 0;
@@ -2847,12 +2996,15 @@
             if (!v) continue;
             if (!seen[n] || rank[v] > rank[seen[n]]) seen[n] = v;
         }
+        if (!Object.keys(seen).length) {
+            dbg(`答题卡扫描：${scope.length} 个格子都没判定出对错（图例 ${Object.keys(legend).join('/') || '无'}）`);
+        }
         return seen;
     }
 
     /** 从页面读分数与总分 */
     function readScore() {
-        const txt = (document.body && document.body.innerText) || '';
+        const txt = resultBodyText();
         let m = txt.match(/您的分数\s*(?:为)?\s*[:：]?\s*(\d{1,3})\s*分/)
             || txt.match(/(?:得\s*分|成绩|本次得分|考试成绩)\s*[:：]?\s*(\d{1,3})\s*分/);
         const score = m ? +m[1] : null;
@@ -2862,13 +3014,16 @@
 
     /** 这个页面像不像考试结果页 */
     function isResultPage() {
-        if (readScore().score !== null) return true;
-        const body = (document.body && document.body.innerText) || '';
-        // 真机发现考试页本身也有「答题卡」三个字（答题卡导航区），只凭它会把考试页当成结果页，
-        // 于是「上次记录来自其它页面」的保护会被绕过、页面没就绪时还会误触发解析。
-        // 现在要求出现结果页专有措辞，或者答题卡上真的能读出对错（≥3 个题号有判定）。
-        if (/答题结果|您的分数|本次答题|正确答案/.test(body)) return true;
-        return /答题卡/.test(body) && Object.keys(collectResult()).length >= 3;
+        const body = resultBodyText();
+        const sc = readScore();
+        const hasCard = /答题卡/.test(body);
+        // 结果页专有措辞：到成绩页才会出现「正确率 / 答对N题 / 答题结果 / 成绩解析」这类字样
+        if (/答题结果|成绩解析|正确率|答对\s*\d+\s*题|您的分数/.test(body)) return true;
+        // 光有分数不够：考试列表页每门课都显示「考试成绩：100分」，
+        // 旧实现会把它当成成绩页，空转十几次解析后提示「确认停在结果页」——用户以为解析坏了。
+        if (sc.score !== null && (hasCard || /未答|答错|答对/.test(body))) return true;
+        // 答题卡上真的能读出对错（≥3 个题号有判定）
+        return hasCard && Object.keys(collectResult()).length >= 3;
     }
 
     /**
@@ -2919,13 +3074,19 @@
                 log('⚠️ 当前页面不像成绩页，本次不解析（成绩页出来后点面板「解析成绩」可再试）');
                 return;
             }
+            markPendingSubmitted();      // 已经确认停在成绩页 → 这场一定交过了，给残留会话打标
             const verdicts = collectResult();
             const nums = Object.keys(verdicts);
             if (!nums.length) {
                 if (attempt++ < CONFIG.parseMaxRetry) { setTimeout(tryParse, CONFIG.parseRetryInterval); return; }
                 parseRunning = false;
+                const diag = resultDiag();
                 log('⚠️ 答题卡上没识别到任何对错标记，本次不入库');
-                log('👉 确认已停在结果页后，点面板「解析成绩」可再试一次');
+                if (diag.opens.length) {
+                    log(`👉 页面上有「${diag.opens[0]}」入口：点开它，脚本会自动再解析一次`);
+                    watchResultOpen();
+                }
+                log('👉 确认已停在结果页后，点面板「解析成绩」可再试一次；仍失败可开「调试」后 Alt+E 导出日志反馈');
                 return;
             }
             parseRunning = false;
@@ -3079,6 +3240,32 @@
         log(`📊 题库现有 ${total} 题`);
         updateStats();
         updateStatus(saved > 0 ? '✅ 题库已更新，可以关闭页面' : '✅ 成绩解析完成（本次没有需要写入的新答案）');
+        scheduleAutoClose();
+    }
+
+    /**
+     * 成绩解析/入库流程走完后，按设置延时关闭本页。
+     * 浏览器只允许脚本关闭「自己打开的」标签页；考试页通常是用户自己点开的，
+     * window.close() 可能被拒绝——这时只提示手动关闭，不反复尝试。
+     */
+    let autoCloseTimer = null;
+    function scheduleAutoClose() {
+        const sec = +CONFIG.autoCloseSec || 0;
+        if (!sec) return;
+        if (autoCloseTimer) clearTimeout(autoCloseTimer);
+        log(`🕒 ${sec} 秒后自动关闭本页（「题库与本场 → 关闭页」可改设置）`);
+        autoCloseTimer = setTimeout(() => {
+            autoCloseTimer = null;
+            try { window.close(); } catch { }
+            // 关成功时页面已卸载，下面的定时器不会执行；只有「浏览器拒绝关闭」才会走到这里。
+            // 考试页大多是用户自己点开的，脚本无权关掉——退而求其次：返回上一页，没有上一页就置空白页。
+            setTimeout(() => {
+                if (document.hidden) return;
+                log('⚠️ 浏览器不允许脚本自动关闭这个标签页，改为返回上一页（无上一页则置空白页）');
+                if (history.length > 1) history.back();
+                else location.replace('about:blank');
+            }, 900);
+        }, sec * 1000);
     }
 
     // ==================== 考试流程控制 ====================
@@ -3351,6 +3538,7 @@
         autoSubmitted = false;
         let noChange = 0, backwardStreak = 0, lastQ = 0;
         let runAnswered = 0;                // 本次点「开始」之后真正答了几题（用于识破残留记录）
+        let staleConfirmed = false;         // 用户已点过「继续」确认沿用恢复记录：别再反复按残留记录暂停
         let stopReason = '';                // 退出原因：只有正常答完才显示「答题完成」
         const failCount = {};
         let total = getTotalQExact();       // 0 = 推断不出；此时不能用「已答 N 题」收工（旧实现的兜底 10 会少答一半就交卷）
@@ -3377,13 +3565,31 @@
                 //    不再静默 clearSession（旧实现会直接丢弃并重新开始，用户的答题记录就没了），
                 //    先暂停让用户核对：是上一场就点「清空本场」，是本场就点「继续」。
                 if (runAnswered === 0 && history.length > 0 && sessionRestored) {
-                    log(`⚠️ 本次一条都没答就显示「已答满」（${history.length} 条恢复记录），已暂停，请核对是否上一场残留`);
-                    notify('检测到可能的上一场残留记录，已暂停：请核对后点「清空本场」或「继续」', 'warn');
-                    paused = true;
-                    syncRunBtns();
-                    updateStatus('⚠️ 疑似上一场残留记录，请核对');
-                    stopReason = 'restored';
-                    break;
+                    // 恢复的记录数已经「答满」本场，而本次一题没答：基本只能是上一场残留。
+                    // 若本次进入地址与上次也不同（新一场），直接清掉继续答，不再打断用户；
+                    // 地址相同则暂停一次让用户核对，用户点「继续」就当作本场记录，不再反复暂停。
+                    // 拿当前题的题干和恢复记录比一下：命中就当同一场（不丢记录，暂停一次让用户核对）；
+                    // 明显对不上、且进入地址与上次不同，才判定为上一场残留并自动清掉——
+                    // 这样新一场不会被旧记录卡住，也不会把「刷新后重进同一场」的记录误删。
+                    const curStem = (getStem() || '').trim();
+                    const samePaper = !!curStem && history.some(r => r && r.stem
+                        && (fpKey(r.stem) === fpKey(curStem) || prefixSame(r.stem, curStem)));
+                    if (!samePaper) {
+                        log(`🧹 恢复的 ${history.length} 条记录与当前题目对不上，判定为上一场残留，已自动清空并继续答题`);
+                        clearSession('上一场残留 · 自动清理');
+                        continue;
+                    }
+                    if (!staleConfirmed) {
+                        staleConfirmed = true;
+                        log(`⚠️ 本次一条都没答就显示「已答满」（${history.length} 条恢复记录），已暂停，请核对是否上一场残留`);
+                        notify('检测到可能的上一场残留记录，已暂停：若是上一场请点「清空本场」；确认是本场记录请点「继续」', 'warn');
+                        paused = true;
+                        syncRunBtns();
+                        updateStatus('⚠️ 疑似上一场残留记录，请核对');
+                        stopReason = 'restored';
+                        break;
+                    }
+                    log('▶️ 已确认沿用恢复记录（不再按残留记录暂停）');
                 }
                 // ② 重新推一次总题数，推断值变大了就继续答，不要提前收工
                 const reTotal = getTotalQExact();
@@ -3753,6 +3959,14 @@
         t('接口校验：合法 https 配置通过',
             () => validateApi('https://api.deepseek.com/v1/chat/completions', 'sk-12345678', 'deepseek-chat') === '');
 
+        // ---------- 答题卡格子识别（结果页题号写法不止一种，旧实现只认纯数字） ----------
+        t('答题卡题号识别：第12题 / 12. / 12题 / 12、都算，「10/10」「答案12」「85分」不算', () => {
+            const yes = [['第12题', 12], ['12.', 12], ['12题', 12], ['12、', 12], ['第 3 题', 3], ['7', 7]];
+            const no = ['10/10', '答案12', '85分', '12 题（错误）', '0', '501', '第12题解析'];
+            return yes.every(([s, n]) => cellNumberText(s) === n)
+                && no.every(s => cellNumberText(s) === 0);
+        });
+
         return cases;
     }
 
@@ -3782,7 +3996,7 @@
             mergeCandidates, chooseAnswer, combosOf, multiCombos, comboKey, parseDelimited, sniffDelim,
             csvCell, validateRow, resolveType, isUserEntry, blankEntry, stopReasonText, fuzzyUsable,
             normalizeGroupState, groupBadge, collapseLabel,
-            connectRoot, validateApi,
+            connectRoot, validateApi, cellNumberText,
             dayStamp, timeStamp, bankFileNames, logFileName, parseBankPayload,
             selfTestCases, runSelfTest,
         };
@@ -4068,6 +4282,7 @@
                         <button id="fx-reparse">解析成绩</button>
                     </div>
                     <div class="row">
+                        <button id="fx-autoclose" aria-pressed="${CONFIG.autoCloseSec ? 'true' : 'false'}">关闭页：${CONFIG.autoCloseSec ? CONFIG.autoCloseSec + ' 秒' : '不关'}</button>
                         <button id="fx-clear-session">清空本场</button>
                     </div>
                 `)}
@@ -4277,6 +4492,16 @@
             clearSession('手动清空');
             notify('已清空本场作答记录，可重新开始答题', 'info');
         });
+        // 关闭页：成绩解析/入库流程走完后自动关闭本页（浏览器可能不允许，见 scheduleAutoClose）
+        $('fx-autoclose').onclick = safe('关闭页设置', () => {
+            const idx = AUTO_CLOSE_STEPS.indexOf(+CONFIG.autoCloseSec);
+            CONFIG.autoCloseSec = AUTO_CLOSE_STEPS[(idx + 1) % AUTO_CLOSE_STEPS.length];
+            GM_setValue('autoCloseSec', CONFIG.autoCloseSec);
+            updateAutoCloseBtn();
+            log(CONFIG.autoCloseSec
+                ? `🕒 成绩解析/入库完成后 ${CONFIG.autoCloseSec} 秒自动关闭本页`
+                : '🕒 已关闭「自动关闭本页」');
+        });
         // 自检：跑一遍内置用例（纯函数断言），改完脚本点一下就知道有没有踩坏
         $('fx-selftest').onclick = safe('自检', () => runSelfTest());
         // 手动重新解析成绩：二次交卷、刷新结果页、重考都能再解析
@@ -4382,6 +4607,7 @@
             // 不是考试页：可能是交卷后的结果页，刷新进来也能解析
             if (isResultPage()) {
                 log('检测到考试结果页，自动解析成绩…');
+                markPendingSubmitted();
                 setTimeout(parseResult, CONFIG.parseFirstDelay);
                 return;
             }
@@ -4392,6 +4618,7 @@
         watchSubmit();
         watchUserClick();
         syncRunBtns();
+        updateAutoCloseBtn();
         updateStats();
         dbg(`面板已就绪 · 分类可折叠（点标题展开同类按钮） · 快捷键 Alt+S 开始/停止 · Alt+P 暂停 · Alt+H 收起/还原 · Alt+L 清空日志 · Alt+E 导出日志 · Alt+D 调试 · Alt+T 自检`);
     }
@@ -4462,6 +4689,17 @@
         if (content) { log(`✅ API连接成功（${model}）：${content.slice(0, 30)}`); return; }
         const apiErr = data && data.error && (data.error.message || data.error.code);
         log(apiErr ? `❌ 接口返回错误：${String(apiErr).slice(0, 160)}` : '❌ API返回内容为空');
+    }
+
+    const AUTO_CLOSE_STEPS = [8, 15, 30, 0];   // 「关闭页」按钮循环档位（秒，0 = 不关闭）
+
+    /** 「关闭页」按钮文案跟随设置 */
+    function updateAutoCloseBtn() {
+        const b = $('fx-autoclose');
+        if (!b) return;
+        b.textContent = CONFIG.autoCloseSec ? `关闭页：${CONFIG.autoCloseSec} 秒` : '关闭页：不关';
+        b.classList.toggle('active', !!CONFIG.autoCloseSec);
+        b.setAttribute('aria-pressed', String(!!CONFIG.autoCloseSec));
     }
 
     /** 按钮文案跟随运行状态 */

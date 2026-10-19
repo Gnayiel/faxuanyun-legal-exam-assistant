@@ -18,7 +18,7 @@
 ## 本地验证（提交前必跑）
 
 ```bash
-node tools/selftest.mjs                      # 元数据 + 73 项内置断言 + 文档数字校验，不联网
+node tools/selftest.mjs                      # 元数据 + 74 项内置断言 + 文档数字校验，不联网
 node tools/panel-smoke.mjs --require-browser # 真实浏览器面板冒烟（33 项）
 ```
 

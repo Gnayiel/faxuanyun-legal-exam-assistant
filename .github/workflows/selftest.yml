@@ -27,7 +27,7 @@ jobs:
         with:
           node-version: '20'
 
-      # 元数据校验 + 脚本内置的 73 项断言，无第三方依赖
+      # 元数据校验 + 脚本内置的 74 项断言，无第三方依赖
       - name: 内置自检
         run: node tools/selftest.mjs
 

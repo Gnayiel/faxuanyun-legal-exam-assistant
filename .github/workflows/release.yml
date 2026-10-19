@@ -36,6 +36,7 @@ jobs:
         run: |
           sha256sum faxuanyun-legal-exam-assistant.user.js > faxuanyun-legal-exam-assistant.user.js.sha256
           {
+            printf '## %s\n\n' "$GITHUB_REF_NAME"
             awk -v v="$GITHUB_REF_NAME" 'BEGIN{p=0} $0 ~ "^## "v"$" {p=1; next} p && /^## v/ {exit} p && /^---$/ {exit} p {print}' CHANGELOG.md
             printf '\n## 安装 / 更新\n\n'
             printf -- '- 已安装旧版：油猴会按 `@updateURL` 自动检查更新，也可在油猴面板点「检查脚本更新」。\n'
@@ -60,4 +61,4 @@ jobs:
       - name: 验证 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release view "$GITHUB_REF_NAME" --json tagName,isDraft,isLatest,assets
+        run: gh release view "$GITHUB_REF_NAME" --json tagName,isDraft,assets --jq '"已发布 \(.tagName)（draft=\(.isDraft)，附件 \(.assets | length) 个）"'

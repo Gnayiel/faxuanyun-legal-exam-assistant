@@ -5,11 +5,11 @@
 // 找不到浏览器时默认跳过（退出码 0），方便在没装浏览器的机器上跑；
 // 加 --require-browser（或设置 FX_REQUIRE_BROWSER=1）则改为失败（退出码 2），
 // CI 用它来防止「没装浏览器 → 静默跳过 → 假绿」。
-import { readFileSync, writeFileSync, mkdtempSync, existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 浏览器探测 + headless 启动抽到公共 helper，和 page-smoke.mjs 共用同一份实现
+import { findBrowser, runHeadless } from './browser.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // 参数里可能混着 --require-browser 这类开关，先滤掉再取脚本路径
@@ -17,16 +17,9 @@ const CLI_ARGS = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const SCRIPT = resolve(CLI_ARGS[0] || join(HERE, '..', 'faxuanyun-legal-exam-assistant.user.js'));
 const REQUIRE_BROWSER = process.argv.includes('--require-browser') || process.env.FX_REQUIRE_BROWSER === '1';
 
-const BROWSERS = [
-    process.env.FX_BROWSER,
-    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-    '/usr/bin/microsoft-edge', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
-    '/usr/bin/chromium', '/usr/bin/chromium-browser', '/opt/google/chrome/chrome',
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-].filter(Boolean).find(p => existsSync(p));
+// 探测顺序：FX_BROWSER（绝对路径或 PATH 命令名）→ 常见安装路径 → 遍历 PATH（含 Windows）。
+// 本机 Chrome 只装在 PATH 里（npm-global/bin/google-chrome）时，以前会误报「没找到」。
+const BROWSERS = findBrowser();
 
 if (!BROWSERS) {
     console.log('未找到 Edge / Chrome，跳过面板冒烟测试。');
@@ -239,21 +232,9 @@ ${userscript}
 </script>
 </body></html>`;
 
-const dir = mkdtempSync(join(tmpdir(), 'fx-smoke-'));
-const page = join(dir, 'smoke.html');
-writeFileSync(page, html, 'utf8');
-
 let dom = '';
 try {
-    dom = execFileSync(BROWSERS, [
-        '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-        '--disable-extensions', '--disable-background-networking', '--mute-audio',
-        // CI 容器里以 root 运行，需要用 --no-sandbox 才能起内核；本地不加
-        ...(process.platform === 'linux' ? ['--no-sandbox', '--disable-dev-shm-usage'] : []),
-        '--user-data-dir=' + join(dir, 'profile'),
-        '--virtual-time-budget=20000',
-        '--dump-dom', 'file:///' + page.replace(/\\/g, '/'),
-    ], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
+    dom = runHeadless(BROWSERS, html, { prefix: 'fx-smoke-', budgetMs: 20000 }).dom;
 } catch (e) {
     console.error('启动浏览器失败：', e.message);
     process.exit(2);

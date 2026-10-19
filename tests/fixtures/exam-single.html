@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>学法考试（脱敏样例）· 单选题</title></head>
+<body>
+<!--
+  脱敏页面：只保留 user.js「站点适配层」依赖的 DOM 结构与文案，不含真实站点资源。
+  覆盖：题干、选项（input[name="option"] + label 文本）、题号、题型统计（推断总题数）、
+        「上一题 / 下一题 / 交卷」按钮、倒计时、答题卡入口、最后一题没有「下一题」。
+  第 2 题的模板在 <template> 里，点「下一题」才换上来，用来验证切题逻辑。
+-->
+<header class="exam-header">
+  <span class="exam-title">国家工作人员学法考试（脱敏样例）</span>
+  <span class="exam-timer">剩余时间：09:58</span>
+  <a href="javascript:;" id="card-open">答题卡</a>
+</header>
+
+<div id="timucontent">
+  <h2>1、限制人身自由的行政处罚权，只能由（ ）行使。</h2>
+  <div class="options">
+    <label><input type="radio" name="option" value="A">A. 人民法院</label>
+    <label><input type="radio" name="option" value="B">B. 公安机关</label>
+    <label><input type="radio" name="option" value="C">C. 人民检察院</label>
+    <label><input type="radio" name="option" value="D">D. 人民政府</label>
+  </div>
+</div>
+
+<div class="opbar">
+  <a href="javascript:;" id="btn-prev" class="op-btn">上一题</a>
+  <a href="javascript:;" id="btn-next" class="op-btn">下一题</a>
+  <a href="javascript:;" id="btn-submit" class="op-btn">交卷</a>
+</div>
+
+<div class="exam-footer">
+  题型分布：单选题：共 2 题 · 多选题：共 0 题 · 判断题：共 0 题
+</div>
+
+<template id="q2-tpl">
+  <h2>2、行政诉讼中，对被诉行政行为的合法性承担举证责任的是（ ）。</h2>
+  <div class="options">
+    <label><input type="radio" name="option" value="A">A. 原告</label>
+    <label><input type="radio" name="option" value="B">B. 被告</label>
+    <label><input type="radio" name="option" value="C">C. 人民法院</label>
+    <label><input type="radio" name="option" value="D">D. 第三人</label>
+  </div>
+</template>
+
+<script>
+/* 脱敏页面的最小交互：点「下一题」切到第 2 题，并隐藏「下一题」（真实平台最后一题通常没有下一题） */
+window.__picks = [];
+window.__q = 1;
+document.getElementById('btn-next').addEventListener('click', function () {
+  var inputs = Array.prototype.slice.call(document.querySelectorAll('#timucontent input'));
+  window.__picks.push({ q: window.__q, checked: inputs.filter(function (i) { return i.checked; }).map(function (i) { return i.value; }) });
+  window.__q = 2;
+  document.getElementById('timucontent').innerHTML = document.getElementById('q2-tpl').innerHTML;
+  this.style.display = 'none';
+});
+</script>
+</body>
+</html>

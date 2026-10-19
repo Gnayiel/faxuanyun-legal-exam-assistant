@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>学法考试（脱敏样例）· 多选 + 判断</title></head>
+<body>
+<!--
+  脱敏页面：混合题型。第 1 题多选（checkbox，选项以括号字母开头），第 2 题判断（单选，对/错）。
+  覆盖：多选识别、判断题语义识别、多选作答（要点选多个）、判断作答、最后一题无「下一题」。
+-->
+<header class="exam-header">
+  <span class="exam-title">国家工作人员学法考试（脱敏样例）</span>
+  <span class="exam-timer">剩余时间：08:30</span>
+</header>
+
+<div id="timucontent">
+  <h2>1、（多选题）行政机关作出行政处罚决定前，应当告知当事人（ ）。</h2>
+  <div class="options">
+    <label><input type="checkbox" name="option" value="A">A. 拟作出的行政处罚内容</label>
+    <label><input type="checkbox" name="option" value="B">B. 拟作出的行政处罚的事实、理由</label>
+    <label><input type="checkbox" name="option" value="C">C. 拟作出的行政处罚依据</label>
+    <label><input type="checkbox" name="option" value="D">D. 当事人依法享有的陈述、申辩权利</label>
+  </div>
+</div>
+
+<div class="opbar">
+  <a href="javascript:;" class="op-btn">上一题</a>
+  <a href="javascript:;" id="btn-next" class="op-btn">下一题</a>
+  <a href="javascript:;" class="op-btn">交卷</a>
+</div>
+
+<div class="exam-footer">
+  题型分布：多选题：共 1 题 · 判断题：共 1 题
+</div>
+
+<template id="q2-tpl">
+  <h2>2、判断题：行政法规可以设定除限制人身自由以外的行政处罚。</h2>
+  <div class="options">
+    <label><input type="radio" name="option" value="A">A. 对</label>
+    <label><input type="radio" name="option" value="B">B. 错</label>
+  </div>
+</template>
+
+<script>
+/* 脱敏页面的最小交互：点「下一题」切到第 2 题（判断题），并隐藏「下一题」 */
+window.__picks = [];
+window.__q = 1;
+document.getElementById('btn-next').addEventListener('click', function () {
+  var inputs = Array.prototype.slice.call(document.querySelectorAll('#timucontent input'));
+  window.__picks.push({ q: window.__q, checked: inputs.filter(function (i) { return i.checked; }).map(function (i) { return i.value; }) });
+  window.__q = 2;
+  document.getElementById('timucontent').innerHTML = document.getElementById('q2-tpl').innerHTML;
+  this.style.display = 'none';
+});
+</script>
+</body>
+</html>

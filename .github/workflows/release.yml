@@ -33,13 +33,19 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: node tools/release.mjs --check-ci "$TAG"
 
-      # 发版门禁 2：语法、元数据、内置断言、数据/文档数字漂移、工作流配置
+      # 发版门禁 2：语法、元数据、内置断言、数据/文档数字漂移、工作流配置、
+      # 题库合并工具与两种浏览器冒烟（面板 UI + 站点页面适配）。
+      # 放在生成校验和之前：自检不过就不该产出可发布的附件。
       - name: 发版前自检
         run: |
           node --check faxuanyun-legal-exam-assistant.user.js
           node tools/selftest.mjs
           node tools/check-data.mjs
           node tools/check-workflows.mjs
+          node tools/merge-bank.mjs data/faxuanyun-legal-exam-bank-*.json -o /tmp/merged.json --quiet
+          node -e "const a=require('/tmp/merged.json');if(!a.count||a.count!==Object.keys(a.bank).length)process.exit(1);console.log('合并结果',a.count,'题')"
+          node tools/panel-smoke.mjs --require-browser
+          node tools/page-smoke.mjs --require-browser
 
       - name: 生成校验和与发布说明
         run: |
@@ -108,3 +114,39 @@ jobs:
           [ "$remote_sum" = "$recomputed" ] || fail "远端 .sha256 记录与附件复算值不一致（记录 $remote_sum / 复算 $recomputed）"
 
           echo "✓ Release $TAG 已发布：draft=false，附件 $count 个，SHA256 $recomputed 与远端一致"
+
+      # 发版门禁 4：自动更新链路。用户点「检查更新」读的是 main 分支上 @updateURL 指向的文件，
+      # 所以远端脚本里的 // @version 必须已经是本 tag；latest Release 也必须指向本 tag，
+      # 否则新装用户拿到旧版、老用户永远被提示「已是最新」。
+      # GitHub raw 有 CDN 缓存，刚打 tag 时可能还是旧内容，因此重试 6 次 × 20 秒；
+      # 仍不一致时先手动重跑本 workflow（多半是 CDN 延迟），重跑还红才是真问题。
+      - name: 更新链校验（远端 @updateURL / latest tag）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+
+          script_url="$(sed -n 's/^\/\/ @updateURL[[:space:]]\{1,\}//p' faxuanyun-legal-exam-assistant.user.js | head -n1)"
+          [ -n "$script_url" ] || script_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/faxuanyun-legal-exam-assistant.user.js"
+          echo "检查远端脚本：$script_url"
+
+          remote_version=""
+          for i in 1 2 3 4 5 6; do
+            body="$(curl -fsSL --max-time 20 "$script_url" 2>/dev/null || true)"
+            remote_version="$(printf '%s\n' "$body" | sed -n 's/^\/\/ @version[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' | head -n1)"
+            [ "${remote_version#v}" = "${TAG#v}" ] && break
+            echo "第 $i/6 次：远端版本 ${remote_version:-空}，未到 $TAG，20 秒后重试…"
+            sleep 20
+          done
+          [ "${remote_version#v}" = "${TAG#v}" ] || fail "远端 @updateURL 的 // @version 是「${remote_version:-空}」，与 tag $TAG 不一致。可能是 GitHub raw 的 CDN 还没刷新，稍后重跑本 workflow 即可；若重跑仍不一致，说明 main 上的脚本版本没跟上 tag"
+          echo "✓ 远端 @updateURL 已是 $TAG"
+
+          latest="$(gh release view --json tagName --jq '.tagName' 2>/dev/null || true)"
+          [ "$latest" = "$TAG" ] || fail "latest Release 是「${latest:-无}」，不是 $TAG；Releases 页的 latest 下载入口会落后，请到 Release 页面把 $TAG 设为 latest"
+          echo "✓ latest Release 指向 $TAG"
+

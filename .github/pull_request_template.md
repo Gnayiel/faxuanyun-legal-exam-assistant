@@ -5,7 +5,8 @@
 ## 验证
 
 - [ ] `node tools/selftest.mjs` 全部通过
-- [ ] `node tools/panel-smoke.mjs --require-browser` 全部通过（本机没有 Edge/Chrome 时 CI 会跑）
+- [ ] `node tools/panel-smoke.mjs --require-browser` 全部通过（本机没装 Edge/Chrome 时用 `FX_BROWSER` 指定浏览器；CI 会跑）
+- [ ] `node tools/page-smoke.mjs --require-browser` 全部通过（页面适配冒烟，CI 必跑）
 - [ ] 改动只落在该改的层（平台改版相关改动限制在「站点适配层」）
 - [ ] 没有提交 API Key、带日期的题库导出、日志或其它个人数据
 - [ ] 如果改了自检断言数，README / CHANGELOG / 脚本头部注释已同步（`selftest.mjs` 会校验）

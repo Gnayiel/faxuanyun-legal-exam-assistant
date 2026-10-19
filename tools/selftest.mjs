@@ -64,6 +64,21 @@ ok('downloadURL / updateURL 指向当前文件名（改名后必须同步）',
     one('updateURL').endsWith('/faxuanyun-legal-exam-assistant.user.js'),
     `${one('downloadURL')}  |  ${one('updateURL')}`);
 
+// 自动更新链路（C5）：油猴「检查更新」只认 https 直链；downloadURL / updateURL 各指一处时，
+// 不同客户端会从不同地址取更新，行为分叉且难排查，所以两个字段必须完全一致。
+const RAW_FILE = 'faxuanyun-legal-exam-assistant.user.js';
+const UPDATE_URL_PREFIXES = [
+    `https://raw.githubusercontent.com/${REPO}/main/`,
+    `https://github.com/${REPO}/raw/main/`,
+];
+const isUpdateUrl = u => UPDATE_URL_PREFIXES.some(p => u.startsWith(p)) && u.endsWith('/' + RAW_FILE);
+ok('downloadURL / updateURL 是完整 https 直链',
+    isUpdateUrl(one('downloadURL')) && isUpdateUrl(one('updateURL')),
+    `允许：${UPDATE_URL_PREFIXES.join(' 或 ')}${RAW_FILE}`);
+ok('downloadURL 与 updateURL 一致（两个字段不能各指一处）',
+    !!one('downloadURL') && one('downloadURL') === one('updateURL'),
+    `${one('downloadURL')}  |  ${one('updateURL')}`);
+
 // 脚本头部声明的白名单常量必须和 @connect 一致，否则「补一行 @connect」的提示会指错
 const connConst = code.match(/const CONNECT_HOSTS = \[([\s\S]*?)\];/);
 if (connConst) {
@@ -75,6 +90,14 @@ if (connConst) {
 } else {
     ok('找到 CONNECT_HOSTS 常量', false);
 }
+
+// 体积预算（C5）：单文件脚本越大，油猴解析越慢、从 GitHub raw 同步也越贵。
+// 超预算时应该拆资源或用外链，而不是继续往单文件里堆；实测值随名字一起打印。
+const SIZE_BUDGET = 512 * 1024;
+const sizeBytes = Buffer.byteLength(code, 'utf8');
+ok(`脚本体积在预算内（${(sizeBytes / 1024).toFixed(1)} KB ≤ ${SIZE_BUDGET / 1024} KB）`,
+    sizeBytes <= SIZE_BUDGET,
+    `${sizeBytes} 字节`);
 
 // ------------------------------------------------------------------ 加载
 console.log('\n[2/4] 在最小 DOM / 油猴打桩下加载脚本');

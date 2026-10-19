@@ -27,7 +27,7 @@ jobs:
         with:
           node-version: '22'
 
-      # 元数据校验 + 脚本内置的 97 项断言，无第三方依赖
+      # 元数据校验 + 脚本内置的 136 项断言，无第三方依赖
       - name: 内置自检
         run: node tools/selftest.mjs
 
@@ -45,7 +45,12 @@ jobs:
           node tools/merge-bank.mjs data/faxuanyun-legal-exam-bank-*.json -o /tmp/merged.json --quiet
           node -e "const a=require('/tmp/merged.json');if(!a.count||a.count!==Object.keys(a.bank).length)process.exit(1);console.log('合并结果',a.count,'题')"
 
-      # GitHub runner 自带 Edge；--require-browser 让「找不到浏览器」直接失败，
+      # GitHub runner 自带 Edge / Chrome；--require-browser 让「找不到浏览器」直接失败，
       # 避免面板冒烟被静默跳过、CI 假绿。
       - name: 面板冒烟测试
         run: node tools/panel-smoke.mjs --require-browser
+
+      # 页面适配冒烟：在 tests/fixtures/ 的脱敏考试页 / 成绩页上验证站点适配层
+      # （题干、选项、题型、题数、按钮、作答选中态、成绩解析）。
+      - name: 页面适配冒烟测试
+        run: node tools/page-smoke.mjs --require-browser

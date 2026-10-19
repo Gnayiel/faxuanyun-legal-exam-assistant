@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.5
-// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 118 项内置自检
+// @version      2.0.6
+// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 136 项内置自检
 // @author       GNAYIEL
 // @license      MIT
 // @match        *://gs.faxuanyun.com/*
@@ -90,7 +90,7 @@
  *   作答策略          多选组合枚举、chooseAnswer 决策、answerCurrent 单题流程
  *   成绩解析          答题卡颜色判定、分数读取、交卷对账入库
  *   考试流程控制      退出原因、暂停等待、倒计时、弹窗、最后一题、mainLoop
- *   内置自检          118 项纯函数断言 + window.__FX_TEST__ 测试钩子
+ *   内置自检          136 项纯函数断言 + window.__FX_TEST__ 测试钩子
  *   面板              UI 构建、分类折叠、拖拽、状态摘要、AI 设置、导入导出与日志按钮
  */
 
@@ -120,6 +120,10 @@
         // ---------- 请求超时 ----------
         baiduTimeout: GM_getValue('baiduTimeout', 8000),   // 百度请求超时（毫秒）
         aiTimeout: GM_getValue('aiTimeout', 15000),        // AI 请求超时（毫秒）
+        // 单题网络总预算（毫秒）：百度最坏 2 入口×3 次×8s + 2 跟进页、AI 再 3 次×15s，
+        // 串行且各自重试会把一道题拖到几分钟。两源共享这个 deadline，
+        // 单请求 timeout 取 min(配置, 剩余)，预算用完立刻按已有结果作答（A6）
+        queryBudgetMs: 20000,
 
         // ---------- 请求重试与限流 ----------
         maxRetry: GM_getValue('maxRetry', 2),              // 网络/超时/5xx 的重试次数
@@ -230,6 +234,7 @@
         opMaxPerMin: 90,              // 每分钟交互上限，超了自动放慢并提示
         pollStartInterval: 200,       // 轮询起始间隔
         pollMaxInterval: 1200,        // 轮询退避上限（页面没动静就慢慢等）
+        mutationThrottleMs: 100,      // DOM 观察器尾沿节流窗口（毫秒）：倒计时每秒改 DOM，不该每次都读题（B6）
         crashMax: 5,                  // 主循环连续异常多少次后停手
         errLogPerMin: 8,              // 站点自身异常每分钟最多记几条，避免刷屏
         keySalt: 'fx-legal-2026',     // API Key 落盘混淆用（不是加密，任何人都能还原）
@@ -889,10 +894,27 @@
     const fpKey = stem => '#' + hash32(normStem(stem));
 
     /**
+     * 试卷指纹（纯函数，自检可断言）：取本次作答记录里前 3 道题的主键，排序后拼接。
+     * 记录没有 stem（旧会话/手工构造）时退回它的 bankKey，再没有就跳过——全部空安全。
+     * 排序保证「题序不同但同卷」得到同一个值；不同卷即使分数/判定/记录数全撞也不会误去重（B1）。
+     */
+    function paperFingerprint(history) {
+        const list = Array.isArray(history) ? history : [];
+        const keys = [];
+        for (const r of list) {
+            if (!r) continue;
+            const k = r.stem ? fpKey(r.stem) : (r.bankKey || '');
+            if (k) keys.push(String(k));
+        }
+        return [...new Set(keys)].sort().slice(0, 3).join(',');
+    }
+
+    /**
      * 对账幂等键（纯函数，自检可断言）：
      * 同一份成绩页被重复解析时（手动点「解析成绩」/点「查看答题卡」再触发一次），
-     * 判定、分数、题号与本地记录数都相同 → 得到同一个键，用于跳过重复写库（B1）。
-     * 键 = 页面地址 + 分数 + 总分 + 逐题判定 + 本次作答记录数；任何一项变了都算新的一次对账。
+     * 判定、分数、题号、记录数与试卷指纹都相同 → 得到同一个键，用于跳过重复写库（B1）。
+     * 键 = 页面地址 + 分数 + 总分 + 逐题判定 + 本次作答记录数 + 试卷指纹（history 前 3 题）；
+     * 任何一项变了都算新的一次对账。旧版本写入的 lastReconcileKey 不带指纹，最多多写一次，可接受。
      */
     function reconcileKey(verdicts, scoreInfo, opt) {
         const v = verdicts || {};
@@ -905,7 +927,8 @@
         const loc = (typeof location !== 'undefined' && location)
             ? String(location.pathname || '') + String(location.search || '') : '';
         const len = (opt && opt.historyLen) || 0;
-        return hash32(`${loc}|${si.score == null ? '' : si.score}|${si.total == null ? '' : si.total}|${marks}|${len}`);
+        const fp = paperFingerprint(opt && opt.history);
+        return hash32(`${loc}|${si.score == null ? '' : si.score}|${si.total == null ? '' : si.total}|${marks}|${len}|${fp}`);
     }
 
     const inferType = ans => /^[01]$/.test(ans) ? 'judge' : (String(ans).length > 1 ? 'multi' : 'single');
@@ -919,6 +942,108 @@
     // pendingDeletes / pendingWrongDeletes 是「墓碑」：本页删掉的键，合并时不再从盘上搬回来
     const pendingDeletes = new Set(), pendingWrongDeletes = new Set();
     let bankVer = 0, idxCache = null, idxVer = -1;
+
+    // ==================== 持久化墓碑（跨标签页删除保护，B7） ====================
+    // 只靠内存里的 pendingDeletes 挡不住这个顺序：
+    //   A 页判错 → 删掉条目 → flush 写盘（盘上没这条了）
+    //   B 页 flush → 读盘合并（读不到被删的条目），但 B 页内存里还留着旧条目，
+    //   于是把「本该删掉」的答案原样写回盘 —— 删除等于没发生。
+    // 修法：删除时把键记进 GM 存储的墓碑表（{key: 时间戳}，7 天过期）；
+    // 任何标签页在「读盘合并 → 写盘」之前都先按墓碑过滤；同键再次答对/新增时清墓碑。
+    const TOMB_TTL = 7 * 24 * 60 * 60 * 1000;                       // 墓碑保鲜期：7 天
+    const TOMB_KEYS = { bank: 'fx_bank_tombs', wrong: 'fx_wrong_tombs' };
+    const tombMem = { bank: null, wrong: null };
+
+    /** 清掉过期墓碑（纯函数，自检可断言）：只保留 ttl 内（含边界）的记录 */
+    function purgeTombstones(map, now, ttl) {
+        const out = {};
+        for (const [k, ts] of Object.entries(map || {})) {
+            if (now - (+ts || 0) < (ttl || TOMB_TTL)) out[k] = +ts || now;
+        }
+        return out;
+    }
+    /** 登记一条墓碑（纯函数）：返回新表，不改入参 */
+    const addTombKey = (map, key, now) => (key ? { ...(map || {}), [key]: now } : { ...(map || {}) });
+    /** 清一条墓碑（纯函数）：返回新表，不改入参 */
+    function clearTombKey(map, key) {
+        const out = { ...(map || {}) };
+        delete out[key];
+        return out;
+    }
+    /** 剔除墓碑键（纯函数，自检可断言）：删掉的条目不该被任何标签页写回来 */
+    function filterTombstoned(map, tombs) {
+        const out = {};
+        for (const [k, v] of Object.entries(map || {})) if (!(k in (tombs || {}))) out[k] = v;
+        return out;
+    }
+    function tombMap(which) {
+        if (!TOMB_KEYS[which]) return {};
+        if (!tombMem[which]) {
+            let raw = {};
+            try { raw = GM_getValue(TOMB_KEYS[which], {}) || {}; } catch { }
+            tombMem[which] = purgeTombstones(raw, Date.now(), TOMB_TTL);
+        }
+        return tombMem[which];
+    }
+    function saveTombMap(which) {
+        try { GM_setValue(TOMB_KEYS[which], tombMem[which] || {}); } catch { }
+    }
+    /** 删除/淘汰时登记墓碑：其它标签页合并时「墓碑优先」 */
+    function addTombstone(which, key) {
+        if (!key || !TOMB_KEYS[which]) return;
+        tombMem[which] = addTombKey(tombMap(which), key, Date.now());
+        saveTombMap(which);
+    }
+    /** 同键再次答对/新增时清墓碑：否则新答案会被别的标签页的旧墓碑压掉 */
+    function clearTombstone(which, key) {
+        if (!key || !TOMB_KEYS[which]) return;
+        const m = tombMap(which);
+        if (!(key in m)) return;
+        tombMem[which] = clearTombKey(m, key);
+        saveTombMap(which);
+    }
+    function isTombstoned(which, key) {
+        return !!key && !!TOMB_KEYS[which] && (key in tombMap(which));
+    }
+    /** 导入是「用户明确要求这些条目进库」：清掉本地遗留墓碑，跨电脑导入的合并语义不受影响 */
+    function resetTombstones() {
+        tombMem.bank = {};
+        tombMem.wrong = {};
+        saveTombMap('bank');
+        saveTombMap('wrong');
+    }
+    /** 从内存副本里删掉墓碑键，返回删除条数（flush 前调用，保证不再写回盘） */
+    function dropTombstoned(cache, which) {
+        const tombs = tombMap(which);
+        let n = 0;
+        for (const k of Object.keys(cache || {})) {
+            if (!(k in tombs)) continue;
+            delete cache[k]; n++;
+        }
+        return n;
+    }
+    /**
+     * 别的标签页改动后的双向合并（用 oldV→newV 差异判断删除）：
+     * 新增的键并进来；oldV 里有、newV 里没有的键 = 对方删掉了 → 本页也删，并登记墓碑（B7）。
+     */
+    function syncFromStorage(cache, pendingSet, which, oldV, newV) {
+        const ov = oldV && typeof oldV === 'object' ? oldV : {};
+        const nv = newV && typeof newV === 'object' ? newV : {};
+        if (!cache) return { added: 0, removed: 0 };
+        tombMem[which] = null;      // 对方可能刚清过墓碑（它又答对了），合并前先重读一次
+        let added = 0, removed = 0;
+        for (const k of Object.keys(nv)) {
+            if (k in cache || (pendingSet && pendingSet.has(k)) || isTombstoned(which, k)) continue;
+            cache[k] = nv[k]; added++;
+        }
+        for (const k of Object.keys(ov)) {
+            if (k in nv) continue;                       // 盘上仍然有：不是删除
+            if (pendingSet) pendingSet.add(k);
+            if (k in cache) { delete cache[k]; removed++; }
+            if (!isTombstoned(which, k)) addTombstone(which, k);
+        }
+        return { added, removed };
+    }
 
     function blankEntry(o = {}) {
         return {
@@ -959,6 +1084,8 @@
     function ensureBank() {
         if (bankCache) return bankCache;
         bankCache = migrateBank(GM_getValue('questionBank', {}));
+        // 盘上残留的墓碑键不载入（另一标签页删过、只是本页还没 flush 时会出现）（B7）
+        for (const k of Object.keys(bankCache)) if (isTombstoned('bank', k)) delete bankCache[k];
         if (GM_getValue('bankSchema', 1) < SCHEMA) { GM_setValue('bankSchema', SCHEMA); dirty = true; }
         return bankCache;
     }
@@ -978,6 +1105,7 @@
                     };
                 }
             }
+            for (const k of Object.keys(wrongCache)) if (isTombstoned('wrong', k)) delete wrongCache[k];
         }
         return wrongCache;
     }
@@ -993,7 +1121,7 @@
             || (b[x].us || 0) - (b[y].us || 0));
         const drop = keys.slice(0, keys.length - CONFIG.bankMaxEntries);
         // 淘汰也要登记墓碑：否则另一标签页的写库事件会把盘上仍存在的这些键再并回来
-        drop.forEach(k => { delete b[k]; pendingDeletes.add(k); });
+        drop.forEach(k => { delete b[k]; pendingDeletes.add(k); addTombstone('bank', k); });
         return drop.length;
     }
 
@@ -1008,7 +1136,7 @@
         const info = k => (wb[k].w.length + wb[k].tried.length) * 10 + (wb[k].q ? 1 : 0);
         keys.sort((x, y) => info(x) - info(y));
         const drop = keys.slice(0, keys.length - CONFIG.wrongMaxEntries);
-        drop.forEach(k => { delete wb[k]; pendingWrongDeletes.add(k); });
+        drop.forEach(k => { delete wb[k]; pendingWrongDeletes.add(k); addTombstone('wrong', k); });
         return drop.length;
     }
 
@@ -1018,13 +1146,14 @@
      * tombstones：本页故意删掉的键，必须跳过——否则「删掉的答案」会被盘上的旧副本原样搬回来
      * （这正是「答错删不掉库里的错答案」「容量淘汰不生效」的根因）
      */
-    function mergeFromStore(key, cache, tombstones) {
+    function mergeFromStore(key, cache, tombstones, which) {
         let disk = null;
         try { disk = JSON.parse(JSON.stringify(GM_getValue(key, {}) || {})); } catch { return 0; }
         let n = 0;
         for (const k of Object.keys(disk)) {
             if (k in cache) continue;
             if (tombstones && tombstones.has(k)) continue;
+            if (which && isTombstoned(which, k)) continue;   // 持久化墓碑优先：别的标签页删掉的不搬回来（B7）
             cache[k] = disk[k]; n++;
         }
         return n;
@@ -1162,7 +1291,8 @@
         }
         try {
             if (bankCache) {
-                const foreign = mergeFromStore('questionBank', bankCache, pendingDeletes);
+                const foreign = mergeFromStore('questionBank', bankCache, pendingDeletes, 'bank');
+                dropTombstoned(bankCache, 'bank');   // 别的标签页删掉的键：本页也别再写回去（B7）
                 const n = enforceCapacity(bankCache);
                 if (n) log(`🧹 超出容量上限，已淘汰 ${n} 条低分记录`);
                 GM_setValue('questionBank', bankCache);
@@ -1174,7 +1304,8 @@
                 }
             }
             if (wrongCache) {
-                const fw = mergeFromStore('wrongBank', wrongCache, pendingWrongDeletes);
+                const fw = mergeFromStore('wrongBank', wrongCache, pendingWrongDeletes, 'wrong');
+                dropTombstoned(wrongCache, 'wrong');
                 const nw = enforceWrongCapacity(wrongCache);
                 if (nw) log(`🧹 错题记录超出容量上限，已淘汰 ${nw} 条`);
                 GM_setValue('wrongBank', wrongCache);
@@ -1194,22 +1325,27 @@
         }
     }
 
-    // 别的标签页写库时，反过来把新条目并进来
+    // 别的标签页写库时，反过来把新条目并进来；它删掉的键要同步删掉并记墓碑，
+    // 否则本页 flush 会把「对方刚删掉的旧答案」原样写回盘（B7）。
     if (typeof GM_addValueChangeListener === 'function') {
         try {
-            GM_addValueChangeListener('questionBank', (name, oldV, newV, remote) => {
-                if (!remote || !bankCache) return;          // 自己写的不用管、还没读过库的也不用管
-                let n = 0;
-                for (const k of Object.keys(newV || {})) {
-                    if (k in bankCache || pendingDeletes.has(k)) continue;   // 本页刚删掉的键不要再捡回来
-                    bankCache[k] = newV[k]; n++;
-                }
-                if (n) {
-                    bankVer++; idxVer = -1;
-                    log(`🔄 另一标签页更新了题库，已并入 ${n} 条`);
-                    notify(`另一标签页写入了 ${n} 条题目，已自动合并`, 'warn');
-                }
-            });
+            const watchStore = (storeKey, which, label) => {
+                GM_addValueChangeListener(storeKey, (name, oldV, newV, remote) => {
+                    if (!remote) return;                    // 自己写的不用管
+                    const cache = which === 'bank' ? bankCache : wrongCache;
+                    const tombs = which === 'bank' ? pendingDeletes : pendingWrongDeletes;
+                    const r = syncFromStorage(cache, tombs, which, oldV, newV);
+                    if (!r.added && !r.removed) return;
+                    if (which === 'bank') { bankVer++; idxVer = -1; }
+                    log(`🔄 另一标签页更新了${label}：并入 ${r.added} 条${r.removed ? `，同步删除 ${r.removed} 条` : ''}`);
+                    notify(`另一标签页更新了${label}（并入 ${r.added} 条${r.removed ? `、删除 ${r.removed} 条` : ''}）`, 'warn');
+                });
+            };
+            watchStore('questionBank', 'bank', '题库');
+            watchStore('wrongBank', 'wrong', '错题记录');
+            // 墓碑表被别的标签页改过（清了某个键的墓碑 = 它又答对了）：作废本页缓存，下次重读
+            GM_addValueChangeListener(TOMB_KEYS.bank, () => { tombMem.bank = null; });
+            GM_addValueChangeListener(TOMB_KEYS.wrong, () => { tombMem.wrong = null; });
         } catch { }
     }
 
@@ -1314,11 +1450,20 @@
      * 库里的答案是否就是本次选错的那个答案（纯函数）
      * 只有一致才允许「删除 + 写墓碑」：不一致说明库内条目不是这次作答的依据（换题/被改过），
      * 删掉会把别的正确答案一起误伤（A1）。
+     * 有选项文本时以文本为准（字母只是辅助）：选项乱序、题库迁移后字母可能和文本对不上，
+     * 这时按字母判等会误删「字母相同、文本不同」的正确条目（P2#2）。
+     * 只有旧条目（没有 a，只有 l）才退回按字母判等。
      */
     function bankAnswerIsWrongPick(rec, e) {
         if (!rec || !e) return false;
-        const texts = (rec.pickedText || []).filter(Boolean);
-        return (!!(e.l && e.l === rec.letters)) || (!!(e.a && e.a.length) && sameTexts(e.a, texts));
+        const norm = t => String(t || '').replace(/\s+/g, '').trim();
+        const texts = (rec.pickedText || []).filter(Boolean).map(norm);
+        if (e.a && e.a.length) {
+            if (!texts.length) return false;                  // 库内有文本、本次没有文本：无从比对，宁可不删
+            const bank = e.a.filter(Boolean).map(norm);
+            return sameTexts(bank, texts);
+        }
+        return !!e.l && e.l === rec.letters;                  // 旧条目只有字母：仍按字母判等
     }
 
     /**
@@ -1377,7 +1522,7 @@
         if (!prefixSame(e.q || oldKey, stem)) return oldKey;     // 不是同一题的截断版本，不动它
         e.q = pureStem(stem);
         b[nk] = e;
-        delete b[oldKey]; pendingDeletes.add(oldKey);
+        delete b[oldKey]; pendingDeletes.add(oldKey); addTombstone('bank', oldKey); clearTombstone('bank', nk);
         const wb = ensureWrong();
         if (wb[oldKey]) {
             const prev = wb[nk] || blankWrong();
@@ -1386,7 +1531,7 @@
                 w: [...new Set([...(prev.w || []), ...(wb[oldKey].w || [])])],
                 tried: [...new Set([...(prev.tried || []), ...(wb[oldKey].tried || [])])],
             };
-            delete wb[oldKey]; pendingWrongDeletes.add(oldKey);
+            delete wb[oldKey]; pendingWrongDeletes.add(oldKey); addTombstone('wrong', oldKey); clearTombstone('wrong', nk);
         }
         dirty = true; bankVer++;
         return nk;
@@ -1449,6 +1594,7 @@
         let k = findEquivalent(stem);
         if (k && k !== nk) k = upgradeKey(k, stem);    // 归并到规范键，同时把截断题干补全
         if (!k) k = nk;
+        clearTombstone('bank', k);          // 同键再次写入（答对/手改）：解除墓碑，别被别的标签页压掉（B7）
         const e = b[k];
         const user = by === 'user';
         let saved = 0, conflict = false;
@@ -1500,6 +1646,7 @@
         let k = findEquivalent(stem);
         if (k && k !== nk) k = upgradeKey(k, stem);
         if (!k) k = nk;
+        clearTombstone('bank', k);          // 同键再次写入（答对/手改）：解除墓碑，别被别的标签页压掉（B7）
         const e = b[k];
         if (!e) {
             b[k] = blankEntry({ q: pureStem(stem), t: type || 'single', a: texts, l: letters, src: 'user', by: 'user', ts: TS(), us: TS() });
@@ -1565,7 +1712,7 @@
         const wb = ensureWrong();
         const nk = fpKey(stem), lk = pureStem(stem).slice(0, 50);
         let n = 0;
-        for (const k of [nk, lk]) if (k && wb[k]) { delete wb[k]; pendingWrongDeletes.add(k); n++; }
+        for (const k of [nk, lk]) if (k && wb[k]) { delete wb[k]; pendingWrongDeletes.add(k); addTombstone('wrong', k); n++; }
         if (n) dirty = true;
         return n;
     }
@@ -1581,7 +1728,8 @@
             w: prev.w || [],
             tried: [...new Set([...(prev.tried || []), comboText])],
         };
-        if (lk !== nk) { delete wb[lk]; pendingWrongDeletes.add(lk); }   // 登记墓碑，别被盘上旧键搬回来
+        if (lk !== nk) { delete wb[lk]; pendingWrongDeletes.add(lk); addTombstone('wrong', lk); }   // 登记墓碑，别被盘上旧键搬回来
+        clearTombstone('wrong', nk);
         dirty = true;
         return 1;
     }
@@ -1597,7 +1745,8 @@
             w: [...new Set([...(prev.w || []), ...texts])],
             tried: prev.tried || [],
         };
-        if (lk !== nk) { delete wb[lk]; pendingWrongDeletes.add(lk); }   // 登记墓碑，别被盘上旧键搬回来
+        if (lk !== nk) { delete wb[lk]; pendingWrongDeletes.add(lk); addTombstone('wrong', lk); }   // 登记墓碑，别被盘上旧键搬回来
+        clearTombstone('wrong', nk);
         enforceWrongCapacity(wb);
         dirty = true;
         return texts.length;
@@ -2017,6 +2166,7 @@
     /** 导入入口：按内容自动判别 CSV / JSON */
     function importData(text) {
         const t = String(text || '').replace(/^\ufeff/, '').trim();
+        resetTombstones();   // 用户主动导入=明确要求这些条目进库：清掉本地遗留墓碑（B7），跨电脑合并语义不变
         if (t.startsWith('{') || t.startsWith('[')) {
             // 数组形态以前被换成空 bank 静默丢弃，现在原样交给 importJson
             return importJson(t);
@@ -2343,9 +2493,13 @@
             return {
                 letters: k,
                 // 封顶 1：两源一致时 max 0.9 + 0.15 会到 1.05，旧实现甚至能到 1.0999，
-                // 既超出 0~1 的把握度语义，也把后面的 gap 比较带偏（A2）
-                conf: Math.min(1, Math.max(...v.map(x => x.conf || 0.5)) + (srcs.length > 1 ? CONFIG.multiSourceBonus : 0)),
+                // 既超出 0~1 的把握度语义，也把后面的 gap 比较带偏（A2）。
+                // conf 缺失才补 0.5：旧实现 `x.conf || 0.5` 把「明确给出 0」抬成 0.5，
+                // 等于「模型说完全没把握」被当成中等把握（P2#1）
+                conf: Math.min(1, Math.max(...v.map(x => x.conf == null ? 0.5 : x.conf)) + (srcs.length > 1 ? CONFIG.multiSourceBonus : 0)),
                 srcs,
+                // structured：「AI 给了结构化 JSON」的机器可读标记；why 只是给人看的文案（P2#5）
+                structured: v.some(x => x && x.structured === true),
                 why: v[0].why,
             };
         }).sort((a, b) => b.conf - a.conf);
@@ -2357,7 +2511,7 @@
         // 折减是「两把尺子」的问题：比较前把百度分数除回去再算 gap；
         // 另外 AI 结构化 JSON（模型明确给了答案和把握度）conf≥0.8 时直接采信。
         if (ranked[0].srcs.length === 1 && ranked[0].srcs[0] === 'ai'
-            && /^AI 结构化/.test(String(ranked[0].why || '')) && ranked[0].conf >= 0.8) {
+            && ranked[0].structured === true && ranked[0].conf >= 0.8) {
             return ranked[0];
         }
         const eff = r => (r.srcs.length === 1 && r.srcs[0] === 'baidu')
@@ -2377,13 +2531,31 @@
     const releaseReq = () => { reqActive--; reqQueue.shift()?.(); };
 
     /**
+     * 单次请求超时（纯函数，自检可断言）：
+     * 取「配置超时」与「剩余预算」的较小值；预算已耗尽返回 0，调用方据此不再发请求、不再重试（A6）。
+     */
+    function requestTimeout(configured, deadline, now) {
+        const base = +configured > 0 ? +configured : CONFIG.baiduTimeout;
+        if (!deadline) return base;
+        const left = +deadline - (+now || Date.now());
+        return left > 0 ? Math.max(1, Math.min(base, Math.floor(left))) : 0;
+    }
+
+    /**
      * 带重试与退避的请求
      * 只对「超时 / 网络错误 / 5xx」重试，4xx 是参数或鉴权问题，重试没有意义。
+     * o.deadline：本题网络总预算的截止时间戳；每次尝试的 timeout 取 min(配置, 剩余)，
+     *             预算耗尽立刻返回 { err:'budget', budgetSpent:true }，不再重试（A6）。
+     * o.maxRetry：单次调用可覆盖全局重试次数（跟进页用 0，别把预算耗在补充页上）。
      * 始终返回结构化结果 { ok, status, text, err }，不抛异常、不静默。
      */
     async function request(o) {
+        const deadline = o.deadline || 0;
+        const maxRetry = Number.isFinite(o.maxRetry) ? o.maxRetry : CONFIG.maxRetry;
         let last = { ok: false, status: 0, text: '', err: 'unknown' };
-        for (let i = 0; i <= CONFIG.maxRetry; i++) {
+        for (let i = 0; i <= maxRetry; i++) {
+            const timeout = requestTimeout(o.timeout || CONFIG.baiduTimeout, deadline, Date.now());
+            if (!timeout) return { ok: false, status: 0, text: '', err: 'budget', budgetSpent: true };   // 预算耗尽：立即返回，不重试
             await acquireReq();
             try {
                 last = await new Promise(resolve => {
@@ -2392,7 +2564,7 @@
                         url: o.url,
                         headers: o.headers,
                         data: o.data,
-                        timeout: o.timeout || CONFIG.baiduTimeout,
+                        timeout,
                         onload: x => resolve({ ok: x.status >= 200 && x.status < 300, status: x.status, text: x.responseText || '', err: '' }),
                         onerror: () => resolve({ ok: false, status: 0, text: '', err: 'network' }),
                         ontimeout: () => resolve({ ok: false, status: 0, text: '', err: 'timeout' }),
@@ -2401,7 +2573,7 @@
             } finally { releaseReq(); }
             if (last.ok) return last;
             const worthRetry = last.err === 'timeout' || last.err === 'network' || last.status >= 500;
-            if (!worthRetry || i === CONFIG.maxRetry) return last;
+            if (!worthRetry || i === maxRetry) return last;
             await sleep(CONFIG.retryBaseMs * Math.pow(2, i));
         }
         return last;
@@ -2431,19 +2603,96 @@
 
     const SRC_NAME = { ai: 'AI', baidu: '百度' };
 
+    /** 空白归一后的「扁平文本」+ 每个字符在原文里的下标（纯函数） */
+    function flattenText(text) {
+        const src = String(text || '');
+        let flat = '';
+        const map = [];
+        for (let i = 0; i < src.length; i++) {
+            if (/\s/.test(src[i])) continue;
+            flat += src[i];
+            map.push(i);
+        }
+        return { flat, map };
+    }
+
+    /**
+     * 在「空白归一」后的文本里按 len 字片段查找并删掉原文对应区间（纯函数，自检可断言）。
+     * 用途：百度会把查询词拆开回显（「正确 答案」/标题里被标签隔开），整段永远匹配不到；
+     * 8 字窗口足够长，不会误删无关文字，又能容忍中间插进来的空白（A5）。
+     */
+    function removeFlatFragments(text, frag, len = 8) {
+        const src = String(text || '');
+        const f = String(frag || '').replace(/\s+/g, '');
+        if (!f || f.length < len) return src;
+        const { flat, map } = flattenText(src);
+        const cuts = [];
+        const find = needle => {
+            let at = flat.indexOf(needle);
+            while (at >= 0) {
+                cuts.push([map[at], map[at + needle.length - 1] + 1]);
+                at = flat.indexOf(needle, at + needle.length);
+            }
+        };
+        for (let i = 0; i + len <= f.length; i += 4) find(f.slice(i, i + len));   // 步长 4 保证任意 8 字窗口都被覆盖
+        find(f.slice(-len));                                                     // 尾片段：保证「正确答案」这类结尾词也删掉
+        if (!cuts.length) return src;
+        cuts.sort((a, b) => a[0] - b[0]);
+        let out = '', pos = 0;
+        for (const [a, b] of cuts) {
+            if (b <= pos) continue;                 // 已被前一段覆盖
+            if (a > pos) out += src.slice(pos, a);
+            out += ' ';
+            pos = b;
+        }
+        return out + src.slice(pos);
+    }
+
     /**
      * 去掉搜索结果里「我们自己的查询词」回显。
      * 百度会把查询词原样放进标题/摘要，而查询词里带着「正确答案」字样，
      * 回显就会被 extractAnswer 的 keyed 分支当成答案线索，虚增把握度。
+     * 两轮：① 原样出现 → 整段删；② 被拆词/插空白 → 空白归一后按 8 字片段删（A5）。
      */
     function stripQueryEcho(text, queries) {
         let t = String(text || '');
-        for (const q of queries || []) {
-            const s = String(q || '').trim();
-            if (s.length < 6) continue;
+        const qs = (queries || []).map(s => String(s || '').trim())
+            .filter(s => s.length >= 6)
+            .sort((a, b) => b.replace(/\s+/g, '').length - a.replace(/\s+/g, '').length);   // 长的先删，避免短查询把长回显切碎
+        for (const s of qs) {
+            const flat = s.replace(/\s+/g, '');
+            if (flat.length >= 8) t = removeFlatFragments(t, flat, 8);
             t = t.split(s).join(' ');
         }
         return t.replace(/\s+/g, ' ').trim();
+    }
+
+    /**
+     * 查询词截断（纯函数，自检可断言）：题干长时只取「头 40 字 + 尾 20 字」，中间省略。
+     * 旧实现 slice(0,60) 只留头部：题干的关键限定/问法常在尾部，被切掉后搜出来的题经常对不上（A5）。
+     */
+    function clipQuery(stemText, head = 40, tail = 20) {
+        const s = String(stemText || '').replace(/\s+/g, ' ').trim();
+        if (s.length <= head + tail) return s;
+        return s.slice(0, head) + '…' + s.slice(-tail);
+    }
+
+    /**
+     * 跟进结果页相关性（纯函数，自检可断言）：
+     * 搜索结果里混着广告/导航页，正文里根本没有这道题，跟进只会把噪声塞进答案候选（A5）。
+     * 判定：正文（空白与标点归一后）含题干前 20 字 → 相关；否则按题干 bigram 覆盖率 ≥ 0.5 认。
+     */
+    function followPageRelevant(pageText, stem) {
+        const page = normStem(pageText);
+        const st = normStem(stem);
+        if (!page || !st) return false;
+        if (page.includes(st.length >= 20 ? st.slice(0, 20) : st)) return true;
+        let hit = 0, total = 0;
+        for (let i = 0; i + 2 <= st.length; i++) {
+            total++;
+            if (page.includes(st.slice(i, i + 2))) hit++;
+        }
+        return total > 0 && hit / total >= 0.5;
     }
 
     /**
@@ -2523,24 +2772,27 @@
             const conf = (obj.confidence !== undefined && obj.confidence !== null
                 && Number.isFinite(rawConf) && rawConf >= 0 && rawConf <= 1) ? rawConf : 0.9;
             const reason = obj.reason || obj['理由'] || '';
-            return { letters: ans, conf, why: `AI 结构化${reason ? `：${String(reason).slice(0, 40)}` : ''}` };
+            // structured：机器可读的「结构化答案」标记。以前靠 why 文案的「AI 结构化」前缀做正则判定，
+            // 文案一改直采就悄悄失效；why 现在只用于展示/日志（P2#5）
+            return { letters: ans, conf, structured: true, why: `AI 结构化${reason ? `：${String(reason).slice(0, 40)}` : ''}` };
         }
         // 3) 不是 JSON → 退回文本抽取（兼容不支持 JSON 输出的接口/模型）
         const fb = extractAnswer(raw, options, type);
-        return fb ? { ...fb, why: `${fb.why}（AI 文本兜底）` } : null;
+        return fb ? { ...fb, structured: false, why: `${fb.why}（AI 文本兜底）` } : null;
     }
 
-    /** 百度：多个入口 + 跟进具体结果页正文 */
-    async function queryBaidu(stem) {
-        const q = stem.replace(/^\d+[、.．)]\s*[（(].*?[)）]\s*/, '').slice(0, 60);
+    /** 百度：多个入口 + 只跟进「确实在讲这道题」的结果页正文（A5 / A6） */
+    async function queryBaidu(stem, ctx = {}) {
+        const q = clipQuery(pureStem(stem));                 // 头 40 + 尾 20：题干尾部常含关键限定（A5）
         const entries = [
             `https://www.baidu.com/s?wd=${encodeURIComponent(q + ' 正确答案')}`,
             `https://www.baidu.com/s?wd=${encodeURIComponent(q + ' 答案')}`,
         ];
         const queries = [q + ' 正确答案', q + ' 答案', q];   // 需要从结果正文里剔除的查询词回显
-        let text = '', note = '';
+        let text = '', note = '', budgetSpent = false;
         for (const url of entries) {
-            const r = await request({ url, headers: { 'User-Agent': UA }, desc: '百度' });
+            const r = await request({ url, headers: { 'User-Agent': UA }, desc: '百度', deadline: ctx.deadline });
+            if (r.budgetSpent) { budgetSpent = true; note = '本题网络预算已用完'; break; }   // 预算耗尽：不换入口、不重试（A6）
             if (!r.ok) { note = failText(r, '百度'); continue; }
             // 反爬/验证码/跳转页识别：正文很短且不含结果块
             if (/安全验证|请输入验证码|访问异常|网络不给力/.test(r.text.slice(0, 3000))) {
@@ -2551,21 +2803,28 @@
                 note = '百度未返回搜索结果（可能被跳转或需登录）';
             }
             text += stripQueryEcho(stripHtml(r.text), queries);
-            // 跟进前 N 条结果页正文，避免只看标题摘要
+            // 跟进前 N 条结果页正文，避免只看标题摘要。
+            // 跟进页指向的是站外页面，混着广告/导航页：正文不是这道题就跳过（A5）。
             const links = [...r.text.matchAll(/href="(https?:\/\/(?:www\.)?baidu\.com\/link\?url=[^"]+)"/g)]
                 .map(m => m[1].replace(/&amp;/g, '&'))
                 .slice(0, CONFIG.baiduFollowLinks);
             for (const u of links) {
-                const pr = await request({ url: u, headers: { 'User-Agent': UA }, desc: '结果页' });
-                if (pr.ok && pr.text) text += stripQueryEcho(stripHtml(pr.text), queries);
+                // 跟进页只是补充：不重试，避免一页拖垮整题预算（A6）
+                const pr = await request({ url: u, headers: { 'User-Agent': UA }, desc: '结果页', maxRetry: 0, deadline: ctx.deadline });
+                if (pr.budgetSpent) { budgetSpent = true; break; }
+                if (!pr.ok || !pr.text) continue;
+                const pageText = stripHtml(pr.text);
+                if (!followPageRelevant(pageText, stem)) { dbg('跳过与本题无关的跟进页（广告/导航）'); continue; }
+                text += stripQueryEcho(pageText, queries);
             }
+            if (budgetSpent) break;
             if (text.trim().length >= CONFIG.baiduMinChars) break;
         }
-        return { text: text.trim() || null, note };
+        return { text: text.trim() || null, note, budgetSpent };
     }
 
     /** AI：模型与参数可配，提问模板适配题型 */
-    async function queryAI(stem, options, type) {
+    async function queryAI(stem, options, type, ctx = {}) {
         const url = GM_getValue('aiUrl', ''), key = getKey();
         if (!url) return { text: null, note: '未设置 API 地址，AI 模式不可用' };
         if (!key) return { text: null, note: '未设置 API Key，AI 模式不可用' };
@@ -2585,7 +2844,7 @@
                   `confidence 是你对答案的把握，0~1 之间的小数）`;
 
         const r = await request({
-            method: 'POST', url, timeout: CONFIG.aiTimeout, desc: 'AI',
+            method: 'POST', url, timeout: CONFIG.aiTimeout, desc: 'AI', deadline: ctx.deadline,
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
             data: JSON.stringify({
                 model: CONFIG.aiModel,
@@ -2620,26 +2879,46 @@
      * 1. 按面板选择的模式决定主源，另一源作为备源
      * 2. 主源没结果/失败 → 自动降级到备源
      * 3. 主源把握不足（或题目是多选）→ 追加备源做交叉验证
-     * 返回 { cand, notes }：cand 为 { letters, conf, srcs, why } 或 null
+     * 4. 两个来源共享「单题网络总预算」：预算耗尽立即按已得结果作答，不再重试（A6）
+     * 返回 { cand, notes, budget }：cand 为 { letters, conf, srcs, why } 或 null；
+     * budget=true 表示本题因预算耗尽提前收尾（不代表答案一定错）
      */
     async function queryAnswer(stem, options, type, opts = {}) {
         const forceTwoSources = !!opts.forceTwoSources;   // 强制两个来源都查（冲突题交叉验证用）
         const notes = [];
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-            return { cand: null, notes: ['当前离线，已跳过联网查询'] };
+            return { cand: null, notes: ['当前离线，已跳过联网查询'], budget: false };
         }
+        const budgetMs = Math.max(1000, +CONFIG.queryBudgetMs || 20000);
+        const deadline = Date.now() + budgetMs;
         const order = CONFIG.answerMode === 'ai' ? ['ai', 'baidu'] : ['baidu', 'ai'];
         const cands = [];
-        let needSecond = true;
+        let needSecond = true, budgetSpent = false;
         for (const src of order) {
             if (!needSecond) {
                 notes.push(`主源${SRC_NAME[order[0]]}把握 ${(cands[0].conf * 100).toFixed(0)}%，跳过${SRC_NAME[src]}交叉验证`);
                 break;
             }
-            const r = src === 'ai' ? await queryAI(stem, options, type) : await queryBaidu(stem);
-            if (!r.text) { notes.push(`${SRC_NAME[src]}：${r.note || '未搜到相关内容'}`); continue; }
+            if (!requestTimeout(CONFIG.baiduTimeout, deadline, Date.now())) {   // 预算已用完：不再起新请求
+                budgetSpent = true;
+                notes.push(`⏱ 本题网络预算（${Math.round(budgetMs / 1000)} 秒）已用完，先按已获得的结果作答`);
+                break;
+            }
+            const r = src === 'ai'
+                ? await queryAI(stem, options, type, { deadline })
+                : await queryBaidu(stem, { deadline });
+            if (r.budgetSpent) budgetSpent = true;
+            if (!r.text) {
+                notes.push(`${SRC_NAME[src]}：${r.budgetSpent ? '本题网络预算已用完' : (r.note || '未搜到相关内容')}`);
+                if (r.budgetSpent) break;      // 预算耗尽：不再试备源
+                continue;
+            }
             const c = src === 'ai' ? extractAIAnswer(r.text, options, type) : extractAnswer(r.text, options, type);
-            if (!c) { notes.push(`${SRC_NAME[src]}：有返回但解析不出答案`); continue; }
+            if (!c) {
+                notes.push(`${SRC_NAME[src]}：有返回但解析不出答案`);
+                if (Date.now() >= deadline) { budgetSpent = true; break; }
+                continue;
+            }
             if (src === 'baidu') {
                 // 百度结果页回显容易虚高，统一打折；低了自然会追加第二源交叉验证
                 c.conf = Math.max(0.3, Math.round(c.conf * CONFIG.baiduConfFactor * 100) / 100);
@@ -2649,9 +2928,14 @@
             notes.push(`${SRC_NAME[src]}：${c.letters}（${c.why}，把握 ${(c.conf * 100).toFixed(0)}%）`);
             // 主源把握足够、不是多选题、也没开强制二源时，不再打扰备源
             needSecond = forceTwoSources || c.conf < CONFIG.crossCheckBelow || type === 'multi';
+            if (Date.now() >= deadline) {
+                budgetSpent = true;
+                notes.push(`⏱ 本题网络预算（${Math.round(budgetMs / 1000)} 秒）已用完，先按已获得的结果作答`);
+                break;
+            }
         }
         const merged = mergeCandidates(cands, type, options);
-        return { cand: merged, notes };
+        return { cand: merged, notes, budget: budgetSpent };
     }
 
 
@@ -2815,18 +3099,45 @@
     }
 
     /**
+     * 尾沿节流（纯函数，自检可断言；timer 可注入假定时器）：
+     * 窗口内多次调用只保留最后一次的参数，在最后一次调用后 wait 毫秒执行。
+     * 用于 DOM 观察器：倒计时每秒都在改 DOM，但真正需要的是「安静下来后检查一次」（B6）。
+     */
+    function trailingThrottle(fn, wait, timer) {
+        const t = timer || { set: setTimeout, clear: clearTimeout };
+        let handle = null, pending = null, hasPending = false;
+        const wrapped = (...args) => {
+            pending = args; hasPending = true;
+            if (handle !== null) return;                     // 窗口内已在等待：只覆盖最后一次参数
+            handle = t.set(() => {
+                handle = null;
+                if (!hasPending) return;
+                const a = pending;
+                hasPending = false; pending = null;
+                fn(...a);
+            }, wait);
+        };
+        wrapped.cancel = () => {
+            if (handle !== null) { t.clear(handle); handle = null; }
+            hasPending = false; pending = null;
+        };
+        return wrapped;
+    }
+
+    /**
      * 等待切换完成
      * 1. 签名必须与旧签名不同
      * 2. 新签名要连续稳定若干轮，才算渲染结束——避免页面渲染到一半就被当成切好了
      */
     function waitForChange(sig, timeout) {
         return new Promise(resolve => {
-            let done = false, last = questionSignature(), stable = 0, timer = null, to = null, obs = null;
+            let done = false, last = questionSignature(), stable = 0, timer = null, to = null, obs = null, onMutation = null;
             let iv = CONFIG.pollStartInterval;
             const finish = ok => {
                 if (done) return;
                 done = true;
                 waitAborters.delete(abort);
+                try { onMutation && onMutation.cancel(); } catch { }
                 try { obs && obs.disconnect(); } catch { }
                 clearTimeout(timer); clearTimeout(to);
                 resolve(ok);
@@ -2849,9 +3160,17 @@
                 iv = Math.min(Math.round(iv * 1.6), CONFIG.pollMaxInterval);
                 timer = setTimeout(tick, iv);
             };
-            obs = new MutationObserver(() => { iv = CONFIG.pollStartInterval; check(); });
-            // 观察 body：题目容器本身可能被整体替换，只观察容器会漏掉
-            obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+            // 只观察题目容器（找不到再退回 body）：倒计时每秒都会改 DOM，观察全 body 等于每秒跑一次
+            // questionSignature（B6）。回调做 100ms 尾沿节流，标签页不可见时先不读 DOM。
+            onMutation = trailingThrottle(() => {
+                if (done) return;
+                if (typeof document !== 'undefined' && document.hidden) return;
+                iv = CONFIG.pollStartInterval;
+                check();
+            }, CONFIG.mutationThrottleMs);
+            obs = new MutationObserver(onMutation);
+            const target = getBox() || (typeof document !== 'undefined' ? document.body : null);
+            if (target) obs.observe(target, { childList: true, subtree: true, characterData: true });
             timer = setTimeout(tick, iv);
             // 超时也做一次判定：有变化就认，没变化才算失败
             to = setTimeout(() => finish(running && questionSignature() !== sig), timeout);
@@ -3675,7 +3994,7 @@
 
         // 同一份成绩页可能被重复解析（手动点「解析成绩」/点「查看答题卡」再触发一次）：
         // 旧实现每次都再 saveCorrect 一遍，题库 ok/hit 被二次灌水（B1）。幂等键完全相同 → 只展示不写库。
-        const rcKey = reconcileKey(verdicts, { score, total: paper }, { historyLen: history.length });
+        const rcKey = reconcileKey(verdicts, { score, total: paper }, { historyLen: history.length, history });
         let lastRcKey = '';
         try { lastRcKey = String(GM_getValue('lastReconcileKey', '') || ''); } catch { }
         if (rcKey && lastRcKey && rcKey === lastRcKey) {
@@ -3743,11 +4062,11 @@
                     // 删除必须登记墓碑，否则下一次 flush 会把盘上的旧副本原样搬回来；
                     // 顺手清掉同一题的规范键/旧键副本（题库升级/导入可能留下多个键），
                     // 但每个副本都要再过一次「答案一致」闸门，避免误删别的题。
-                    delete nb[found.key]; pendingDeletes.add(found.key);
+                    delete nb[found.key]; pendingDeletes.add(found.key); addTombstone('bank', found.key);
                     const extra = [fpKey(rec.stem), pureStem(rec.stem).slice(0, 50)];
                     for (const k of extra) {
                         if (k && k !== found.key && nb[k] && bankAnswerIsWrongPick(rec, nb[k])) {
-                            delete nb[k]; pendingDeletes.add(k);
+                            delete nb[k]; pendingDeletes.add(k); addTombstone('bank', k);
                         }
                     }
                     dirty = true; bankVer++;
@@ -4699,7 +5018,7 @@
         });
         t('AI 结构化高把握 vs 百度冲突时采信领先方（不再永远 null）', () => {
             const m = mergeCandidates([
-                { letters: 'A', conf: 0.9, src: 'ai', why: 'AI 结构化：法条' },
+                { letters: 'A', conf: 0.9, src: 'ai', structured: true, why: 'AI 结构化：法条' },
                 { letters: 'B', conf: 0.81, src: 'baidu', why: '孤立字母·已按百度可信度折减' },
             ], 'single', sOpts);
             return !!m && m.letters === 'A' && Math.abs(m.conf - 0.9) < 1e-9;
@@ -4787,6 +5106,136 @@
             return clearedSessionState().submitted === false;
         });
 
+        // ---- v2.0.6：B1 试卷指纹 / A5 百度回显与跟进页 / A6 网络预算 / P2 / B6 观察器 / B7 跨页删除 ----
+        t('对账幂等键：同一份试卷（history 题序不同）仍得到同一个键', () => {
+            const h1 = [{ stem: '第一道题的题干内容' }, { stem: '第二道题的题干内容' }, { stem: '第三道题的题干内容' }];
+            const h2 = [h1[2], h1[0], h1[1]];
+            const a = reconcileKey({ 1: 'correct' }, { score: 90, total: 100 }, { historyLen: 3, history: h1 });
+            const b = reconcileKey({ 1: 'correct' }, { score: 90, total: 100 }, { historyLen: 3, history: h2 });
+            return !!a && a === b;
+        });
+        t('对账幂等键：分数/判定/记录数相同但试卷不同 → 换键（不再误跳过写库）', () => {
+            const base = reconcileKey({ 1: 'correct' }, { score: 90, total: 100 },
+                { historyLen: 3, history: [{ stem: '甲题题干' }, { stem: '乙题题干' }] });
+            const other = reconcileKey({ 1: 'correct' }, { score: 90, total: 100 },
+                { historyLen: 3, history: [{ stem: '丙题题干' }, { stem: '丁题题干' }] });
+            return base !== other;
+        });
+        t('对账幂等键：试卷指纹取排序后前 3 题（与题序无关）', () => {
+            const h = [{ stem: '题一' }, { stem: '题二' }, { stem: '题三' }, { stem: '题四' }];
+            return paperFingerprint(h) === paperFingerprint([...h].reverse())
+                && paperFingerprint(h).split(',').length === 3;
+        });
+        t('对账幂等键：history 缺 stem 用 bankKey 兜底、空值不抛错', () => {
+            const k = reconcileKey(null, null, { historyLen: 2, history: [null, {}, { bankKey: '#abc' }, { stem: '' }] });
+            return typeof k === 'string' && k.length > 0
+                && paperFingerprint(null) === '' && paperFingerprint([{}]) === '';
+        });
+
+        t('stripQueryEcho：查询词被拆词回显（「正确 答案」）也能剔除（A5）', () => {
+            const q = '下列关于法治政府建设要求的表述';
+            const raw = `${q} 正确 答案 答案：C 解析：依法行政`;
+            const out = stripQueryEcho(raw, [q + ' 正确答案', q + ' 答案', q]);
+            return out.includes('答案：C') && !out.includes('正确 答案') && !out.includes('正确答案') && !out.includes(q);
+        });
+        t('查询词截断：长题干取「头 40 字 + 尾 20 字」，短题干原样（A5）', () => {
+            const head = '甲'.repeat(40), mid = '乙'.repeat(50), tail = '丙'.repeat(20);
+            const q = clipQuery(head + mid + tail);
+            return q === head + '…' + tail && !q.includes('乙') && clipQuery('短的题干') === '短的题干';
+        });
+        t('百度跟进页相关性：题干命中的结果页才跟进，广告/导航页跳过（A5）', () => {
+            const stem = '根据安全生产法的规定生产经营单位应当具备本法和有关法律行政法规和国家标准或者行业标准规定的安全生产条件';
+            const related = '本题解析：' + stem.slice(0, 30) + ' 正确答案：A';
+            const ad = '百度推广 考研培训 名师一对一 立即咨询 法律职业资格考试课程 限时优惠';
+            return followPageRelevant(related, stem) === true && followPageRelevant(ad, stem) === false;
+        });
+
+        t('单题网络预算：单请求超时取「配置超时」与「剩余预算」的较小值（A6）', () =>
+            requestTimeout(8000, 3000, 1000) === 2000
+            && requestTimeout(8000, 0, 1000) === 8000
+            && requestTimeout(3000, 9000, 1000) === 3000);
+        t('单题网络预算：耗尽时返回 0（不再发请求/不重试），CONFIG 默认 20 秒（A6）', () =>
+            requestTimeout(8000, 1000, 1000) === 0
+            && requestTimeout(8000, 500, 1000) === 0
+            && CONFIG.queryBudgetMs === 20000);
+        t('单题网络预算：预算小于两源最坏耗时（否则起不到收敛作用）（A6）', () => {
+            const worst = CONFIG.baiduTimeout * (CONFIG.maxRetry + 1) * 2   // 百度 2 入口×重试
+                + CONFIG.baiduTimeout * 2                                    // 跟进页（maxRetry 0）
+                + CONFIG.aiTimeout * (CONFIG.maxRetry + 1);                  // AI 重试
+            return CONFIG.queryBudgetMs > 0 && CONFIG.queryBudgetMs < worst;
+        });
+
+        t('两源合并：conf=0 不会被抬成 0.5（明确「没把握」保持 0）（P2#1）', () => {
+            const m = mergeCandidates([{ letters: 'A', conf: 0, src: 'ai' }], 'single', sOpts);
+            return !!m && m.letters === 'A' && m.conf === 0;
+        });
+        t('对账删除闸门：字母相同但选项文本不同 → 不删库（P2#2）', () => {
+            const rec = { letters: 'B', pickedText: ['口头'] };
+            return bankAnswerIsWrongPick(rec, { l: 'B', a: ['书面'] }) === false
+                && bankAnswerIsWrongPick(rec, { l: 'B', a: ['口头'] }) === true
+                && bankAnswerIsWrongPick(rec, { l: 'B' }) === true;          // 旧条目只有字母：仍按字母判
+        });
+        t('AI 结构化直采只看 structured 标记，不再依赖「AI 结构化」文案（P2#5）', () => {
+            const byFlag = mergeCandidates([
+                { letters: 'A', conf: 0.9, src: 'ai', structured: true, why: '随便什么文案' },
+                { letters: 'B', conf: 0.81, src: 'baidu', why: '孤立字母' },
+            ], 'single', sOpts);
+            const byWhy = mergeCandidates([
+                { letters: 'A', conf: 0.9, src: 'ai', why: 'AI 结构化：法条' },
+                { letters: 'B', conf: 0.81, src: 'baidu', why: '孤立字母' },
+            ], 'single', sOpts);
+            const json = extractAIAnswer('{"answer":"A","confidence":0.9}', sOpts, 'single');
+            const text = extractAIAnswer('答案：C', sOpts, 'single');
+            return !!byFlag && byFlag.letters === 'A' && byWhy === null
+                && !!json && json.structured === true && !!text && text.structured === false;
+        });
+
+        t('观察器节流：窗口内多次触发只执行最后一次（100ms 尾沿）（B6）', () => {
+            const calls = [];
+            const timers = new Map();
+            let seq = 0;
+            const th = trailingThrottle(x => calls.push(x), 100, {
+                set: (fn, ms) => { const id = ++seq; timers.set(id, { fn, ms }); return id; },
+                clear: id => timers.delete(id),
+            });
+            th(1); th(2); th(3);
+            const pending = [...timers.values()];
+            pending.forEach(o => o.fn());
+            return calls.length === 1 && calls[0] === 3 && pending.length === 1 && pending[0].ms === 100;
+        });
+        t('观察器节流：cancel 后不再执行，窗口结束后可再次触发（B6）', () => {
+            const calls = [];
+            const timers = new Map();
+            let seq = 0;
+            const th = trailingThrottle(x => calls.push(x), 50, {
+                set: (fn, ms) => { const id = ++seq; timers.set(id, { fn, ms }); return id; },
+                clear: id => timers.delete(id),
+            });
+            th('a'); th.cancel();
+            const fired = [...timers.values()].map(o => o.fn());
+            th('b'); [...timers.values()].map(o => o.fn());
+            return fired.length === 0 && calls.length === 1 && calls[0] === 'b';
+        });
+
+        t('墓碑：删除后另一标签页合并不会把条目搬回来（B7）', () => {
+            const disk = { k1: { q: '题一' }, k2: { q: '题二' }, k3: { q: '题三' } };
+            const tombs = addTombKey({}, 'k2', 1000);
+            const kept = filterTombstoned(disk, tombs);
+            return Object.keys(kept).length === 2 && !('k2' in kept) && ('k1' in kept);
+        });
+        t('墓碑：同键再次答对清掉墓碑后可以重新写回（B7）', () => {
+            const tombs = addTombKey({ k1: 1000 }, 'k1', 2000);
+            const cleared = clearTombKey(tombs, 'k1');
+            return Object.keys(tombs).length === 1 && Object.keys(cleared).length === 0
+                && Object.keys(filterTombstoned({ k1: {} }, cleared)).length === 1;
+        });
+        t('墓碑：超过 7 天的自动过期清理，未过期的保留（B7）', () => {
+            const now = 100 * 24 * 60 * 60 * 1000;
+            const ttl = 7 * 24 * 60 * 60 * 1000;
+            const kept = purgeTombstones({ old: now - ttl - 1, fresh: now - 1000 }, now, ttl);
+            return Object.keys(kept).length === 1 && ('fresh' in kept) && !('old' in kept);
+        });
+
         return cases;
     }
 
@@ -4813,13 +5262,16 @@
     try {
         window.__FX_TEST__ = {
             normStem, fpKey, similarity, prefixSame, matchOption, entryToLetters, extractAnswer,
-            stripQueryEcho, extractAIAnswer, jsonObjectCandidates, hasJsonObject,
+            stripQueryEcho, clipQuery, followPageRelevant, flattenText, removeFlatFragments,
+            extractAIAnswer, jsonObjectCandidates, hasJsonObject,
             locateBankEntryForWrong, bankAnswerIsWrongPick, reconcileKey, clearedSessionState, pageShowAction,
             mergeCandidates, chooseAnswer, combosOf, multiCombos, comboKey, parseDelimited, sniffDelim,
             csvCell, validateRow, resolveType, isUserEntry, blankEntry, stopReasonText, fuzzyUsable,
             normalizeGroupState, groupBadge, collapseLabel,
             connectRoot, validateApi, cellNumberText, lockIsStale, lightLooksLikeResult,
             parseManualVerdicts, tabClaimConflict, planResultActions,
+            paperFingerprint, requestTimeout, trailingThrottle,
+            purgeTombstones, filterTombstoned, addTombKey, clearTombKey,
             dayStamp, timeStamp, bankFileNames, logFileName, parseBankPayload,
             selfTestCases, runSelfTest,
         };

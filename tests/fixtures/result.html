@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>学法考试（脱敏样例）· 成绩页</title></head>
+<body>
+<!--
+  脱敏成绩页：分数 + 总分 + 正确率 + 图例参考色 + 「答题卡」弹窗（.layui-layer）里的逐题判定。
+  覆盖：成绩页识别、分数/总分解析、图例配色识别、类名判定、背景色判定、弹窗内答题卡扫描。
+  判定预期：1✅ 2✅ 3❌ 4❌ 5⬜ → 答对 2 / 答错 2 / 未答 1，分数 40/100，正确率 40%。
+-->
+<div class="result-head">
+  <h1>考试结果</h1>
+  <p class="score">您的分数：40 分</p>
+  <p class="paper">试卷总分：100 分</p>
+  <p class="rate">正确率 40%</p>
+</div>
+
+<div class="legend">
+  <span class="legend-item" style="background-color:#52c41a">正确</span>
+  <span class="legend-item" style="background-color:#ff4d4f">错误</span>
+  <span class="legend-item" style="background-color:#bfbfbf">未答</span>
+</div>
+
+<div class="layui-layer" id="card-popup">
+  <div class="layui-layer-title">答题卡</div>
+  <ul class="answer-card">
+    <li class="correct">1</li>
+    <li style="background-color:#52c41a">2</li>
+    <li class="wrong">3</li>
+    <li style="background-color:#ff4d4f">4</li>
+    <li class="unans">5</li>
+  </ul>
+</div>
+
+<script>
+/* 脱敏成绩页没有额外交互；「解析成绩」由用户脚本面板的 #fx-reparse 触发 */
+window.__resultPage = true;
+</script>
+</body>
+</html>

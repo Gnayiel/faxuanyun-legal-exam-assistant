@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.4
-// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 97 项内置自检
+// @version      2.0.5
+// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 118 项内置自检
 // @author       GNAYIEL
 // @license      MIT
 // @match        *://gs.faxuanyun.com/*
@@ -90,7 +90,7 @@
  *   作答策略          多选组合枚举、chooseAnswer 决策、answerCurrent 单题流程
  *   成绩解析          答题卡颜色判定、分数读取、交卷对账入库
  *   考试流程控制      退出原因、暂停等待、倒计时、弹窗、最后一题、mainLoop
- *   内置自检          97 项纯函数断言 + window.__FX_TEST__ 测试钩子
+ *   内置自检          118 项纯函数断言 + window.__FX_TEST__ 测试钩子
  *   面板              UI 构建、分类折叠、拖拽、状态摘要、AI 设置、导入导出与日志按钮
  */
 
@@ -202,12 +202,17 @@
         parseRetryInterval: 300,     // 解析重试间隔（毫秒）
         parseMaxRetry: 10,           // 解析最大重试次数
         reparseDebounce: 5000,       // 二次交卷/连点时的解析去抖（毫秒）
+        parseWatchdogMs: 15000,      // 成绩解析看门狗：超时强制释放解析锁（B3）
         absentAsWrongCoverage: 0.8,  // 「只标对不标错」兜底要求的最低识别覆盖率
 
         // ---------- 多选题策略 ----------
         // 组合顺序固定为「全选 → 少一个 → 少两个 …」，不再用写死的概率摇点数
         multiMinChoices: 2,          // 多选最少选几个（平台规定多选至少 2 个）
         multiMaxTries: 6,            // 同一题最多尝试几个组合，避免把组合穷举光
+        // 候选把握度门槛：低于门槛的「弱候选」不再直接采信，交给排除法 / 多选组合策略。
+        // 旧实现只看候选字母个数：百度孤立字母折减后把握度只有 0.32，4 选 3 的题里
+        // 部分回显 "ABC" 也会压过「全选」策略（A4）。
+        minCandConf: { single: 0.6, judge: 0.6, multi: 0.65 },
 
         // ---------- 题库 ----------
         bankMaxEntries: 2000,        // 题库容量上限，超出按「低分 + 久未使用」淘汰
@@ -883,6 +888,26 @@
     }
     const fpKey = stem => '#' + hash32(normStem(stem));
 
+    /**
+     * 对账幂等键（纯函数，自检可断言）：
+     * 同一份成绩页被重复解析时（手动点「解析成绩」/点「查看答题卡」再触发一次），
+     * 判定、分数、题号与本地记录数都相同 → 得到同一个键，用于跳过重复写库（B1）。
+     * 键 = 页面地址 + 分数 + 总分 + 逐题判定 + 本次作答记录数；任何一项变了都算新的一次对账。
+     */
+    function reconcileKey(verdicts, scoreInfo, opt) {
+        const v = verdicts || {};
+        const nums = Object.keys(v).map(Number).filter(n => n > 0).sort((a, b) => a - b);
+        const marks = nums.map(n => {
+            const t = v[n];
+            return n + (t === 'correct' ? 'c' : t === 'wrong' ? 'w' : t === 'unanswered' ? 'u' : '?');
+        }).join(',');
+        const si = scoreInfo || {};
+        const loc = (typeof location !== 'undefined' && location)
+            ? String(location.pathname || '') + String(location.search || '') : '';
+        const len = (opt && opt.historyLen) || 0;
+        return hash32(`${loc}|${si.score == null ? '' : si.score}|${si.total == null ? '' : si.total}|${marks}|${len}`);
+    }
+
     const inferType = ans => /^[01]$/.test(ans) ? 'judge' : (String(ans).length > 1 ? 'multi' : 'single');
     const sameTexts = (a, b) => {
         const x = (a || []).slice().sort(), y = (b || []).slice().sort();
@@ -1257,6 +1282,43 @@
         if (x === y) return true;
         const [s, l] = x.length <= y.length ? [x, y] : [y, x];
         return s.length >= CONFIG.prefixMatchMin && l.startsWith(s);
+    }
+
+    /**
+     * 答错对账时定位库内条目（纯函数，自检可断言）
+     * 返回 { key, keyFrom, e }。查找顺序：
+     *   1) history 记录的 bankKey（模糊/旧键命中时它就是库里的键；旧实现只查规范键，所以永远删不掉）；
+     *   2) 规范指纹键 fpKey(stem)；3) 旧 50 字键；
+     *   4) 以上都失效（旧会话没 bankKey、题库导入后换键）→ 在传入的题库里按 prefixSame 找唯一同题。
+     * 第 4 步必须「唯一 + 前缀等价」双闸，防止把相似题的条目误删（A1）。
+     * keyFrom: history / exact / legacy / equivalent / ''（没找到）。
+     */
+    function locateBankEntryForWrong(rec, bank) {
+        const b = bank || {};
+        const stem = (rec && rec.stem) || '';
+        if (!stem) return { key: '', keyFrom: '', e: null };
+        const nk = fpKey(stem), lk = pureStem(stem).slice(0, 50);
+        if (rec.bankKey && b[rec.bankKey]) return { key: rec.bankKey, keyFrom: 'history', e: b[rec.bankKey] };
+        if (b[nk]) return { key: nk, keyFrom: 'exact', e: b[nk] };
+        if (b[lk]) return { key: lk, keyFrom: 'legacy', e: b[lk] };
+        let hit = '', n = 0;
+        for (const k of Object.keys(b)) {
+            const e = b[k];
+            if (!e || !prefixSame(e.q || k, stem)) continue;
+            hit = k; n++;
+        }
+        return (n === 1 && hit) ? { key: hit, keyFrom: 'equivalent', e: b[hit] } : { key: '', keyFrom: '', e: null };
+    }
+
+    /**
+     * 库里的答案是否就是本次选错的那个答案（纯函数）
+     * 只有一致才允许「删除 + 写墓碑」：不一致说明库内条目不是这次作答的依据（换题/被改过），
+     * 删掉会把别的正确答案一起误伤（A1）。
+     */
+    function bankAnswerIsWrongPick(rec, e) {
+        if (!rec || !e) return false;
+        const texts = (rec.pickedText || []).filter(Boolean);
+        return (!!(e.l && e.l === rec.letters)) || (!!(e.a && e.a.length) && sameTexts(e.a, texts));
     }
 
     /**
@@ -2005,6 +2067,24 @@
     let sessionRestored = false;
     let restoredUnsure = false;      // 恢复的记录可能来自另一场（进入地址不同）
 
+    /**
+     * 清场时必须一并复位的运行态字段（纯函数，自检可断言）。
+     * 旧实现只清 history 与会话统计，submittedMark / totalQ / parsedOnce 会残留（B5）：
+     * 清场后再答新一场，saveSession 仍写 submitted:true（下次刷新会被当成「已交卷」清掉），
+     * 进度条还挂着上一场的总题数，连考时容易误判「已答满」。
+     */
+    function clearedSessionState() {
+        return {
+            submitted: false,
+            totalQ: 0,
+            parsedOnce: false,
+            lastSubmitTs: 0,
+            answered: 0,
+            autoSubmitted: false,
+            sawNextBtn: false,
+        };
+    }
+
     /** 清空本场作答记录：面板按钮 / 识别出不是同一场考试时调用 */
     function clearSession(reason) {
         history.length = 0;
@@ -2015,6 +2095,16 @@
         session.ans = 0; session.hit = 0;
         try { session.attempted.clear(); } catch { }
         try { GM_setValue('pendingSession', null); } catch { }
+        // 运行态一起复位（B5）：否则下一场还挂着上一场的「已交卷 / 总题数 / 已解析」状态
+        const reset = clearedSessionState();
+        submittedMark = reset.submitted;
+        totalQ = reset.totalQ;
+        parsedOnce = reset.parsedOnce;
+        lastSubmitTs = reset.lastSubmitTs;
+        answered = reset.answered;
+        autoSubmitted = reset.autoSubmitted;
+        sawNextBtn = reset.sawNextBtn;
+        try { GM_setValue('lastReconcileKey', ''); } catch { }   // 清掉对账幂等键，下一场允许重新入库（B1）
         log(`🧹 已清空本场作答记录${reason ? `（${reason}）` : ''}`);
         updateStats();
     }
@@ -2040,6 +2130,7 @@
         // 成绩页里保留（刷新后还能重新对账），其它页面直接清掉——不再弹「若这是新一场请点清空本场」。
         if (s.submitted && !isResultPage()) {
             GM_setValue('pendingSession', null);
+            try { GM_setValue('lastReconcileKey', ''); } catch { }   // 新一场重新开始计：旧对账键作废（B5）
             log('ℹ️ 上一场已交卷，已自动清空残留的作答记录（题库数据不受影响）');
             return;
         }
@@ -2251,15 +2342,28 @@
             const srcs = [...new Set(v.map(x => x.src))];
             return {
                 letters: k,
-                conf: Math.max(...v.map(x => x.conf || 0.5)) + (srcs.length > 1 ? CONFIG.multiSourceBonus : 0),
+                // 封顶 1：两源一致时 max 0.9 + 0.15 会到 1.05，旧实现甚至能到 1.0999，
+                // 既超出 0~1 的把握度语义，也把后面的 gap 比较带偏（A2）
+                conf: Math.min(1, Math.max(...v.map(x => x.conf || 0.5)) + (srcs.length > 1 ? CONFIG.multiSourceBonus : 0)),
                 srcs,
                 why: v[0].why,
             };
         }).sort((a, b) => b.conf - a.conf);
 
         if (ranked.length === 1) return ranked[0];
-        // 有冲突：领先方要足够领先才采用
-        return (ranked[0].conf - ranked[1].conf >= CONFIG.crossAcceptGap) ? ranked[0] : null;
+        // 有冲突：领先方要足够领先才采用。
+        // 但百度结果统一 ×baiduConfFactor(0.9) 折减，同一份把握的 AI 结构化 JSON（0.9 对 0.81）
+        // 只差 0.09，冲突阈值 0.3 永远够不着 → 领先方永远用不上（A2）。
+        // 折减是「两把尺子」的问题：比较前把百度分数除回去再算 gap；
+        // 另外 AI 结构化 JSON（模型明确给了答案和把握度）conf≥0.8 时直接采信。
+        if (ranked[0].srcs.length === 1 && ranked[0].srcs[0] === 'ai'
+            && /^AI 结构化/.test(String(ranked[0].why || '')) && ranked[0].conf >= 0.8) {
+            return ranked[0];
+        }
+        const eff = r => (r.srcs.length === 1 && r.srcs[0] === 'baidu')
+            ? Math.min(1, r.conf / (CONFIG.baiduConfFactor || 1))
+            : r.conf;
+        return (eff(ranked[0]) - eff(ranked[1]) >= CONFIG.crossAcceptGap) ? ranked[0] : null;
     }
 
     // ==================== 网络请求（重试 / 退避 / 限流） ====================
@@ -2343,6 +2447,53 @@
     }
 
     /**
+     * 按「大括号配对」扫出文本里的所有候选 JSON 对象（纯函数，自检可断言）。
+     * 旧实现用贪婪正则 /\{[\s\S]*\}/ 只取「第一个 { 到最后一个 }」：模型先给示例对象、
+     * 再给正式答案（中间夹解释文字）时整段不是合法 JSON，解析失败直接掉回文本兜底（A3）。
+     * 这里按配对扫描、跳过字符串里的括号，按出现顺序返回，调用方逐个 parse。
+     */
+    function jsonObjectCandidates(raw) {
+        const s = String(raw || '');
+        const out = [];
+        let i = 0;
+        while (i < s.length) {
+            while (i < s.length && s[i] !== '{') i++;
+            if (i >= s.length) break;
+            let depth = 0, inStr = false, esc = false, end = -1;
+            for (let j = i; j < s.length; j++) {
+                const ch = s[j];
+                if (inStr) {
+                    if (esc) esc = false;
+                    else if (ch === '\\') esc = true;
+                    else if (ch === '"') inStr = false;
+                    continue;
+                }
+                if (ch === '"') inStr = true;
+                else if (ch === '{') depth++;
+                else if (ch === '}') {
+                    depth--;
+                    if (depth === 0) { end = j; break; }
+                }
+            }
+            if (end < 0) break;          // 括号没配平，后面的内容不再猜
+            out.push(s.slice(i, end + 1));
+            i = end + 1;
+        }
+        return out;
+    }
+
+    /** 文本里是否含「能被解析」的 JSON 对象（reasoning_content 能否当答案文本用的闸门，A3） */
+    function hasJsonObject(text) {
+        for (const body of jsonObjectCandidates(text)) {
+            try {
+                const o = JSON.parse(body);
+                if (o && typeof o === 'object') return true;
+            } catch { }
+        }
+        return false;
+    }
+
+    /**
      * 解析 AI 的结构化回答：优先 JSON（{"answer":"B","confidence":0.9}），
      * 兼容 ```json 代码块、前后夹带解释文字；不是 JSON 就退回原来的文本抽取。
      * 让模型自己给把握度，比从自然语言里猜置信度稳得多；也更省输出 token。
@@ -2351,22 +2502,28 @@
         const raw = String(content || '').trim();
         const letters = options.map(o => o.letter);
         if (!raw) return null;
-        // 先找代码块里的 JSON，再找正文里第一个 {…}
+        // 先找代码块里的 JSON；再按大括号配对扫正文（多个候选按出现顺序 parse）
         const bodies = [...raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map(m => m[1]);
-        const inline = raw.match(/\{[\s\S]*\}/);
-        if (inline) bodies.push(inline[0]);
+        bodies.push(...jsonObjectCandidates(raw));
         for (const body of bodies) {
             let obj = null;
             try { obj = JSON.parse(String(body).trim()); } catch { continue; }
-            if (!obj || typeof obj !== 'object') continue;
-            const ans = String(obj.answer || obj.letters || obj['答案'] || '').toUpperCase().replace(/[^A-Z]/g, '');
-            if (!ans) continue;
-            if (!ans.split('').every(l => letters.includes(l))) continue;
+            if (!obj || typeof obj !== 'object' || Array.isArray(obj)) continue;
+            const ansRaw = String(obj.answer || obj.letters || obj['答案'] || '').toUpperCase().replace(/[^A-Z]/g, '');
+            if (!ansRaw) continue;
+            if (!ansRaw.split('').every(l => letters.includes(l))) continue;
+            const ans = [...new Set(ansRaw.split(''))].sort().join('');
+            // 单选/判断给了多个字母 = 模型自相矛盾，丢弃这个候选。
+            // 旧实现单选取第一个字母，把 "AB" 静默当成 A（A3）。
+            if (type !== 'multi' && ans.length !== 1) continue;
             if (type === 'multi' && ans.length < CONFIG.multiMinChoices) continue;
-            const lettersOut = type === 'multi' ? ans.split('').sort().join('') : ans.slice(0, 1);
-            const conf = Math.max(0.3, Math.min(0.99, Number(obj.confidence) || 0.9));
+            // confidence：缺失 / 非数字 / 越界 → 0.9；显式给出 0~1 的数字 → 原样采信。
+            // 旧实现 Number(...) || 0.9 把 conf=0 当成 0.9，等于「没把握」被当成高把握（A3）。
+            const rawConf = Number(obj.confidence);
+            const conf = (obj.confidence !== undefined && obj.confidence !== null
+                && Number.isFinite(rawConf) && rawConf >= 0 && rawConf <= 1) ? rawConf : 0.9;
             const reason = obj.reason || obj['理由'] || '';
-            return { letters: lettersOut, conf, why: `AI 结构化${reason ? `：${String(reason).slice(0, 40)}` : ''}` };
+            return { letters: ans, conf, why: `AI 结构化${reason ? `：${String(reason).slice(0, 40)}` : ''}` };
         }
         // 3) 不是 JSON → 退回文本抽取（兼容不支持 JSON 输出的接口/模型）
         const fb = extractAnswer(raw, options, type);
@@ -2443,8 +2600,14 @@
         try { data = JSON.parse(r.text); }
         catch { return { text: null, note: 'AI 返回的不是合法 JSON，请检查 API 地址是否兼容 OpenAI 格式' }; }
         const msg = (data && data.choices && data.choices[0] && data.choices[0].message) || {};
-        // 推理模型（deepseek-reasoner 等）正文可能只出现在 reasoning_content，content 为空
-        const content = String(msg.content || '').trim() || String(msg.reasoning_content || '').trim();
+        // 推理模型（deepseek-reasoner 等）正文可能只出现在 reasoning_content，content 为空。
+        // 但推理过程是自然语言，整段当答案会让文本兜底把「推理里提到的某个字母」当成答案（A3）；
+        // 只有里面确实含「合法 JSON 对象」时才拿来用。
+        let content = String(msg.content || '').trim();
+        if (!content) {
+            const reasoning = String(msg.reasoning_content || '').trim();
+            if (reasoning && hasJsonObject(reasoning)) content = reasoning;
+        }
         if (!content) {
             const apiErr = data && data.error && (data.error.message || data.error.code);
             return { text: null, note: apiErr ? `AI 返回错误：${String(apiErr).slice(0, 120)}` : 'AI 返回内容为空' };
@@ -2595,6 +2758,7 @@
                     rec = {
                         qNum: getQNum(), stem, letters: now, pickedText: texts, type,
                         autoLetters: '', userEdited: true, by: 'user',
+                        bankKey: fpKey(stem), bankHow: 'user',   // 手动作答记录也带库键，对账才有据可查（A1）
                     };
                     history.push(rec);
                     answered = history.length;
@@ -2641,6 +2805,15 @@
         return Math.min(Math.max(Math.round(est), CONFIG.switchWaitMin), CONFIG.switchWaitMax);
     }
 
+    // 停止按钮要让「切题等待」立刻结束，而不是等最长 12 秒超时（B4）：
+    // 正在等待的 Promise 把 abort 函数登记在这里，stop 时统一调用。
+    const waitAborters = new Set();
+    function abortPendingWaits() {
+        const list = [...waitAborters];
+        waitAborters.clear();
+        list.forEach(fn => { try { fn(); } catch { } });
+    }
+
     /**
      * 等待切换完成
      * 1. 签名必须与旧签名不同
@@ -2653,12 +2826,16 @@
             const finish = ok => {
                 if (done) return;
                 done = true;
+                waitAborters.delete(abort);
                 try { obs && obs.disconnect(); } catch { }
                 clearTimeout(timer); clearTimeout(to);
                 resolve(ok);
             };
+            const abort = () => finish(false);       // 点「停止」时由 abortPendingWaits() 调用（B4）
+            waitAborters.add(abort);
             const check = () => {
                 if (done) return;
+                if (!running) return finish(false);   // 已停止：立刻结束等待，主循环下一轮就退出
                 const now = questionSignature();
                 if (now !== last) { last = now; stable = 0; iv = CONFIG.pollStartInterval; return; }   // 页面在动，恢复正常频率
                 if (now === sig) return;
@@ -2677,7 +2854,7 @@
             obs.observe(document.body, { childList: true, subtree: true, characterData: true });
             timer = setTimeout(tick, iv);
             // 超时也做一次判定：有变化就认，没变化才算失败
-            to = setTimeout(() => finish(questionSignature() !== sig), timeout);
+            to = setTimeout(() => finish(running && questionSignature() !== sig), timeout);
         });
     }
 
@@ -2741,10 +2918,11 @@
 
     /**
      * 作答决策
-     * 入参 options / wrongTexts（绝对不可选的选项文本）/ triedCombos（多选已失败组合）/ cand（题库或联网给的候选字母）
+     * 入参 options / wrongTexts（绝对不可选的选项文本）/ triedCombos（多选已失败组合）/
+     *      cand（题库或联网给的候选字母）/ candConf（该候选的把握度 0~1，弱候选会被降级为「没有候选」）
      * 返回 { letters, why, strategy }
      */
-    function chooseAnswer({ type, options, wrongTexts = [], triedCombos = [], cand = null }) {
+    function chooseAnswer({ type, options, wrongTexts = [], triedCombos = [], cand = null, candConf = null }) {
         // 错项匹配置换：只认「归一化后相等」；其次才认「短的那边 ≥4 字」的包含关系，且必须唯一。
         // 旧实现对任意长度的双向子串一律判等——错项「书面」会把正确项「书面形式」一起排除，
         // 更致命的是题库给出的正确候选也会被 pool 丢掉，这题就再也答不对了。
@@ -2763,8 +2941,12 @@
         };
         const kept = options.filter(o => !isWrongOpt(o));          // 排除已知错误选项后的候选
         const allLetters = options.map(o => o.letter).join('');
-        // 候选先过排除法：候选里落在已知错误选项上的字母一律剔掉
-        const pool = cand ? cand.split('').filter(l => kept.some(o => o.letter === l)) : [];
+        // 候选先过把握度门槛：弱候选（百度孤立字母折减后 0.3x、AI 文本兜底）直接当没有候选，
+        // 单选交给排除法、多选交给组合策略；candConf 不传（旧调用/自检）按可信候选处理，保持兼容（A4）。
+        const minConf = (CONFIG.minCandConf && CONFIG.minCandConf[type]) || 0;
+        const candTrusted = candConf === null || candConf === undefined || candConf >= minConf;
+        // 候选再过排除法：候选里落在已知错误选项上的字母一律剔掉
+        const pool = (cand && candTrusted) ? cand.split('').filter(l => kept.some(o => o.letter === l)) : [];
 
         if (type === 'multi') {
             // 候选有 2 项以上才采信（只给一个字母等于没查到），且这个组合不能是已经失败过的
@@ -2824,13 +3006,20 @@
         const firstTry = !session.attempted.has(statKey);
         if (firstTry) { session.attempted.add(statKey); session.ans++; }
 
-        // 查答案：本地题库优先（精确 → 旧键 → 相似题），命中就不再花钱查 AI/百度
-        let valid = null, networkDone = false;
+        // 查答案：本地题库优先（精确 → 旧键 → 相似题），命中就不再花钱查 AI/百度。
+        // validConf 记录答案来源的把握度，弱候选（0.3x）不会在 chooseAnswer 里压过排除/组合策略（A4）；
+        // bankKey/bankHow 记录命中的真实库键（模糊命中时是 fpKey(e.q)，不是本题规范键），
+        // 交卷对账答错时靠它才能删掉库里记错的答案（A1）。
+        let valid = null, networkDone = false, validConf = 1, bankKey = '', bankHow = 'none';
         const hitE = lookupBank(stem, type);
         if (hitE) {
             // 只有「同一题的旧键/截断版本」才升级键。
             // 以前相似题命中也会走到 upgradeKey，会把另一道题的条目改名搬走——必须禁止。
-            if (hitE.how === 'legacy') upgradeKey(hitE.key, stem);
+            if (hitE.how === 'legacy') {
+                const nk2 = upgradeKey(hitE.key, stem);
+                if (nk2) hitE.key = nk2;          // 升键后记录新键，别拿旧键去对账
+            }
+            bankKey = hitE.key; bankHow = hitE.how;
             const conv = entryToLetters(hitE.e, opts);
             valid = normalizeAnswer(conv.letters, opts, type);
             hitE.e.hit++; hitE.e.us = TS(); dirty = true;
@@ -2855,6 +3044,7 @@
                     } else {
                         log(`⚠️ 冲突题交叉验证：题库(${valid}) 与网络(${qr2.cand.letters}) 不一致，采用网络结果`);
                         valid = qr2.cand.letters;
+                        validConf = qr2.cand.conf;
                     }
                 } else {
                     log('⚠️ 冲突题网络也没给出答案，交回排除/兜底');
@@ -2870,6 +3060,7 @@
                 const who = qr.cand.srcs.map(x => SRC_NAME[x]).join('+');
                 const cross = qr.cand.srcs.length > 1 ? '（多源一致）' : '';
                 valid = qr.cand.letters;
+                validConf = qr.cand.conf;
                 log(`✅ 采用${who}答案：${valid}${cross}，把握 ${(qr.cand.conf * 100).toFixed(0)}%`);
             } else {
                 log('⚠️ 各来源均未给出可用答案，转排除/随机兜底');
@@ -2880,7 +3071,7 @@
         const wrongTexts = wrongFor(stem), triedCombos = triedFor(stem);
         if (wrongTexts.length) log(`🚫 已知错误选项：${wrongTexts.join(', ')}`);
         if (triedCombos.length) log(`🚫 已失败组合 ${triedCombos.length} 个`);
-        const plan = chooseAnswer({ type, options: opts, wrongTexts, triedCombos, cand: valid });
+        const plan = chooseAnswer({ type, options: opts, wrongTexts, triedCombos, cand: valid, candConf: validConf });
         valid = plan.letters;
         if (plan.strategy === 'reset-wrong') {
             // 错题记录把所有选项都排除了——先清掉它，下一轮重新查
@@ -2921,6 +3112,8 @@
             autoLetters: valid,      // 脚本自动选的答案，用于识别用户后续改动
             userEdited: false,
             by: 'auto',              // 'user' = 用户后来手改过
+            bankKey: bankKey || fpKey(stem),   // 作答时命中的真实库键（交卷对账按它定位，A1）
+            bankHow,                 // exact / legacy / fuzzy / none
         });
         saveSession();
         answered = history.length;   // answered 只是 history 的镜像，不再单独自增
@@ -2933,6 +3126,7 @@
     // 交卷后平台才显示对错。这里不再只认「背景色是绿色」，
     // 而是多路识别：图例参考色 → 背景/文字绿红 → 类名 → 图标或文字标记。
     let lastSubmitTs = 0, parsedOnce = false, parseRunning = false;
+    let parseTimer = null, parseWatchdog = null;   // 解析重试定时器 / 超时看门狗（B3）
 
     const parseRgb = s => {
         const m = String(s || '').match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/);
@@ -3312,53 +3506,75 @@
         });
     }
 
+    /** 释放成绩解析锁：正常结束 / 放弃重试 / 异常 / 看门狗超时都走这里（B3） */
+    function releaseParse() {
+        parseRunning = false;
+        if (parseTimer) { clearTimeout(parseTimer); parseTimer = null; }
+        if (parseWatchdog) { clearTimeout(parseWatchdog); parseWatchdog = null; }
+    }
+
     function parseResult() {
         if (parseRunning) return;
         parseRunning = true;
+        // 看门狗：任何分支意外卡住（异常、页面跳转、bfcache 恢复）都要在 15 秒内释放解析锁，
+        // 否则「解析成绩」按钮会静默失效到刷新页面（B3）
+        if (parseWatchdog) clearTimeout(parseWatchdog);
+        parseWatchdog = setTimeout(() => {
+            parseWatchdog = null;
+            if (!parseRunning) return;
+            log('⚠️ 成绩解析超过 15 秒未完成，已自动释放解析锁（可再点「解析成绩」重试）');
+            releaseParse();
+        }, CONFIG.parseWatchdogMs);
         log('正在解析考试结果...');
         let attempt = 0;
         const tryParse = () => {
-            const t0 = TS();
-            // 1) 便宜判断：只取正文/分数。不是成绩页就别做昂贵扫描（图例色 + 整页逐格判定）。
-            const light = resultPageInfo();
-            if (!lightLooksLikeResult(light) && !light.hasCard) {
-                if (attempt++ < CONFIG.parseMaxRetry) { setTimeout(tryParse, CONFIG.parseRetryInterval); return; }
-                parseRunning = false;
-                log('⚠️ 当前页面不像成绩页，本次不解析（成绩页出来后点面板「解析成绩」可再试）');
-                return;
-            }
-            // 2) 可能是成绩页 → 做一次完整快照，结果页判定与入库都复用它
-            const snap = resultSnapshot(light.roots, light);
-            const verdicts = snap.verdicts;
-            // 先确认真的停在成绩页：watchSubmit 触发解析时可能还在考试页或成绩页未加载完，
-            // 旧实现会对着考试页空转重试，白等十几秒还可能在考试页误判。
-            if (!isResultPageFrom(snap.body, snap.score, verdicts)) {
-                if (attempt++ < CONFIG.parseMaxRetry) { setTimeout(tryParse, CONFIG.parseRetryInterval); return; }
-                parseRunning = false;
-                log('⚠️ 当前页面不像成绩页，本次不解析（成绩页出来后点面板「解析成绩」可再试）');
-                return;
-            }
-            markPendingSubmitted();      // 已经确认停在成绩页 → 这场一定交过了，给残留会话打标
-            const nums = Object.keys(verdicts);
-            if (!nums.length) {
-                if (attempt++ < CONFIG.parseMaxRetry) { setTimeout(tryParse, CONFIG.parseRetryInterval); return; }
-                parseRunning = false;
-                if (CONFIG.debug) dbg(`解析重试 ${attempt} 次仍无判定，最后一次快照用时 ${TS() - t0}ms`);
-                const diag = resultDiag(snap.roots, snap.legend);
-                log('⚠️ 答题卡上没识别到任何对错标记，本次不入库');
-                if (diag.opens.length) {
-                    log(`👉 页面上有「${diag.opens[0]}」入口：点开它，脚本会自动再解析一次`);
-                    watchResultOpen();
+            let scheduled = false;      // true = 已安排下一次重试，锁要保留到那时
+            try {
+                const t0 = TS();
+                // 1) 便宜判断：只取正文/分数。不是成绩页就别做昂贵扫描（图例色 + 整页逐格判定）。
+                const light = resultPageInfo();
+                if (!lightLooksLikeResult(light) && !light.hasCard) {
+                    if (attempt++ < CONFIG.parseMaxRetry) { parseTimer = setTimeout(tryParse, CONFIG.parseRetryInterval); scheduled = true; return; }
+                    log('⚠️ 当前页面不像成绩页，本次不解析（成绩页出来后点面板「解析成绩」可再试）');
+                    return;
                 }
-                log('👉 确认已停在结果页后，点面板「解析成绩」可再试一次；仍失败可开「调试」后 Alt+E 导出日志反馈');
-                return;
+                // 2) 可能是成绩页 → 做一次完整快照，结果页判定与入库都复用它
+                const snap = resultSnapshot(light.roots, light);
+                const verdicts = snap.verdicts;
+                // 先确认真的停在成绩页：watchSubmit 触发解析时可能还在考试页或成绩页未加载完，
+                // 旧实现会对着考试页空转重试，白等十几秒还可能在考试页误判。
+                if (!isResultPageFrom(snap.body, snap.score, verdicts)) {
+                    if (attempt++ < CONFIG.parseMaxRetry) { parseTimer = setTimeout(tryParse, CONFIG.parseRetryInterval); scheduled = true; return; }
+                    log('⚠️ 当前页面不像成绩页，本次不解析（成绩页出来后点面板「解析成绩」可再试）');
+                    return;
+                }
+                markPendingSubmitted();      // 已经确认停在成绩页 → 这场一定交过了，给残留会话打标
+                const nums = Object.keys(verdicts);
+                if (!nums.length) {
+                    if (attempt++ < CONFIG.parseMaxRetry) { parseTimer = setTimeout(tryParse, CONFIG.parseRetryInterval); scheduled = true; return; }
+                    if (CONFIG.debug) dbg(`解析重试 ${attempt} 次仍无判定，最后一次快照用时 ${TS() - t0}ms`);
+                    const diag = resultDiag(snap.roots, snap.legend);
+                    log('⚠️ 答题卡上没识别到任何对错标记，本次不入库');
+                    if (diag.opens.length) {
+                        log(`👉 页面上有「${diag.opens[0]}」入口：点开它，脚本会自动再解析一次`);
+                        watchResultOpen();
+                    }
+                    log('👉 确认已停在结果页后，点面板「解析成绩」可再试一次；仍失败可开「调试」后 Alt+E 导出日志反馈');
+                    return;
+                }
+                parsedOnce = true;
+                if (CONFIG.debug) dbg(`成绩页解析成功，用时 ${TS() - t0}ms（${nums.length} 个题号）`);
+                reportResult(verdicts, snap.score);
+            } catch (e) {
+                log(`❌ 成绩解析异常：${(e && e.message) || e}（已释放解析锁，可点「解析成绩」重试）`);
+                if (CONFIG.debug) dbg(`堆栈：${String((e && e.stack) || '').split('\n').slice(0, 3).join(' | ')}`);
+                notify('成绩解析异常，已释放解析锁，可点面板「解析成绩」重试', 'warn');
+            } finally {
+                // 只有「已经排了重试」才保留锁；成功 / 放弃 / 异常一律在 finally 释放（B3）
+                if (!scheduled) releaseParse();
             }
-            parseRunning = false;
-            parsedOnce = true;
-            if (CONFIG.debug) dbg(`成绩页解析成功，用时 ${TS() - t0}ms（${nums.length} 个题号）`);
-            reportResult(verdicts, snap.score);
         };
-        setTimeout(tryParse, CONFIG.parseFirstDelay);
+        parseTimer = setTimeout(tryParse, CONFIG.parseFirstDelay);
     }
 
     /** 输出明细、分数、正确率，并按判定对账入库 */
@@ -3457,6 +3673,20 @@
             }
         }
 
+        // 同一份成绩页可能被重复解析（手动点「解析成绩」/点「查看答题卡」再触发一次）：
+        // 旧实现每次都再 saveCorrect 一遍，题库 ok/hit 被二次灌水（B1）。幂等键完全相同 → 只展示不写库。
+        const rcKey = reconcileKey(verdicts, { score, total: paper }, { historyLen: history.length });
+        let lastRcKey = '';
+        try { lastRcKey = String(GM_getValue('lastReconcileKey', '') || ''); } catch { }
+        if (rcKey && lastRcKey && rcKey === lastRcKey) {
+            log('ℹ️ 本次成绩与上次对账完全相同：只重新展示结果，不重复写库（避免题库 ok/hit 被二次灌水）');
+            log(`📊 题库现有 ${Object.keys(ensureBank()).length} 题`);
+            updateStats();
+            updateStatus('✅ 成绩已重新解析（与上次一致，未重复入库）');
+            scheduleAutoClose();
+            return;
+        }
+
         // 同一题若留下多条记录（脚本一条 + 手改一条），顺序对账会整体错位：
         // 这里按归一化题干去重，重复时保留较新的那条（即用户手改后的状态）
         const recs = [];
@@ -3503,20 +3733,30 @@
                 if (rec.userEdited) edited++;
                 if (by === 'user') log(`✅ 第${no}题您手动作答/改过的答案答对了，已按用户答案入库：${rec.letters}`);
             } else {
-                // 库里记的就是这次选的，说明库里存的是错答案，必须删掉
+                // 答错对账：先按作答时记录的 bankKey 找库内条目（模糊命中时它是 fpKey(e.q)，旧实现
+                // 只查规范键和前 50 字键，这类错答案一直删不掉、bad 也不涨，A1）；键失效时回退到
+                // 规范键 / 旧键 / 前缀等价的唯一同题（双闸），都靠纯函数定位，可单测。
                 const nb = ensureBank();
-                const k1 = fpKey(rec.stem), k2 = pureStem(rec.stem).slice(0, 50);
-                const e = nb[k1] || nb[k2];
-                const sameAsBank = !!e && ((e.l && e.l === rec.letters) || (e.a && e.a.length && sameTexts(e.a, texts)));
-                if (sameAsBank) {
-                    // 删除必须登记墓碑，否则下一次 flush 会把盘上的旧副本原样搬回来
-                    delete nb[k1]; pendingDeletes.add(k1);
-                    if (k2 !== k1 && nb[k2]) { delete nb[k2]; pendingDeletes.add(k2); }
+                const found = locateBankEntryForWrong(rec, nb);
+                const e = found.e;
+                if (bankAnswerIsWrongPick(rec, e)) {
+                    // 删除必须登记墓碑，否则下一次 flush 会把盘上的旧副本原样搬回来；
+                    // 顺手清掉同一题的规范键/旧键副本（题库升级/导入可能留下多个键），
+                    // 但每个副本都要再过一次「答案一致」闸门，避免误删别的题。
+                    delete nb[found.key]; pendingDeletes.add(found.key);
+                    const extra = [fpKey(rec.stem), pureStem(rec.stem).slice(0, 50)];
+                    for (const k of extra) {
+                        if (k && k !== found.key && nb[k] && bankAnswerIsWrongPick(rec, nb[k])) {
+                            delete nb[k]; pendingDeletes.add(k);
+                        }
+                    }
                     dirty = true; bankVer++;
-                    log(`${by === 'user' ? '（您手动作答的）' : ''}第${no}题答错，已删除库里记错的答案：${rec.letters}`);
+                    log(`${by === 'user' ? '（您手动作答的）' : ''}第${no}题答错，已删除库里记错的答案：${rec.letters}${found.keyFrom === 'history' ? '（按作答时的库键定位）' : ''}`);
                 } else if (e) {
-                    e.bad = (e.bad || 0) + 1;            // 答错计数：让容量淘汰的「答错多先删」真正生效
+                    e.bad = (e.bad || 0) + 1;            // 答案对不上：只记一次答错，不删库
                     dirty = true;
+                } else if (rec.bankKey) {
+                    dirty = true; bankVer++;             // 作答题库命中过，现在一条都对不上：至少把缓存标记为脏
                 }
                 if (rec.type === 'multi') {
                     // 多选记录「已失败的组合」，而不是把组内每个选项都当成错选项
@@ -3531,6 +3771,7 @@
             }
         }
 
+        try { GM_setValue('lastReconcileKey', rcKey); } catch { }   // 记下本次对账键：同一份成绩页再解析时只展示不写库（B1）
         flushBank();
         GM_setValue('pendingSession', null);
         log(`✅ 判定答对 ${correctN} 题（其中 ${saved} 题写入/修正了库内答案），记录 ${wrong} 道错误题${absentWrong ? `（含 ${absentWrong} 题按「未标对=答错」兜底）` : ''}${conflict ? `，${conflict} 道答案冲突` : ''}${edited ? `，其中 ${edited} 道是您手动改对的` : ''}`);
@@ -3577,12 +3818,12 @@
             autoCloseLeft = 0;
             try { window.close(); } catch { }
             // 关成功时页面已卸载，下面的定时器不会执行；只有「浏览器拒绝关闭」才会走到这里。
-            // 考试页大多是用户自己点开的，脚本无权关掉——退而求其次：返回上一页，没有上一页就置空白页。
+            // 这里只提示手动关闭（B2）：旧实现会 history.back() / location.replace('about:blank')，
+            // 但脚本作用域里的 history 是本场作答记录数组（不是 window.history），调用必然抛错；
+            // 而退回上一页可能落在已交卷的考试页上。成绩已入库，本页直接手动关闭即可。
             setTimeout(() => {
                 if (document.hidden) return;
-                log('⚠️ 浏览器不允许脚本自动关闭这个标签页，改为返回上一页（无上一页则置空白页）');
-                if (history.length > 1) history.back();
-                else location.replace('about:blank');
+                log('⚠️ 浏览器不允许脚本自动关闭这个标签页，请手动关闭（成绩已解析入库，本页可安全关闭）');
             }, 900);
         }, sec * 1000);
     }
@@ -3852,6 +4093,17 @@
         updateStatus(runStatusLabel(running, paused));   // 一开始就写清楚，别让状态栏停在「就绪」
         rushSpeedSaved = ''; rushDisabled = false;      // 每场重新判断自动提速
         answered = history.length;          // 续答时接着已有记录算，不重复计数
+        // 新卷识别（B5）：交卷后（submittedMark=true）若又在同一页面开了新一场，旧记录会被当成
+        // 「本场已答」，把新卷拖进「已答满」误判。当前题目不在上一场记录里就判为新试卷并清场。
+        if (history.length && submittedMark) {
+            const curStem = (getStem() || '').trim();
+            const samePaper = !!curStem && history.some(r => r && r.stem
+                && (fpKey(r.stem) === fpKey(curStem) || prefixSame(r.stem, curStem)));
+            if (curStem && !samePaper) {
+                log('🧹 检测到新试卷（当前题目不在上一场的作答记录里），已丢弃上一场记录');
+                clearSession('检测到新试卷');
+            }
+        }
         claimActiveTab();                   // 同场双页检测：另一页也在答时提醒（心跳 15 秒）
         preflight();
         sawNextBtn = false;                 // 每场重置：上一场见过「下一题」不代表本场也有
@@ -3985,6 +4237,7 @@
             const waitAuto = switchWait(CONFIG.switchWaitDefaultAuto);
             dbg(`切题等待 ${waitAuto}ms（已实测 ${switchStat.n} 次，最长 ${switchStat.max}ms）`);
             if (!await waitForNew(oldSig, waitAuto)) {
+                if (!running) break;      // 等待被「停止」打断（B4）：别再点「下一题」
                 const nb = findButton(BTN.next.labels, BTN.next.exclude);
                 if (!nb) {
                     log('未找到「下一题」按钮，可能已是最后一题');
@@ -3995,6 +4248,7 @@
                 await pacedOp('切题', () => nb.click());
                 if (!await pauseAwareSleep(CONFIG.switchSettleDelay)) break;
                 if (!await waitForNew(oldSig, switchWait(CONFIG.switchWaitDefaultManual))) {
+                    if (!running) break;      // 同上：被停止打断就收工（B4）
                     log(`⚠️ 点击「下一题」后题目未变化（第 ${++noChange}/${CONFIG.maxSwitchFail} 次）`);
                     if (noChange >= CONFIG.maxSwitchFail) {
                         log('⛔ 连续切题失败，已停止');
@@ -4402,6 +4656,137 @@
             return p.unknown === 1 && p.items[0].skip === 'unknown';
         });
 
+        // ---- v2.0.5 A 批：对账定位 / 两源合并 / AI 结构化 / 弱候选 ----
+        t('对账定位：模糊命中时按作答记录的 bankKey 找到库内条目', () => {
+            const bank = { '#fuzzy001': { q: '根据安全生产法和有关法律行政法规的规定生产经营单位应当具备相应的安全生产条件', l: 'A', a: [] } };
+            const rec = {
+                stem: '根据安全生产法和有关法律行政法规的规定生产经营单位应当具备相应的安全生产条件，下列说法正确的是',
+                letters: 'B', pickedText: ['口头'],
+            };
+            const exact = locateBankEntryForWrong({ ...rec, bankKey: '#fuzzy001' }, bank);
+            const noKey = locateBankEntryForWrong(rec, bank);   // 旧会话记录没有 bankKey
+            return exact.key === '#fuzzy001' && exact.keyFrom === 'history'
+                && noKey.key === '#fuzzy001' && noKey.keyFrom === 'equivalent';
+        });
+        t('对账定位：旧记录按规范键兜底，一字之差的相似题不会被误判同题', () => {
+            const stem = '根据安全生产法和有关法律行政法规的规定生产经营单位应当具备相应的安全生产条件，下列说法正确的是';
+            const bank = {};
+            bank[fpKey(stem)] = { q: stem, l: 'A' };
+            const exact = locateBankEntryForWrong({ stem, letters: 'B', pickedText: ['口头'] }, bank);
+            const similar = {};
+            const other = '中华人民共和国的一切权力不属于人民人民代表大会制度是我国的根本政治制度';
+            similar[fpKey(other)] = { q: other, l: 'A' };
+            const miss = locateBankEntryForWrong(
+                { stem: '中华人民共和国的一切权力属于人民人民代表大会制度是我国的根本政治制度', letters: 'B', pickedText: ['错误'] }, similar);
+            return exact.key === fpKey(stem) && exact.keyFrom === 'exact'
+                && miss.key === '' && miss.e === null;
+        });
+        t('对账删除闸门：库内答案与本次选的一致才删，不一致只记 bad', () => {
+            const rec = { letters: 'B', pickedText: ['口头', '音像'] };
+            return bankAnswerIsWrongPick(rec, { l: 'B' }) === true
+                && bankAnswerIsWrongPick(rec, { l: 'A' }) === false
+                && bankAnswerIsWrongPick(rec, { a: ['口头', '音像'] }) === true
+                && bankAnswerIsWrongPick(rec, { a: ['书面'] }) === false
+                && bankAnswerIsWrongPick(rec, null) === false;
+        });
+
+        t('两源同答案的把握度封顶 1（不再出现 1.09 这种越界值）', () => {
+            const m = mergeCandidates([
+                { letters: 'A', conf: 0.99, src: 'ai' },
+                { letters: 'A', conf: 0.99, src: 'baidu' },
+            ], 'single', sOpts);
+            return !!m && m.letters === 'A' && m.conf === 1;
+        });
+        t('AI 结构化高把握 vs 百度冲突时采信领先方（不再永远 null）', () => {
+            const m = mergeCandidates([
+                { letters: 'A', conf: 0.9, src: 'ai', why: 'AI 结构化：法条' },
+                { letters: 'B', conf: 0.81, src: 'baidu', why: '孤立字母·已按百度可信度折减' },
+            ], 'single', sOpts);
+            return !!m && m.letters === 'A' && Math.abs(m.conf - 0.9) < 1e-9;
+        });
+        t('两源同分冲突仍判 null（宁可不答）', () => {
+            const m = mergeCandidates([
+                { letters: 'A', conf: 0.6, src: 'ai', why: 'AI 文本兜底' },
+                { letters: 'B', conf: 0.6, src: 'baidu', why: '孤立字母' },
+            ], 'single', sOpts);
+            return m === null;
+        });
+
+        t('AI 结构化：confidence=0 原样保留（不再被当成 0.9 的高把握）', () => {
+            const o = extractAIAnswer('{"answer":"A","confidence":0}', sOpts, 'single');
+            return !!o && o.letters === 'A' && o.conf === 0 && o.conf < CONFIG.crossCheckBelow;
+        });
+        t('AI 结构化：非数字 confidence 回退 0.9', () => {
+            const o = extractAIAnswer('{"answer":"A","confidence":"high"}', sOpts, 'single');
+            return !!o && o.letters === 'A' && o.conf === 0.9;
+        });
+        t('AI 结构化：单选给 "AB" 直接丢弃候选，不静默取 A', () =>
+            extractAIAnswer('{"answer":"AB","confidence":0.9}', sOpts, 'single') === null);
+        t('AI 结构化：正文多个 JSON 时按出现顺序解析（示例对象不撑坏正式答案）', () => {
+            const o = extractAIAnswer('示例格式：{"note":"不要照抄"}；正式答案：{"answer":"C","confidence":0.9}', sOpts, 'single');
+            return !!o && o.letters === 'C';
+        });
+        t('reasoning_content 只有含合法 JSON 才当答案文本用', () =>
+            hasJsonObject('推理过程：先排除 A，再看 B，最终选 C') === false
+            && hasJsonObject('推理……最终输出 {"answer":"A"}') === true
+            && jsonObjectCandidates('a {x} b {y}').length === 2);
+
+        t('弱候选不再直接采信：多选孤立字母改走组合策略（4 选 3 不再点 ABC）', () => {
+            const r = chooseAnswer({ type: 'multi', options: sOpts, wrongTexts: [], triedCombos: [], cand: 'ABC', candConf: 0.32 });
+            return r.strategy === 'multi-combo' && r.letters === 'ABCD';
+        });
+        t('强候选（≥0.65）多选仍直接采信', () => {
+            const r = chooseAnswer({ type: 'multi', options: sOpts, wrongTexts: [], triedCombos: [], cand: 'AB', candConf: 0.9 });
+            return r.strategy === 'cand' && r.letters === 'AB';
+        });
+        t('单选弱候选改走排除法；不传 candConf（旧调用）保持原行为', () => {
+            const weak = chooseAnswer({
+                type: 'single', options: sOpts, wrongTexts: ['口头', '音像', '公证'], triedCombos: [],
+                cand: 'A', candConf: 0.32,
+            });
+            const legacy = chooseAnswer({
+                type: 'single', options: sOpts, wrongTexts: ['口头', '音像', '公证'], triedCombos: [], cand: 'A',
+            });
+            return weak.strategy === 'exclude' && weak.letters === 'A'
+                && legacy.strategy === 'cand' && legacy.letters === 'A';
+        });
+
+        // ---- v2.0.5：B 批（对账幂等 / 缓存恢复 / 看门狗 / 清场复位） ----
+        t('对账幂等键：同分数同题号同记录数得到同一个键（与题号顺序无关）', () => {
+            const a = reconcileKey({ 1: 'correct', 2: 'wrong', 3: 'unanswered' }, { score: 80, total: 100 }, { historyLen: 3 });
+            const b = reconcileKey({ 3: 'unanswered', 2: 'wrong', 1: 'correct' }, { score: 80, total: 100 }, { historyLen: 3 });
+            return !!a && a === b && a.length >= 8;
+        });
+        t('对账幂等键：分数/判定/记录数任一变化都会换键（不同场次不被误去重）', () => {
+            const base = reconcileKey({ 1: 'correct', 2: 'wrong' }, { score: 80, total: 100 }, { historyLen: 2 });
+            return base !== reconcileKey({ 1: 'correct', 2: 'wrong' }, { score: 79, total: 100 }, { historyLen: 2 })
+                && base !== reconcileKey({ 1: 'wrong', 2: 'wrong' }, { score: 80, total: 100 }, { historyLen: 2 })
+                && base !== reconcileKey({ 1: 'correct', 2: 'wrong' }, { score: 80, total: 100 }, { historyLen: 3 });
+        });
+        t('对账幂等键：缺字段的旧成绩数据也能算键（不抛错）', () => {
+            const k = reconcileKey(null, null, null);
+            return typeof k === 'string' && k.length > 0 && k !== reconcileKey(null, { score: 1 }, null);
+        });
+        t('缓存恢复探测：成绩页 → 重新解析；考试页 → 提示继续；其它页 → 待命', () =>
+            pageShowAction(false, false, true) === 'result'
+            && pageShowAction(true, true, false) === 'exam'
+            && pageShowAction(true, false, false) === 'idle'
+            && pageShowAction(false, false, false) === 'idle');
+        t('解析看门狗时长覆盖全部重试（正常重试途中不会误释放）', () =>
+            CONFIG.parseWatchdogMs > CONFIG.parseRetryInterval * CONFIG.parseMaxRetry
+            && CONFIG.parseWatchdogMs >= 10000);
+        t('清场复位：submitted/totalQ/parsedOnce 等运行态全部归零（连考不再误判）', () => {
+            const r = clearedSessionState();
+            return r.submitted === false && r.totalQ === 0 && r.parsedOnce === false
+                && r.lastSubmitTs === 0 && r.answered === 0
+                && r.autoSubmitted === false && r.sawNextBtn === false;
+        });
+        t('清场复位：每次返回新对象（不会污染共享状态）', () => {
+            const a = clearedSessionState();
+            a.submitted = true;
+            return clearedSessionState().submitted === false;
+        });
+
         return cases;
     }
 
@@ -4428,7 +4813,8 @@
     try {
         window.__FX_TEST__ = {
             normStem, fpKey, similarity, prefixSame, matchOption, entryToLetters, extractAnswer,
-            stripQueryEcho, extractAIAnswer,
+            stripQueryEcho, extractAIAnswer, jsonObjectCandidates, hasJsonObject,
+            locateBankEntryForWrong, bankAnswerIsWrongPick, reconcileKey, clearedSessionState, pageShowAction,
             mergeCandidates, chooseAnswer, combosOf, multiCombos, comboKey, parseDelimited, sniffDelim,
             csvCell, validateRow, resolveType, isUserEntry, blankEntry, stopReasonText, fuzzyUsable,
             normalizeGroupState, groupBadge, collapseLabel,
@@ -4769,6 +5155,8 @@
         $('fx-stop').onclick = () => {
             if (running) {
                 running = false; paused = false;
+                abortPendingWaits();            // 让正在进行的切题等待立刻结束，不再卡 12 秒（B4）
+                releaseActiveTab();             // 立刻撤掉「本页正在答题」心跳，另一页不再误报同场双开（B4）
                 log(`⏹️ 已停止（已答 ${history.length} 题）· 点「开始」可从当前题继续`);
                 updateStatus(runStatusLabel(running, paused));
             } else {
@@ -5304,6 +5692,68 @@
     window.addEventListener('beforeunload', flushOnExit);
     window.addEventListener('pagehide', flushOnExit);
     document.addEventListener('visibilitychange', () => { if (document.hidden) flushOnExit(); });
+
+    // ==================== 往返缓存（bfcache）恢复 ====================
+    /**
+     * 从往返缓存恢复后该做什么（纯函数，自检可断言）。
+     * 成绩页 → 重新解析（对账幂等，不会重复计分）；考试页 → 提示继续；其它 → 待命（B2）。
+     */
+    function pageShowAction(hasStem, hasOptions, isResult) {
+        if (isResult) return 'result';
+        if (hasStem && hasOptions) return 'exam';
+        return 'idle';
+    }
+
+    /**
+     * bfcache 恢复后的状态复位（B2）：页面从往返缓存恢复时不会重新执行脚本，
+     * running / parseRunning / 自动关闭计时器 / 同场双页心跳都可能停留在上一轮的状态，
+     * 表现为「看着在答题其实没动」「解析成绩点了没反应」「另一页一直提示同场双开」。
+     */
+    function resetRuntimeAfterPageShow() {
+        const wasBusy = running || parseRunning || !!autoCloseLeft;
+        running = false; paused = false; timeUp = false;
+        abortPendingWaits();            // 缓存恢复时也中止未完成的切题等待（B2/B4）
+        releaseActiveTab();
+        if (autoCloseTimer) { clearTimeout(autoCloseTimer); autoCloseTimer = null; }
+        if (autoCloseTick) { clearInterval(autoCloseTick); autoCloseTick = null; }
+        autoCloseLeft = 0;
+        releaseParse();                 // 解析锁 / 看门狗 / 重试定时器一起作废
+        lastSubmitTs = 0;               // 允许重新识别本页的交卷确认
+        try { updateAutoCloseBtn(); } catch { }
+        try { syncRunBtns(); } catch { }
+        if (wasBusy) log('♻️ 页面从缓存恢复，已复位上一轮的运行状态');
+        updateStatus('页面从缓存恢复，正在重新检测…');
+        setTimeout(() => {
+            try {
+                const hasStem = !!(getStem() || '').trim();
+                const hasOptions = getOptions().length > 0;
+                let isResult = false;
+                try { isResult = isResultPage(); } catch { }
+                const action = pageShowAction(hasStem, hasOptions, isResult);
+                if (action === 'result') {
+                    log('♻️ 缓存恢复后检测到成绩页，自动重新解析（与上次对账一致时不会重复写库）');
+                    markPendingSubmitted();
+                    parseResult();
+                } else if (action === 'exam') {
+                    log('♻️ 缓存恢复后检测到考试页：点面板「开始」可继续答题');
+                    updateStatus('就绪');
+                } else {
+                    log('♻️ 缓存恢复后未检测到题目/成绩页，请手动刷新页面');
+                    updateStatus('未检测到题目');
+                }
+            } catch (e) {
+                log(`⚠️ 缓存恢复后的页面探测失败：${(e && e.message) || e}`);
+            }
+        }, 120);
+    }
+
+    // 只在「从往返缓存恢复」时复位；正常加载（persisted=false）不动，避免干扰首屏初始化
+    window.addEventListener('pageshow', e => {
+        if (!e || !e.persisted) return;
+        try { resetRuntimeAfterPageShow(); } catch (err) {
+            log(`⚠️ 页面恢复复位失败：${(err && err.message) || err}`);
+        }
+    });
 
     document.body ? createPanel() : window.addEventListener('DOMContentLoaded', createPanel);
 })();

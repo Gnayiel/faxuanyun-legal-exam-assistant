@@ -1,10 +1,10 @@
 # 甘肃省国家工作人员学法考试平台自动答题助手
 
-[![version](https://img.shields.io/badge/version-2.0.4-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.5-blue)](CHANGELOG.md)
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
-[![self-test](https://img.shields.io/badge/self--test-97%20passing-success)](#开发与自检)
+[![self-test](https://img.shields.io/badge/self--test-118%20passing-success)](#开发与自检)
 [![panel--smoke](https://img.shields.io/badge/panel--smoke-40%20passing-success)](#开发与自检)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-4.0%2B-black)](https://www.tampermonkey.net/)
 
@@ -56,7 +56,7 @@
   自己没打开的标签页时，日志会提示手动关闭，脚本不重复尝试
 - **面板**：可拖拽、一键收起（收成一条写着自己名字的窄条）、**按钮按用途分类折叠**、分类标题带实时状态摘要、
   快捷键、Shadow DOM 隔离站点样式（面板样式不污染页面，页面样式也不会打乱面板）、日志分级与导出、题库导入导出
-- **内置自检**：97 项纯函数断言，面板一键运行；不联网、不读写题库数据
+- **内置自检**：118 项纯函数断言，面板一键运行；不联网、不读写题库数据
 - **多标签页写保护**：落盘前先读盘合并、用 3 秒短时写锁串行化两个标签页的写入，再用「墓碑」确保删除不会被旧副本搬回来
 - **同场双页提醒**：同一场考试在第二个标签页打开时会提示「只留一个标签页」，避免两页记录分叉
 - **手动对账兜底**：成绩页识别不出答题卡时，面板「题库与本场 → 手动对账」可按 `1-8=对, 9=错, 10=未答` 手填，照样走对账 / 写库 / 错题清理
@@ -275,7 +275,7 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 单文件、纯前端、**无构建步骤**，改完直接安装即可。验证命令都不需要安装依赖：
 
 ```bash
-node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 97 项断言，不联网
+node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 118 项断言，不联网
 node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致（--fix 可自动改）
 node tools/check-workflows.mjs               # GitHub Actions 配置静态检查（action 必须 pin SHA 等）
 node tools/merge-bank.mjs data/*.json -o /tmp/merged.json   # 题库合并工具冒烟（幂等）
@@ -299,10 +299,10 @@ node tools/release.mjs --dry-run             # 本地发版助手：版本/CHANG
   必须声明 `permissions` 与 `timeout-minutes`、禁止 `pull_request_target` 检出 PR 代码、引用的本地脚本必须存在、
   发版必须由 tag 触发。
 - `tools/release.mjs` 是本地发版助手：校验 `@version` 与 CHANGELOG 章节一致 → 跑自检 / 数据 / 工作流检查 → 打本地 tag，
-  然后按提示 `git push origin main --tags`，由 `release.yml` 自动建 Release。
+  然后按提示推送 `main` 与这一版的 `vX.Y.Z` tag（不要一次推所有 tag），由 `release.yml` 校验 tag 与 `@version` 一致、CHANGELOG 章节非空后自动建 Release，并在发布后回读附件复算 SHA256。
 - 面板里**「自检」（`Alt + T`）**是同一批断言，失败项会逐条写进日志。
 - CI：`.github/workflows/selftest.yml` 在 push 到 `main`、以及每个 PR 上跑上面的检查（也可手动触发）；
-  推送 `v*` tag 时 `.github/workflows/release.yml` 自动跑同样的门禁并创建 Release、上传 `.user.js` 与同名 `.sha256`。
+  推送 `v*` tag 时 `.github/workflows/release.yml` 自动跑同样的门禁并创建 Release、上传 `.user.js` 与同名 `.sha256`（发布前校验 tag 与 `@version` 一致、CHANGELOG 章节非空；发布后回读 Release 校验附件数与 SHA256）。
   环境固定为 `ubuntu-24.04` + Node 22，第三方 action 全部固定到 commit SHA，由 Dependabot 每周开 PR 升级。
 
 改动前请留意两点：
@@ -367,7 +367,7 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 │   ├── faxuanyun-legal-exam-bank-20261017.csv    # 随仓库分发的 300 题快照（6 列）
 │   └── faxuanyun-legal-exam-bank-20261017.json   # 同上，字段完整版
 └── tools/
-    ├── selftest.mjs              # 无依赖自检（元数据 + 97 项断言）
+    ├── selftest.mjs              # 无依赖自检（元数据 + 118 项断言）
     ├── check-data.mjs            # 题库快照与文档数字一致性校验（--fix 可自动修）
     ├── merge-bank.mjs            # 多份题库导出合并（--emit-snapshot 生成 data/ 快照）
     ├── check-workflows.mjs       # GitHub Actions 配置静态检查
@@ -393,13 +393,12 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 
 ## 更新记录
 
-当前版本 **v2.0.4**（2026-10-19）：成绩对账逻辑抽成可单测的纯函数、手动对账兜底、同场双页检测、AI Key 仅会话、维护与发版工具补全
+当前版本 **v2.0.5**（2026-10-19）：答题正确率与成绩对账的一轮加固——AI 结构化解析、两源冲突、弱候选策略、错答案清理、重复对账、解析锁、停止响应、清场残留，以及 CI / 发版的硬门禁
 
-- 新增：面板「手动对账」（答题卡识别不出时按 `题号=对/错/未答` 手填，走同一套对账入库）
-- 新增：同场双页检测（第二个标签页打开同一场考试时提醒只留一个）；AI Key「仅本次会话」选项（不落盘）
-- 新增：`tools/check-workflows.mjs` 工作流静态检查、`tools/release.mjs` 本地发版助手；Dependabot PR 自检全绿后自动合并
-- 增强：`check-data.mjs --fix` 自动修正文档数字；`merge-bank.mjs --emit-snapshot` 直接生成 `data/` 成对快照；Release 说明附 SHA256
-- 优化：对账逻辑抽成 `planResultActions()` 纯函数，题号/顺序映射与「未标对=答错」兜底全部纳入自检
-- 同步：自检断言 83 → 97，面板冒烟 37 → 40；已知限制与真机验证章节按实现更新
+- 修复：AI 结构化答案解析 4 个漏判（`confidence: 0` 被当 0.9、单选 `"AB"` 静默取 A、多个 JSON 解析失败、`reasoning_content` 推理文本被当答案）；两源冲突永远用不了领先方；弱候选压过多选组合策略
+- 修复：答错后删不掉模糊 / 哈希键命中的错答案；重复对账让题库 `ok/hit` 二次灌水；解析失败后「解析成绩」失效到刷新；「停止」后切题等待仍卡最长 12 秒；清场后「已交卷 / 已答满」状态残留
+- 变更：交卷后自动关闭失败不再 `history.back()`，改为提示手动关闭；从往返缓存恢复时复位运行态并重新探测页面
+- 增强：`release.yml` 发版前校验 tag 与 `@version` 一致、CHANGELOG 章节非空，发布后回读附件复算 SHA256；`release.mjs` 增加工作区干净 / 版本单调 / 包含 `origin/main` 前置检查；`check-workflows.mjs` 修复漏检并加负例自测
+- 同步：自检断言 97 → 118（面板冒烟保持 40）；README / CONTRIBUTING 同步发版命令与断点续发说明
 
 完整清单见 [CHANGELOG.md](CHANGELOG.md)。

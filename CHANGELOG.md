@@ -13,6 +13,67 @@
 
 ---
 
+## v2.0.5
+
+**2026-10-19**
+
+> 一轮「把会出错的地方变确定」的加固：答案解析的正确率、成绩对账的准确性、自动答题的运行稳定性，
+> 以及 CI / 发版链路的硬门禁。自检断言 97 → 118（面板冒烟保持 40）。
+
+### 新增
+
+- **发版门禁（CI）**：推送 `v*` tag 时先跑 `release.mjs --check-ci`，校验 tag 与脚本 `@version` 完全一致、
+  `CHANGELOG.md` 有本版非空章节，不一致直接失败（避免「v2.0.5 的 Release 里挂 2.0.4 的脚本」或空说明发布）。
+  发布后回读 Release：断言非草稿、附件 2 个、下载附件 `cmp` 本地文件并复算 SHA256，失败信息注明「Release 已发布，可重跑」。
+- **本地发版前置检查**：`tools/release.mjs` 正式发版前硬门禁——工作区干净、`@version` 严格大于最近 tag、
+  HEAD 包含 `origin/main`；并打印明确命令 `git push origin main && git push origin vX.Y.Z`（一次只推这一版 tag）。
+- **`check-workflows.mjs` 负例自测**：用内存样本断言错误配置会被抓出，且真实仓库必须检出非 0 个 action（防再次假绿）。
+- 对账幂等键、作答库键记录、清场复位、解析看门狗、bfcache 恢复处理等逻辑抽成可单测纯函数，全部纳入内置自检。
+
+### 变更
+
+- 交卷后自动关闭被浏览器拒绝时，不再 `history.back()` / `location.replace('about:blank')`，改为日志提示手动关闭
+  （旧实现里 `history` 是本场作答记录数组，调用必然抛错；退回上一页还可能落在已交卷的考试页）。
+- 页面从往返缓存（bfcache）恢复时复位 `running / parseRunning / 自动关闭计时器 / 同场双页心跳` 并重新探测：
+  成绩页自动重新解析（幂等，不重复入库）、考试页提示可继续、其它页提示手动刷新。
+- 候选「把握度」语义收紧：两源一致的合并分数封顶 1（旧实现可到 1.09）；两源冲突比较时把百度折减分数除回去再比 gap，
+  且 AI 结构化 JSON 把握 ≥ 0.8 时直接采信领先方。
+
+### 修复
+
+- **AI 结构化答案解析 4 个漏判**：`confidence: 0` 被 `Number(...) || 0.9` 当成 0.9 的高把握；单选返回 `"AB"`
+  被静默取第一个字母；贪婪正则遇到「示例 JSON + 正式 JSON」整段解析失败；`content` 为空时把整段 `reasoning_content`
+  推理文本当成答案。改为大括号配对扫描多候选、`Number.isFinite` + 0≤c≤1 校验、单选/判断多字母丢弃、
+  `reasoning_content` 仅在含合法 JSON 时使用。
+- **两源冲突永远用不了领先方**：百度折扣后 0.81 对 AI 0.9，gap 只有 0.09，达不到 0.3 阈值，冲突时永远返回空。
+- **弱候选绕过多选组合策略**：百度孤立字母折减后把握度只有 0.32，却会压过「全选 / 少一个」的组合枚举；
+  现在低于阈值（单选/判断 0.6、多选 0.65）的候选当没有候选，交给排除法 / 组合策略。
+- **答错后删不掉库里的错答案**：对账只查规范指纹键与前 50 字旧键，模糊 / 哈希键命中时条目键是 `fpKey(e.q)`，
+  导致删不掉且 `bad` 不增长。现在按作答时记录的 `bankKey` 定位，键失效时用 `findEquivalent + prefixSame` 唯一同题兜底
+  （双闸，避免误删相似题）；答案一致才删并写墓碑，不一致只记 `bad`。
+- **重复对账重复记分**：同一成绩页被二次解析时题库 `ok/hit` 被再次累加；现在用
+  `reconcileKey(页面 + 分数 + 总分 + 逐题判定 + 记录数)` 幂等，完全相同只重新展示、不写库。
+- **解析成绩锁死**：`parseResult` 无 `try/catch/finally`，任一异常后「解析成绩」静默失效到刷新；
+  现在 `finally` 统一释放，另加 15 秒看门狗兜底。
+- **「停止」不释放心跳、切题等待卡最长 12 秒**：`fx-stop` 立即 `abortPendingWaits()` + `releaseActiveTab()`，
+  主循环在被停止打断后不再点「下一题」。
+- **清场残留 / 连考误判**：清场时一并复位 `submittedMark / totalQ / parsedOnce / lastSubmitTs` 等运行态并清掉对账键；
+  交卷后在同一页面开新一场时，当前题干不在旧记录里就当作新试卷清场，不再误判「已答满」。
+
+### 移除
+
+- 移除交卷后自动关闭失败时的 `history.back()` / `location.replace('about:blank')` 退路。
+
+### 验证方式
+
+- `node --check faxuanyun-legal-exam-assistant.user.js` ✅
+- 仓库根目录：`node tools/selftest.mjs` → **118 项断言全部通过**（含元数据、文档数字、版本徽章校验）
+- 仓库根目录：`node tools/panel-smoke.mjs --require-browser` → **40 项断言全部通过**（需要 Chromium 内核；没有浏览器时跳过）
+- `node tools/check-data.mjs`、`node tools/check-workflows.mjs`（真实检出 4 个 action，全部 pin）、
+  `node tools/merge-bank.mjs data/*.json -o /tmp/merged.json`、`node tools/release.mjs --dry-run` 全绿
+
+---
+
 ## v2.0.4
 
 **2026-10-19**

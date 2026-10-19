@@ -18,7 +18,7 @@
 ## 本地验证（提交前必跑）
 
 ```bash
-node tools/selftest.mjs                      # 元数据 + 97 项内置断言 + 文档数字校验，不联网
+node tools/selftest.mjs                      # 元数据 + 118 项内置断言 + 文档数字校验，不联网
 node tools/check-workflows.mjs               # GitHub Actions 配置静态检查（pin SHA / 权限 / 脚本路径）
 node tools/release.mjs --dry-run             # 本地发版助手：版本与 CHANGELOG 校验 + 跑测试 + 打 tag 预演
 node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致
@@ -64,7 +64,10 @@ node tools/panel-smoke.mjs --require-browser # 真实浏览器面板冒烟（40 
    git push origin vX.Y.Z
    ```
    也可以在工作流跑完后到 Release 页面核对附件与发布说明。
-6. 发布后自查：浏览器打开 `@updateURL` 指向的 raw 文件确认新 `@version`；或留一个旧版装油猴点「检查更新」，验证自动更新链路（raw 走 CDN，可能需要等几分钟）。
+6. **断点续发**：workflow 失败时按报错处理——`release.mjs --check-ci` 门禁失败（tag 与 `@version` 不符、CHANGELOG 缺章节）
+   要先改代码 / 文档再重打 tag；发布后回读校验失败（附件数 / SHA256 不一致）时 Release 其实已经建好，修好原因后
+   直接在 Actions 里重跑本 workflow 即可，附件会用 `--clobber` 覆盖，**不需要**删 tag 重打。只有 tag 本身打错时才删除重打。
+7. 发布后自查：浏览器打开 `@updateURL` 指向的 raw 文件确认新 `@version`；或留一个旧版装油猴点「检查更新」，验证自动更新链路（raw 走 CDN，可能需要等几分钟）。
 
 ## 报告问题
 

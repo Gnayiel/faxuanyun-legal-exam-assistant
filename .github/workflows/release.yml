@@ -1,7 +1,8 @@
 name: 发版
 
-# 推送 vX.Y.Z tag 时自动发布 Release：先跑一遍自检与数据校验，再建 Release、
-# 上传 .user.js 与同名 .sha256。tag 打错可以删掉重打，脚本用 --clobber 覆盖附件。
+# 推送 vX.Y.Z tag 时自动发布 Release：先做 tag/版本/CHANGELOG 门禁与全套自检，
+# 再建 Release、上传 .user.js 与同名 .sha256，最后下载远端附件复算校验和。
+# tag 打错可以删掉重打；脚本用 --clobber 覆盖附件，验证失败修好后可重跑本 workflow。
 on:
   push:
     tags: ['v*']
@@ -25,7 +26,14 @@ jobs:
         with:
           node-version: '22'
 
-      # 发版门禁：语法、元数据、内置断言、数据/文档数字漂移、工作流配置
+      # 发版门禁 1：推送的 tag 必须正好等于脚本 // @version，且 CHANGELOG 有本版非空章节。
+      # 不一致直接红，避免「v2.0.5 的 Release 里挂 2.0.4 的脚本」或空说明发布。
+      - name: 校验 tag 与脚本版本 / CHANGELOG 章节
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node tools/release.mjs --check-ci "$TAG"
+
+      # 发版门禁 2：语法、元数据、内置断言、数据/文档数字漂移、工作流配置
       - name: 发版前自检
         run: |
           node --check faxuanyun-legal-exam-assistant.user.js
@@ -35,17 +43,23 @@ jobs:
 
       - name: 生成校验和与发布说明
         run: |
+          set -euo pipefail
           sha256sum faxuanyun-legal-exam-assistant.user.js > faxuanyun-legal-exam-assistant.user.js.sha256
+          # 先抽 CHANGELOG 正文并校验非空：缺章节/空章节时 notes 会只剩模板文字，不允许发布
+          body="$(awk -v v="$GITHUB_REF_NAME" 'BEGIN{p=0} $0 ~ "^## "v"$" {p=1; next} p && /^## v/ {exit} p && /^---$/ {exit} p {print}' CHANGELOG.md)"
+          if [ -z "$body" ]; then
+            echo "::error::CHANGELOG.md 里没有 $GITHUB_REF_NAME 的非空章节正文；Release 已中止发布"
+            exit 1
+          fi
           {
             printf '## %s\n\n' "$GITHUB_REF_NAME"
-            awk -v v="$GITHUB_REF_NAME" 'BEGIN{p=0} $0 ~ "^## "v"$" {p=1; next} p && /^## v/ {exit} p && /^---$/ {exit} p {print}' CHANGELOG.md
+            printf '%s\n' "$body"
             printf '\n## 安装 / 更新\n\n'
             printf -- '- 已安装旧版：油猴会按 `@updateURL` 自动检查更新，也可在油猴面板点「检查脚本更新」。\n'
             printf -- '- 首次安装：[安装脚本](https://github.com/%s/raw/main/faxuanyun-legal-exam-assistant.user.js)\n' "$GITHUB_REPOSITORY"
             printf -- '- 附件含 `.user.js` 与本版同名 `.sha256` 校验文件。\n'
             printf -- '- 校验和：`%s`\n' "$(cut -d' ' -f1 faxuanyun-legal-exam-assistant.user.js.sha256)"
           } > release-notes.md
-          awk 'NF==0{exit} {print}' release-notes.md
 
       - name: 创建或更新 Release
         env:
@@ -60,7 +74,37 @@ jobs:
               faxuanyun-legal-exam-assistant.user.js faxuanyun-legal-exam-assistant.user.js.sha256
           fi
 
-      - name: 验证 Release
+      # 发版门禁 3：发布后回读远端状态并复算校验和，防止「UI 看起来成功、附件其实不对」。
+      # 失败时 Release 已经存在，修好后直接重跑本 workflow 即可（附件 --clobber 覆盖）。
+      - name: 验证 Release（非草稿 / 2 个附件 / SHA256 一致）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release view "$GITHUB_REF_NAME" --json tagName,isDraft,assets --jq '"已发布 \(.tagName)（draft=\(.isDraft)，附件 \(.assets | length) 个）"'
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$1；Release 已发布，修好后可重跑本 workflow（附件会被覆盖）"
+            exit 1
+          }
+
+          draft="$(gh release view "$TAG" --json isDraft --jq '.isDraft')"
+          [ "$draft" = "false" ] || fail "Release $TAG 仍是草稿（isDraft=$draft）"
+
+          count="$(gh release view "$TAG" --json assets --jq '.assets | length')"
+          [ "$count" = "2" ] || fail "Release $TAG 的附件数是 $count，应为 2（.user.js 与 .sha256）"
+
+          verify_dir="$RUNNER_TEMP/release-verify"
+          rm -rf "$verify_dir" && mkdir -p "$verify_dir"
+          gh release download "$TAG" --dir "$verify_dir" \
+            --pattern '*.user.js' --pattern '*.sha256' || fail "从 Release 下载附件失败"
+
+          cmp faxuanyun-legal-exam-assistant.user.js "$verify_dir/faxuanyun-legal-exam-assistant.user.js" \
+            || fail "远端 .user.js 与本地构建文件内容不一致"
+
+          local_sum="$(cut -d' ' -f1 faxuanyun-legal-exam-assistant.user.js.sha256)"
+          remote_sum="$(cut -d' ' -f1 "$verify_dir/faxuanyun-legal-exam-assistant.user.js.sha256")"
+          recomputed="$(sha256sum "$verify_dir/faxuanyun-legal-exam-assistant.user.js" | cut -d' ' -f1)"
+          [ "$recomputed" = "$local_sum" ] || fail "附件复算 SHA256 与本地校验文件不一致（本地 $local_sum / 复算 $recomputed）"
+          [ "$remote_sum" = "$recomputed" ] || fail "远端 .sha256 记录与附件复算值不一致（记录 $remote_sum / 复算 $recomputed）"
+
+          echo "✓ Release $TAG 已发布：draft=false，附件 $count 个，SHA256 $recomputed 与远端一致"

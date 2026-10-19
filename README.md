@@ -3,6 +3,7 @@
 [![version](https://img.shields.io/badge/version-2.0.2-blue)](CHANGELOG.md)
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
 [![self-test](https://img.shields.io/badge/self--test-74%20passing-success)](#开发与自检)
 [![panel--smoke](https://img.shields.io/badge/panel--smoke-33%20passing-success)](#开发与自检)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-4.0%2B-black)](https://www.tampermonkey.net/)
@@ -281,7 +282,7 @@ node tools/panel-smoke.mjs --require-browser # 用真实 Chromium 内核（Edge 
   避免「没装浏览器 → 静默跳过 → 假绿」。也可以用 `FX_BROWSER=/path/to/chrome` 指定浏览器。
 - 面板里**「自检」（`Alt + T`）**是同一批断言，失败项会逐条写进日志。
 - CI：`.github/workflows/selftest.yml` 在 push 到 `main`、以及每个 PR 上跑上面两条（也可手动触发）；
-  第三方 action 全部固定到 commit SHA，由 Dependabot 每周开 PR 升级。
+  环境固定为 `ubuntu-24.04` + Node 22，第三方 action 全部固定到 commit SHA，由 Dependabot 每周开 PR 升级。
 
 改动前请留意两点：
 

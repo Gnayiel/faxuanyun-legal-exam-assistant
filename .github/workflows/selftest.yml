@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   selftest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       # 第三方 action 全部 pin 到 commit SHA（行尾注释是版本号）；
@@ -25,13 +25,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
-          node-version: '20'
+          node-version: '22'
 
       # 元数据校验 + 脚本内置的 74 项断言，无第三方依赖
       - name: 内置自检
         run: node tools/selftest.mjs
 
-      # GitHub runner 自带 Chrome；--require-browser 让「找不到浏览器」直接失败，
+      # GitHub runner 自带 Edge；--require-browser 让「找不到浏览器」直接失败，
       # 避免面板冒烟被静默跳过、CI 假绿。
       - name: 面板冒烟测试
         run: node tools/panel-smoke.mjs --require-browser

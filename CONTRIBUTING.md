@@ -11,7 +11,7 @@
 
 ## 开发环境
 
-- Node.js ≥ 18（工具脚本只用到 Node 内置模块，**没有任何 npm 依赖**）
+- Node.js ≥ 20（CI 用 22 LTS；工具脚本只用到 Node 内置模块，**没有任何 npm 依赖**）
 - Edge / Chrome / Chromium 任一（面板冒烟测试用；可用 `FX_BROWSER` 指定可执行路径）
 - 不需要构建：改完 `faxuanyun-legal-exam-assistant.user.js`，重新装到油猴里刷新页面即可
 

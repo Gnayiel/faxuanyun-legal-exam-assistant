@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.3
-// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 83 项内置自检
+// @version      2.0.4
+// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 97 项内置自检
 // @author       GNAYIEL
 // @license      MIT
 // @match        *://gs.faxuanyun.com/*
@@ -90,7 +90,7 @@
  *   作答策略          多选组合枚举、chooseAnswer 决策、answerCurrent 单题流程
  *   成绩解析          答题卡颜色判定、分数读取、交卷对账入库
  *   考试流程控制      退出原因、暂停等待、倒计时、弹窗、最后一题、mainLoop
- *   内置自检          83 项纯函数断言 + window.__FX_TEST__ 测试钩子
+ *   内置自检          97 项纯函数断言 + window.__FX_TEST__ 测试钩子
  *   面板              UI 构建、分类折叠、拖拽、状态摘要、AI 设置、导入导出与日志按钮
  */
 
@@ -521,7 +521,10 @@
             return t;
         } catch { return ''; }
     };
-    const getKey = () => deobf(GM_getValue('aiKey', ''));
+    // 「仅本次会话」模式：Key 只放在内存里，刷新/重开页面即失效（不落盘，降低泄露面）
+    let sessionKey = '';
+    let keySessionOnly = GM_getValue('aiKeySessionOnly', false);
+    const getKey = () => sessionKey || deobf(GM_getValue('aiKey', ''));
     const setKey = k => GM_setValue('aiKey', obf(k));
 
     // ---------- 与页面交互的节流 ----------
@@ -1034,6 +1037,82 @@
             const lock = GM_getValue(WRITE_LOCK_KEY, null);
             if (lock && lock.owner === writeLockId()) GM_setValue(WRITE_LOCK_KEY, null);
         } catch { }
+    }
+
+    // ==================== 同场双页检测 / 人工对账 ====================
+    // 写锁只保证「先后落盘不互相覆盖」，防不了两个标签页同时答同一场导致 session 分叉：
+    // 用一个 localStorage 心跳标记「本页正在答题」，另一页看到未过期的心跳就提醒用户。
+    const ACTIVE_TAB_KEY = 'fxActiveTab';
+    const ACTIVE_TAB_TTL = 15000;       // 心跳超时：15 秒没更新视为标签页已关闭
+    const TAB_ID = `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    let tabClaimTimer = null;
+
+    /** 心跳判定（纯函数，便于自检）：claim={owner,ts}；返回 true 表示另一个标签页正在答题 */
+    function tabClaimConflict(claim, now, ttl, me) {
+        if (!claim || !claim.owner) return false;
+        if (claim.owner === me) return false;
+        const age = now - (+claim.ts || 0);
+        return age < (ttl || ACTIVE_TAB_TTL);   // ts 在未来（时钟回拨）也按「正在答」处理
+    }
+    function readActiveTab() {
+        try { return JSON.parse(localStorage.getItem(ACTIVE_TAB_KEY) || 'null'); } catch { return null; }
+    }
+    function writeActiveTab(claim) {
+        try { localStorage.setItem(ACTIVE_TAB_KEY, JSON.stringify(claim)); } catch { }
+    }
+    /** 开答前认领「本页正在答题」并起心跳；发现另一页也在答就提醒（不强行停，交给用户） */
+    function claimActiveTab() {
+        try {
+            const other = readActiveTab();
+            if (tabClaimConflict(other, Date.now(), ACTIVE_TAB_TTL, TAB_ID)) {
+                const when = other.ts ? new Date(other.ts).toLocaleTimeString() : '刚刚';
+                log(`⚠️ 另一个标签页（${when}）也在答同一场：两页记录会各自累积、互相看不见，建议只保留一个标签页答题`);
+                notify('检测到另一个标签页也在答题：建议关闭其中一个，避免两页记录分叉', 'warn');
+            }
+            const beat = () => writeActiveTab({ owner: TAB_ID, ts: Date.now(), path: location.pathname + location.search });
+            beat();
+            if (tabClaimTimer) clearInterval(tabClaimTimer);
+            tabClaimTimer = setInterval(beat, 5000);
+        } catch { }
+    }
+    /** 停止答题时撤掉心跳（标记里不是自己就不动，避免误删别的标签页） */
+    function releaseActiveTab() {
+        if (tabClaimTimer) { clearInterval(tabClaimTimer); tabClaimTimer = null; }
+        try {
+            const cur = readActiveTab();
+            if (cur && cur.owner === TAB_ID) writeActiveTab({ owner: '', ts: 0, path: '' });
+        } catch { }
+    }
+
+    // ---------- 手动对账：成绩页 DOM 识别不出来时的兜底入口 ----------
+    const MANUAL_VERDICT_WORDS = [
+        ['correct', ['对', '正确', '答对', '√', '✔', 'yes', 'y', 'ok']],
+        ['wrong', ['错', '错误', '答错', '×', '✗', 'x', 'no', 'n', 'wrong']],
+        ['unanswered', ['未答', '没答', '空白', '空', '漏答', '没做', '跳过', 'skip']],
+    ];
+    const manualVerdictOf = word => {
+        const w = String(word || '').trim().toLowerCase();
+        if (!w) return '';
+        for (const [verdict, words] of MANUAL_VERDICT_WORDS) if (words.includes(w)) return verdict;
+        return '';
+    };
+    /** 纯函数：解析手动对账文本 `1-5=对, 6=错, 7-10=未答` → { 题号: 'correct'|'wrong'|'unanswered' } */
+    function parseManualVerdicts(raw) {
+        const out = {};
+        const text = String(raw || '').replace(/[；;、，,\s]+/g, ' ').trim();
+        if (!text) return out;
+        for (const token of text.split(' ')) {
+            const m = token.match(/^(\d{1,3})(?:\s*[-~—至]\s*(\d{1,3}))?\s*(?:=|:|：|＝)\s*(.+)$/);
+            if (!m) continue;
+            const a = +m[1];
+            const b = m[2] ? +m[2] : a;
+            const verdict = manualVerdictOf(m[3]);
+            if (!verdict || a < 1 || b < 1) continue;
+            if (a > CONFIG.maxQuestionNum || b > CONFIG.maxQuestionNum) continue;
+            const lo = Math.min(a, b), hi = Math.max(a, b);
+            for (let n = lo; n <= hi; n++) out[n] = verdict;
+        }
+        return out;
     }
 
     /**
@@ -3283,8 +3362,77 @@
     }
 
     /** 输出明细、分数、正确率，并按判定对账入库 */
+    /**
+     * 成绩对账规划（纯函数）：把「答题卡判定 verdicts」对应到「本场作答记录 recs」上。
+     * 之前这套映射逻辑混在 reportResult 里，既没法单测，改一处也容易牵动写库细节。
+     * 返回：
+     *   { nums, good, bad, blank, coverTotal, coverage, absentAsWrong,
+     *     numberMapOk, positionalOk, numsContiguous,
+     *     items:[{ rec, no, skip:'incomplete'|'unmapped'|'unknown'|null, verdict, absentWrong }],
+     *     absentWrong, unknown, unmapped, skipped }
+     * 只做判定与计数，不写题库——写库仍由 reportResult 按 items 执行。
+     */
+    /**
+     * 成绩对账的纯决策函数（不碰 DOM、不写库，便于自检）：
+     * 输入答题卡判定 verdicts={题号:'correct'|'wrong'|'unanswered'} 与本地作答记录 recs，
+     * 输出每条记录该怎么处理（items[].skip / items[].verdict）以及跳过/兜底统计。
+     */
+    function planResultActions(verdicts, recs, opt) {
+        opt = opt || {};
+        const v = verdicts || {};
+        const list = recs || [];
+        const nums = Object.keys(v).map(Number).filter(n => n > 0).sort((a, b) => a - b);
+        const good = nums.filter(n => v[n] === 'correct');
+        const bad = nums.filter(n => v[n] === 'wrong');
+        const blank = nums.filter(n => v[n] === 'unanswered');
+        // 两条前置条件：① 答题卡识别到的题号要覆盖卷面大部分，否则「识别漏了一批」会被当成「这一批都答错」；
+        // ② 识别到的题数不能少于本地记录数，答题卡只标对、不标错时未标对的才能按答错兜底。
+        const coverTotal = Math.max(+opt.totalQ || 0, +opt.paper || 0, +opt.historyLen || 0, list.length);
+        const coverage = coverTotal ? nums.length / coverTotal : 0;
+        const numsContiguous = nums.length > 0 && nums.every((n, i) => n === i + 1);
+        const absentAsWrong = bad.length === 0 && blank.length === 0 && nums.length >= 3
+            && nums.length >= list.length
+            && (!coverTotal || coverage >= CONFIG.absentAsWrongCoverage);
+        // 逐条按题号：要求每条记录都有题号且互不相同——防止「题号全是 5」这类解析故障把所有题对到同一格；
+        // 按顺序：两边条数必须一致，且答题卡题号要从 1 开始连续，否则一旦跳题整卷错位。
+        const qnums = list.map(r => r && r.qNum);
+        const allNumbered = qnums.length > 0 && qnums.every(n => n > 0);
+        const distinctNums = new Set(qnums).size === qnums.length;
+        const numberMapOk = allNumbered && distinctNums;
+        const positionalOk = numsContiguous && nums.length === list.length;
+        const items = [];
+        let skipped = 0, unknown = 0, unmapped = 0, absentWrong = 0;
+        list.forEach((rec, i) => {
+            const no = (rec && rec.qNum) || i + 1;
+            // 记录完整性校验，不完整的直接跳过，避免污染题库
+            if (!rec || !rec.stem || !rec.letters || !(rec.pickedText || []).length) {
+                skipped++;
+                items.push({ rec, no, skip: 'incomplete' });
+                return;
+            }
+            let verdict, mapped = false;
+            if (numberMapOk) { verdict = v[rec.qNum]; mapped = true; }
+            else if (positionalOk) { verdict = v[i + 1]; mapped = true; }
+            // 映射不上的记录只跳过它自己（旧实现是整卷不写库，等于永久丢数据）
+            if (!mapped) { unmapped++; items.push({ rec, no, skip: 'unmapped' }); return; }
+            if (!verdict && absentAsWrong) { verdict = 'wrong'; absentWrong++; }
+            if (!verdict || verdict === 'unanswered') {
+                // 没识别出来的不猜：宁可不入库，也不要把答对的记成答错
+                unknown++;
+                items.push({ rec, no, skip: 'unknown', verdict });
+                return;
+            }
+            items.push({ rec, no, skip: null, verdict });
+        });
+        return {
+            nums, good, bad, blank, coverTotal, coverage,
+            absentAsWrong, numberMapOk, positionalOk, numsContiguous,
+            items, skipped, unknown, unmapped, absentWrong,
+        };
+    }
+
     function reportResult(verdicts, scoreInfo) {
-        const nums = Object.keys(verdicts).map(Number).sort((a, b) => a - b);
+        const nums = Object.keys(verdicts || {}).map(Number).filter(n => n > 0).sort((a, b) => a - b);
         const good = nums.filter(n => verdicts[n] === 'correct');
         const bad = nums.filter(n => verdicts[n] === 'wrong');
         const blank = nums.filter(n => verdicts[n] === 'unanswered');
@@ -3322,66 +3470,31 @@
             log(`ℹ️ 本次记录里有 ${history.length - recs.length} 条重复题，已按题干归并后再对账`);
         }
 
-        // 答题卡只标对、不标错时，「没标对」才按答错处理（否则一律按未识别跳过）
-        // 加两道前置条件——① 识别到的题号要覆盖卷面大部分（否则「识别漏了一批」会被当成
-        // 「这一批都答错」，把答对的题写进错题库）；② 本地每条记录都得在答题卡上有对应格子。
-        const coverTotal = Math.max(totalQ || 0, paper || 0, history.length);
-        const coverage = coverTotal ? nums.length / coverTotal : 0;
-        const absentAsWrong = bad.length === 0 && blank.length === 0 && nums.length >= 3
-            && nums.length >= recs.length
-            && (!coverTotal || coverage >= CONFIG.absentAsWrongCoverage);
-        if (absentAsWrong) log('ℹ️ 答题卡上只有答对标记，未标对的按答错处理');
-        else if (bad.length === 0 && blank.length === 0 && nums.length >= 3) {
-            log(`⚠️ 只识别到 ${nums.length} 题 / 本地 ${recs.length} 条（覆盖率 ${Math.round(coverage * 100)}%），不敢按「未标对=答错」处理，本次不入库`);
+        // 对账决策全部交给纯函数 planResultActions（可单测）：题号映射 / 顺序映射 / 未标对兜底 / 跳过统计
+        const plan = planResultActions(verdicts, recs, { totalQ, paper, historyLen: history.length });
+        if (plan.absentAsWrong) log('ℹ️ 答题卡上只有答对标记，未标对的按答错处理');
+        else if (plan.bad.length === 0 && plan.blank.length === 0 && plan.nums.length >= 3) {
+            log(`⚠️ 只识别到 ${plan.nums.length} 题 / 本地 ${recs.length} 条（覆盖率 ${Math.round(plan.coverage * 100)}%），不敢按「未标对=答错」处理，本次不入库`);
         }
-
-        // 对账映射
-        // 逐条按题号：要求每条记录都有题号且互不相同——防止「题号全是 5」这类解析故障把所有题对到同一格；
-        // 按顺序：两边条数必须一致，否则一旦跳题（用户中途手答插入一条）整卷错位，把 A 题的判定写到 B 题上。
-        // 映射不上的记录只跳过它自己（以前是整卷不写库，等于永久丢数据）。
-        const qnums = recs.map(r => r.qNum);
-        const allNumbered = qnums.length > 0 && qnums.every(n => n > 0);
-        const distinctNums = new Set(qnums).size === qnums.length;
-        const numberMapOk = allNumbered && distinctNums;
-        // 按顺序对账还要求答题卡题号是从 1 开始的连续序列：题号解析错乱（大量重复或缺号）时
-        // 只凭「条数相等」就整卷按顺序映射，会把 A 题的判定写到 B 题上。
-        const numsContiguous = nums.length > 0 && nums.every((n, i) => n === i + 1);
-        const positionalOk = numsContiguous && nums.length === recs.length;
-        if (recs.length && !numberMapOk) {
-            log(positionalOk
+        if (recs.length && !plan.numberMapOk) {
+            log(plan.positionalOk
                 ? '题号不可靠，改用答题顺序对账'
-                : `⚠️ 题号不可靠（本地记录 ${recs.length} 条 / 答题卡识别 ${nums.length} 题），无法按题号或顺序安全对应，只对能对上的作数`);
-            if (!positionalOk) notify(`有 ${recs.length} 条记录无法安全对应答题卡，这部分不会入库`, 'warn');
+                : `⚠️ 题号不可靠（本地记录 ${recs.length} 条 / 答题卡识别 ${plan.nums.length} 题），无法按题号或顺序安全对应，只对能对上的作数`);
+            if (!plan.positionalOk) notify(`有 ${recs.length} 条记录无法安全对应答题卡，这部分不会入库`, 'warn');
         }
 
-        let saved = 0, wrong = 0, unknown = 0, skipped = 0, edited = 0, conflict = 0, unmapped = 0, correctN = 0, absentWrong = 0;
-        recs.forEach((rec, i) => {
-            // 记录完整性校验，不完整的直接跳过，避免污染题库
-            if (!rec || !rec.stem || !rec.letters || !(rec.pickedText || []).length) {
-                skipped++;
-                log(`⚠️ 第${(rec && rec.qNum) || i + 1}题记录不完整，已跳过（不入库）`);
-                return;
-            }
-            const no = rec.qNum || i + 1;
-            let v, mapped = false;
-            if (numberMapOk) { v = verdicts[rec.qNum]; mapped = true; }
-            else if (positionalOk) { v = verdicts[i + 1]; mapped = true; }
-            if (!mapped) {
-                unmapped++;
-                log(`❔ 第${no}题无法安全对应到答题卡（题号不可靠且条数不一致），本次不判定也不入库`);
-                return;
-            }
-            if (!v && absentAsWrong) { v = 'wrong'; absentWrong++; }
-            if (!v || v === 'unanswered') {
-                // 没识别出来的不猜：宁可不入库，也不要把答对的记成答错
-                unknown++;
-                log(`❔ 第${no}题答题卡上没有明确对错标记，本次不判定（不入库）`);
-                return;
-            }
+        let saved = 0, wrong = 0, conflict = 0, edited = 0, correctN = 0;
+        const absentWrong = plan.absentWrong, unknown = plan.unknown, skipped = plan.skipped, unmapped = plan.unmapped;
+        for (const item of plan.items) {
+            const rec = item.rec;
+            const no = item.no;
+            if (item.skip === 'incomplete') { log(`⚠️ 第${no}题记录不完整，已跳过（不入库）`); continue; }
+            if (item.skip === 'unmapped') { log(`❔ 第${no}题无法安全对应到答题卡（题号不可靠且条数不一致），本次不判定也不入库`); continue; }
+            if (item.skip === 'unknown') { log(`❔ 第${no}题答题卡上没有明确对错标记，本次不判定（不入库）`); continue; }
             const texts = (rec.pickedText || []).filter(Boolean);
             // 来源：用户手动作答/手改过的答案记 by='user'
             const by = (rec.by === 'user' || rec.userEdited) ? 'user' : 'auto';
-            if (v === 'correct') {
+            if (item.verdict === 'correct') {
                 correctN++;
                 // saveCorrect 直接报冲突（2），不再比较 cft 前后值——题库归并到别的键时会漏计
                 const sv = saveCorrect(rec.stem, rec.letters, texts, rec.type, by);
@@ -3416,7 +3529,7 @@
                     wrong++;
                 }
             }
-        });
+        }
 
         flushBank();
         GM_setValue('pendingSession', null);
@@ -3739,6 +3852,7 @@
         updateStatus(runStatusLabel(running, paused));   // 一开始就写清楚，别让状态栏停在「就绪」
         rushSpeedSaved = ''; rushDisabled = false;      // 每场重新判断自动提速
         answered = history.length;          // 续答时接着已有记录算，不重复计数
+        claimActiveTab();                   // 同场双页检测：另一页也在答时提醒（心跳 15 秒）
         preflight();
         sawNextBtn = false;                 // 每场重置：上一场见过「下一题」不代表本场也有
         autoSubmitted = false;
@@ -3913,6 +4027,7 @@
         // 先收尾再写状态栏：restoreRushSpeed() 内部会调 syncRunBtns()，
         // 而 syncRunBtns 在 running 为真时会把状态栏改回「答题中」，把结束文案冲掉
         running = false; paused = false;
+        releaseActiveTab();                 // 撤掉「本页正在答题」心跳
         restoreRushSpeed();
         // 只有正常答完才显示「答题完成」；异常停止如实说明原因（倒计时到点的 running 已为 false，这里靠 stopReason 判断）
         if (stopReason === 'done') updateStatus(autoSubmitted ? '✅ 已自动点交卷，等待成绩页' : `✅ 答题完成，共答 ${history.length} 题，请自行点击交卷`);
@@ -4215,6 +4330,78 @@
             && lockIsStale({ owner: 'other', ts: 900 }, 1000, 3000, 'me') === false
             && lockIsStale({ owner: 'other', ts: 0 }, 5000, 3000, 'me') === true);
 
+        // ---- v2.0.4：同场双页检测 / 人工对账 / 成绩对账纯函数 ----
+        t('parseManualVerdicts：范围 + 单个 + 三种判定', () => {
+            const r = parseManualVerdicts('1-5=对, 6=错, 7-10=未答');
+            return r[1] === 'correct' && r[5] === 'correct' && r[6] === 'wrong'
+                && r[7] === 'unanswered' && r[10] === 'unanswered' && Object.keys(r).length === 10;
+        });
+        t('parseManualVerdicts：全角冒号 / 分号也能当分隔符', () => {
+            const r = parseManualVerdicts('3：正确；4=未答;5=×');
+            return r[3] === 'correct' && r[4] === 'unanswered' && r[5] === 'wrong';
+        });
+        t('parseManualVerdicts：非法片段忽略，超范围题号不认', () =>
+            Object.keys(parseManualVerdicts('abc, 999=对, 0=对, 1-2=乱, 6=不知道')).length === 0);
+        t('parseManualVerdicts：同一题写两次以后面的为准', () => {
+            const r = parseManualVerdicts('1=对,1=错');
+            return r[1] === 'wrong' && Object.keys(r).length === 1;
+        });
+        t('parseManualVerdicts：空输入返回空对象', () => Object.keys(parseManualVerdicts('   ')).length === 0);
+        t('tabClaimConflict：无标记 / 自己的标记不算冲突', () =>
+            tabClaimConflict(null, 1000, 5000, 'me') === false
+            && tabClaimConflict({ owner: 'me', ts: 1000 }, 2000, 5000, 'me') === false);
+        t('tabClaimConflict：别人 5 秒内的心跳算冲突，过期不算', () =>
+            tabClaimConflict({ owner: 'other', ts: 1000 }, 4000, 5000, 'me') === true
+            && tabClaimConflict({ owner: 'other', ts: 0 }, 9000, 5000, 'me') === false);
+        t('tabClaimConflict：时间戳在未来（时钟回拨）仍按「正在答题」处理', () =>
+            tabClaimConflict({ owner: 'other', ts: 9000 }, 1000, 5000, 'me') === true);
+        t('planResultActions：题号可靠时按题号映射', () => {
+            const recs = [
+                { qNum: 1, stem: '题干一', letters: 'A', type: 'single', pickedText: ['选项一'] },
+                { qNum: 2, stem: '题干二', letters: 'B', type: 'single', pickedText: ['选项二'] },
+            ];
+            const p = planResultActions({ 1: 'correct', 2: 'wrong' }, recs, { totalQ: 2, historyLen: 2 });
+            return p.numberMapOk === true && p.items[0].verdict === 'correct' && p.items[1].verdict === 'wrong'
+                && p.bad.length === 1 && p.good.length === 1 && p.absentWrong === 0;
+        });
+        t('planResultActions：题号重复时退回按顺序对账', () => {
+            const recs = [
+                { qNum: 1, stem: '题干一', letters: 'A', type: 'single', pickedText: ['选项一'] },
+                { qNum: 1, stem: '题干二', letters: 'B', type: 'single', pickedText: ['选项二'] },
+            ];
+            const p = planResultActions({ 1: 'correct', 2: 'wrong' }, recs, { totalQ: 2, historyLen: 2 });
+            return p.numberMapOk === false && p.positionalOk === true
+                && p.items[0].verdict === 'correct' && p.items[1].verdict === 'wrong';
+        });
+        t('planResultActions：按顺序对账要求答题卡题号从 1 连续', () => {
+            const recs = [
+                { qNum: 1, stem: '题干一', letters: 'A', type: 'single', pickedText: ['选项一'] },
+                { qNum: 1, stem: '题干二', letters: 'B', type: 'single', pickedText: ['选项二'] },
+            ];
+            const p = planResultActions({ 1: 'correct', 3: 'wrong' }, recs, { totalQ: 2, historyLen: 2 });
+            return p.numberMapOk === false && p.positionalOk === false
+                && p.items.every(it => it.skip === 'unmapped') && p.unmapped === 2;
+        });
+        t('planResultActions：只标对时未标对的按答错兜底（题数覆盖够）', () => {
+            const recs = [
+                { qNum: 1, stem: '题干一', letters: 'A', type: 'single', pickedText: ['选项一'] },
+                { qNum: 2, stem: '题干二', letters: 'B', type: 'single', pickedText: ['选项二'] },
+                { qNum: 5, stem: '题干五', letters: 'C', type: 'single', pickedText: ['选项三'] },
+            ];
+            const p = planResultActions({ 1: 'correct', 2: 'correct', 3: 'correct', 4: 'correct' }, recs, { totalQ: 4, historyLen: 3 });
+            return p.absentAsWrong === true && p.absentWrong === 1 && p.items[2].verdict === 'wrong';
+        });
+        t('planResultActions：记录不完整的跳过并计数', () => {
+            const recs = [{ qNum: 1, stem: '题干一', letters: 'A', type: 'single', pickedText: [] }];
+            const p = planResultActions({ 1: 'correct' }, recs, { totalQ: 1, historyLen: 1 });
+            return p.skipped === 1 && p.items[0].skip === 'incomplete';
+        });
+        t('planResultActions：答题卡上「未答」不写库、记为未识别', () => {
+            const recs = [{ qNum: 1, stem: '题干一', letters: 'A', type: 'single', pickedText: ['选项一'] }];
+            const p = planResultActions({ 1: 'unanswered' }, recs, { totalQ: 1, historyLen: 1 });
+            return p.unknown === 1 && p.items[0].skip === 'unknown';
+        });
+
         return cases;
     }
 
@@ -4246,6 +4433,7 @@
             csvCell, validateRow, resolveType, isUserEntry, blankEntry, stopReasonText, fuzzyUsable,
             normalizeGroupState, groupBadge, collapseLabel,
             connectRoot, validateApi, cellNumberText, lockIsStale, lightLooksLikeResult,
+            parseManualVerdicts, tabClaimConflict, planResultActions,
             dayStamp, timeStamp, bankFileNames, logFileName, parseBankPayload,
             selfTestCases, runSelfTest,
         };
@@ -4518,6 +4706,7 @@
                         <label class="fld"><i>接口地址</i><input id="fx-f-url" type="text" placeholder="https://api.deepseek.com/v1/chat/completions"></label>
                         <label class="fld"><i>API Key</i><input id="fx-f-key" type="password" placeholder="sk-..."></label>
                         <label class="fld"><i>模型</i><input id="fx-f-model" type="text" placeholder="deepseek-chat"></label>
+                        <label class="fld"><i>Key 保存</i><span><input id="fx-f-key-session" type="checkbox"${keySessionOnly ? ' checked' : ''}> 仅本次会话（不落盘，刷新后需重填）</span></label>
                         <div class="form-err" id="fx-f-err" style="display:none;"></div>
                         <div class="row">
                             <button id="fx-f-save">保存</button>
@@ -4534,6 +4723,7 @@
                     <div class="row">
                         <button id="fx-autoclose" aria-pressed="${CONFIG.autoCloseSec ? 'true' : 'false'}">关闭页：${CONFIG.autoCloseSec ? CONFIG.autoCloseSec + ' 秒' : '不关'}</button>
                         <button id="fx-clear-session">清空本场</button>
+                        <button id="fx-manual-reconcile">手动对账</button>
                     </div>
                 `)}
                 ${groupHtml('log', `
@@ -4664,6 +4854,8 @@
             $('fx-f-url').value = GM_getValue('aiUrl', '');
             $('fx-f-key').value = getKey();
             $('fx-f-model').value = CONFIG.aiModel;
+            const cb = $('fx-f-key-session');
+            if (cb) cb.checked = !!keySessionOnly;
             apiFormErr('');
         };
         const showApiForm = on => {
@@ -4682,7 +4874,11 @@
             const err = validateApi(url, key, model);
             if (err) { apiFormErr(err); notify(err, 'warn'); return false; }
             GM_setValue('aiUrl', url);
-            setKey(key);
+            // 「仅本次会话」：Key 只放内存、不落盘；取消勾选则恢复混淆落盘
+            keySessionOnly = !!$('fx-f-key-session').checked;
+            GM_setValue('aiKeySessionOnly', keySessionOnly);
+            if (keySessionOnly) { sessionKey = key; GM_setValue('aiKey', ''); }
+            else { sessionKey = ''; setKey(key); }
             CONFIG.aiModel = model;
             GM_setValue('aiModel', model);
             // @connect 白名单外的域名会被油猴直接拦掉，这里提前讲清楚要补哪一行
@@ -4770,6 +4966,22 @@
             if (!isResultPage()) { log('当前页面不像考试结果页，交卷后再点「解析成绩」'); return; }
             log('🔄 手动解析成绩…');
             parseResult();
+        });
+        // 手动对账：答题卡识别不出来时的兜底——按题号手填对错，走同一套对账/入库流程
+        $('fx-manual-reconcile').onclick = safe('手动对账', () => {
+            if (!history.length) { log('本场还没有作答记录，无法手动对账'); return; }
+            const tip = '题号=对/错/未答，范围用 -，比如：1-8=对, 9=错, 10=未答';
+            const raw = prompt(`手动对账（本场 ${history.length} 条记录）\n${tip}`, '');
+            if (raw === null) { log('已取消手动对账'); return; }
+            const verdicts = parseManualVerdicts(raw);
+            const nums = Object.keys(verdicts).map(Number);
+            if (!nums.length) {
+                log('❌ 手动对账没解析出有效内容。格式示例：1-8=对, 9=错, 10=未答');
+                notify('手动对账格式不对，详见日志', 'warn');
+                return;
+            }
+            log(`🖊️ 手动对账：识别 ${nums.length} 个题号（${nums.slice(0, 20).join(',')}${nums.length > 20 ? '…' : ''}），按同一套流程对账入库`);
+            reportResult(verdicts, readScore());
         });
         $('fx-export').onclick = safe('导出答案库', () => {
             // 一次导出两个文件：CSV 给 Excel 看，JSON 是字段完整的备份，可无损往返

@@ -2,7 +2,7 @@
 /**
  * 数据 / 文档一致性校验（无依赖、不联网、不写盘）。
  *
- *   node tools/check-data.mjs [YYYYMMDD] [--warn-only]
+ *   node tools/check-data.mjs [YYYYMMDD] [--warn-only] [--fix]
  *
  * 校验仓库里随附的题库快照与 README / data/README.md 里写死的数字是否一致：
  *   1. data/ 下同一日期戳的 .json 与 .csv 成对存在
@@ -11,9 +11,10 @@
  *   4. README.md 与 data/README.md 的「N 题（单选 X / 多选 Y / 判断 Z）」与实际数字一致
  *
  * 这些数字在 README 里是手写的，发版/换快照时最容易忘。CI 会跑这个脚本兜底。
+ * 加 --fix 时，会把 README / data/README 里写错的数字直接改成本次实测值（默认只报告不改）。
  * 退出码：0 全部通过；1 有硬错误（--warn-only 时降级为 0）。
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -145,5 +146,22 @@ if (snap.version && scriptVer && snap.version !== scriptVer) {
 }
 
 const warnOnly = process.argv.includes('--warn-only');
+const doFix = process.argv.includes('--fix');
+const fixes = [];
+const planFix = (file, from, to, label) => { if (doFix && from && from !== to) fixes.push({ file, from, to, label }); };
+if (doFix) {
+    const exp = `${count} 题（单选 ${typeCount.single} / 多选 ${typeCount.multi} / 判断 ${typeCount.judge}`;
+    if (m1) planFix('README.md', m1[0], exp, 'README 快照数字');
+    if (m2) planFix('README.md', m2[0], `随仓库分发的 ${count} 题快照（6 列）`, 'README 目录树数字');
+    if (m3) planFix('data/README.md', m3[0], `**${count} 题**（单选 ${typeCount.single} / 多选 ${typeCount.multi} / 判断 ${typeCount.judge}`, 'data/README 快照数字');
+    for (const f of fixes) {
+        const text = readDoc(f.file);
+        if (!text.includes(f.from)) { console.log(`  ⚠️ ${f.label}：找不到待修正原文，已跳过`); continue; }
+        writeFileSync(join(ROOT, f.file), text.replace(f.from, f.to), 'utf8');
+        console.log(`  ✏️ 已修正 ${f.label}：${f.from} → ${f.to}`);
+    }
+    if (!fixes.length) console.log('  ℹ️ 文档数字已经一致，无需修正');
+    else console.log('  ℹ️ 已按实测值修正文档，建议再跑一次 check-data 确认全绿');
+}
 console.log(failed === 0 ? '\n全部通过。\n' : `\n${failed} 项未通过。\n`);
 process.exit(failed === 0 || warnOnly ? 0 : 1);

@@ -27,13 +27,17 @@ jobs:
         with:
           node-version: '22'
 
-      # 元数据校验 + 脚本内置的 83 项断言，无第三方依赖
+      # 元数据校验 + 脚本内置的 97 项断言，无第三方依赖
       - name: 内置自检
         run: node tools/selftest.mjs
 
       # 随仓库分发的题库快照与 README / data/README 里的数字必须一致
       - name: 数据与文档一致性
         run: node tools/check-data.mjs
+
+      # 工作流配置静态检查：action 必须 pin SHA、权限最小化、脚本路径存在
+      - name: 工作流静态检查
+        run: node tools/check-workflows.mjs
 
       # 题库合并工具冒烟：同一份快照合并两次结果幂等
       - name: 题库合并工具冒烟

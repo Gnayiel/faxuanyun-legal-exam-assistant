@@ -16,7 +16,7 @@ body:
     attributes:
       label: 脚本版本
       description: 面板标题栏 / 油猴「已安装脚本」里显示的版本号
-      placeholder: "2.0.3"
+      placeholder: "2.0.4"
     validations:
       required: true
   - type: input

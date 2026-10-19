@@ -1,0 +1,31 @@
+name: Dependabot 自动合并
+
+# 依赖升级 PR 只有在自检全绿后才合并，避免「升级一来、CI 红着没人管」。
+# 只处理 Dependabot 自己开的 PR；普通 PR 仍需人工 review。
+on:
+  pull_request:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: 等自检通过后合并
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          # --watch 会一直等到所有 check 结束；--fail-fast 一旦有失败立即退出
+          gh pr checks "$PR_URL" --watch --fail-fast --interval 15
+          gh pr merge "$PR_URL" --squash --delete-branch

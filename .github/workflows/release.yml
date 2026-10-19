@@ -25,12 +25,13 @@ jobs:
         with:
           node-version: '22'
 
-      # 发版门禁：语法、元数据、内置断言、数据/文档数字漂移
+      # 发版门禁：语法、元数据、内置断言、数据/文档数字漂移、工作流配置
       - name: 发版前自检
         run: |
           node --check faxuanyun-legal-exam-assistant.user.js
           node tools/selftest.mjs
           node tools/check-data.mjs
+          node tools/check-workflows.mjs
 
       - name: 生成校验和与发布说明
         run: |
@@ -42,6 +43,7 @@ jobs:
             printf -- '- 已安装旧版：油猴会按 `@updateURL` 自动检查更新，也可在油猴面板点「检查脚本更新」。\n'
             printf -- '- 首次安装：[安装脚本](https://github.com/%s/raw/main/faxuanyun-legal-exam-assistant.user.js)\n' "$GITHUB_REPOSITORY"
             printf -- '- 附件含 `.user.js` 与本版同名 `.sha256` 校验文件。\n'
+            printf -- '- 校验和：`%s`\n' "$(cut -d' ' -f1 faxuanyun-legal-exam-assistant.user.js.sha256)"
           } > release-notes.md
           awk 'NF==0{exit} {print}' release-notes.md
 

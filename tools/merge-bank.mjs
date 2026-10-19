@@ -2,7 +2,7 @@
 /**
  * 合并多个题库导出文件（.json / .csv）→ 一个 .json（可选同时写 .csv）。
  *
- *   node tools/merge-bank.mjs a.json b.csv c.json -o merged.json [--csv merged.csv] [--quiet]
+ *   node tools/merge-bank.mjs a.json b.csv c.json -o merged.json [--csv merged.csv] [--quiet] [--emit-snapshot]
  *
  * 规则（与脚本内部的合并口径一致）：
  *   - 用「归一化题干 + FNV-1a 主键」去重；前缀等价的截断版本也视为同一题（>=30 字前缀）
@@ -11,7 +11,11 @@
  *   - 错题记录取并集（错误选项 / 失败组合）
  *   - 输出格式与面板「导出答案库」一致，可直接导入脚本
  *
- * 只读输入、不联网、不改原文件。无第三方依赖。
+ * 加 --emit-snapshot 时，额外在 data/ 下按仓库命名规范生成成对的快照文件
+ * （faxuanyun-legal-exam-bank-YYYYMMDD.json / .csv），可直接替换随仓库分发的题库；
+ * 写完后记得用 `node tools/check-data.mjs --fix` 同步 README 里的数字。
+ *
+ * 只读输入、不联网、不改输入文件。无第三方依赖。
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -29,6 +33,7 @@ const csvIdx = argv.findIndex(a => a === '--csv');
 const outPath = outIdx >= 0 ? argv[outIdx + 1] : '';
 const csvPath = csvIdx >= 0 ? argv[csvIdx + 1] : '';
 const quiet = argv.includes('--quiet');
+const emitSnapshot = argv.includes('--emit-snapshot');
 
 const die = msg => { console.error(`✗ ${msg}`); process.exit(1); };
 const normStem = s => String(s || '')
@@ -199,8 +204,11 @@ const outJson = {
     exportedAt: new Date().toISOString(), count: Object.keys(merged).length,
     bank: merged, wrong: mergedWrong,
 };
-writeFileSync(outPath, JSON.stringify(outJson, null, 0) + '\n');
-if (csvPath) {
+const jsonText = JSON.stringify(outJson, null, 0) + '\n';
+writeFileSync(outPath, jsonText);
+
+// 与面板「导出答案库」同一套 CSV 格式，抽出来供 --csv 与 --emit-snapshot 复用
+function writeBankCsv(target) {
     const header = ['序号,题型,题目,正确答案,错误选项,来源'];
     const csvCell = v => {
         const s = String(v === null || v === undefined ? '' : v);
@@ -214,7 +222,24 @@ if (csvPath) {
         header.push([i + 1, csvCell(LABEL[e.t] || '单选'), csvCell(e.q), csvCell(ans),
             csvCell([...w.w, ...w.tried].join('; ')), csvCell(e.by === 'user' ? '用户' : '脚本')].join(','));
     });
-    writeFileSync(csvPath, '\ufeff' + header.join('\r\n') + '\r\n');
+    writeFileSync(target, '\ufeff' + header.join('\r\n') + '\r\n');
+}
+if (csvPath) writeBankCsv(csvPath);
+
+// --emit-snapshot：按仓库约定在 data/ 下写成对快照（同日期戳的 JSON + CSV）
+if (emitSnapshot) {
+    const d = new Date();
+    const p2 = n => String(n).padStart(2, '0');
+    const stamp = '' + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate());
+    const base = `faxuanyun-legal-exam-bank-${stamp}`;
+    const snapJson = join(ROOT, 'data', `${base}.json`);
+    const snapCsv = join(ROOT, 'data', `${base}.csv`);
+    writeFileSync(snapJson, jsonText);
+    writeBankCsv(snapCsv);
+    if (!quiet) {
+        console.log(`\n📦 快照已写入：data/${base}.json + data/${base}.csv`);
+        console.log('   下一步：node tools/check-data.mjs --fix 同步 README 数字，再 full 跑一遍自检');
+    }
 }
 if (!quiet) {
     console.log(`\n✓ 合并完成：输入 ${totalIn} 条（含重复）→ 输出 ${Object.keys(merged).length} 条唯一题`);

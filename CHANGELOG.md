@@ -13,6 +13,54 @@
 
 ---
 
+## v2.0.4
+
+**2026-10-19**
+
+> 一轮「把不可测的流程变成可测的」优化：成绩对账抽成纯函数并补手动兜底、同场双页检测、
+> AI Key 仅会话，以及发版 / 维护工具补全。自检断言 83 → 97，面板冒烟 37 → 40。
+
+### 新增：成绩对账的手动兜底与单测
+
+- 面板「题库与本场」新增「手动对账」：答题卡识别不出来时，按提示输入 `1-8=对, 9=错, 10=未答`，
+  走同一套对账 / 写库 / 错题清理流程（以前自动解析失败，这一场的对错就白丢了）。
+- 对账逻辑从 `reportResult` 抽成纯函数 `planResultActions()`：题号映射、按顺序映射、
+  「未标对=答错」兜底、无法对应 / 记录不完整 / 无标记的跳过统计都能被自检直接覆盖（新增 14 项断言）。
+
+### 新增：同场双页检测
+
+- 脚本用 localStorage 心跳标记「本页正在答题」；同一场考试在第二个标签页打开时会提醒只留一个，
+  避免两页各答各的、记录分叉。写锁只能保证落盘不互相覆盖，防不了同一时刻两页同时作答。
+- 停止答题或关页时自动撤掉心跳（TTL 15 秒，异常退出也会自然过期）。
+
+### 新增：AI Key「仅本次会话」
+
+- 「接口设置」新增勾选项：勾上后 Key 只放内存、不落盘（刷新 / 重开页面需重填），适合共用电脑；
+  默认仍是原来的混淆存储。表单保存、回填、测试连接都按该开关走。
+
+### 新增：维护与发版工具
+
+- `tools/check-workflows.mjs`：工作流静态检查（第三方 action 必须 pin commit SHA、声明 `permissions` 与
+  `timeout-minutes`、禁止 `pull_request_target` 检出 PR 代码、引用的本地脚本必须存在、发版必须由 tag 触发），已接入 CI。
+- `tools/release.mjs`：本地发版助手（校验 `@version` 与 CHANGELOG 章节 → 跑自检 / 数据 / 工作流检查 → 打本地 tag → 打印推送命令）。
+- `.github/workflows/auto-merge.yml`：Dependabot 的依赖升级 PR 在自检全绿后自动 squash 合并；普通 PR 仍需人工 review。
+- `check-data.mjs` 支持 `--fix`（按实测值改写 README / `data/README.md` 里写错的数字）；
+  `merge-bank.mjs` 支持 `--emit-snapshot`（直接生成 `data/` 下成对的 JSON + CSV 快照）。
+- Release 说明中自动附上 `.user.js` 的 SHA256。
+
+### 文档
+
+- 更正已知限制：百度通道已做查询词回显过滤与降权；多标签页改为如实的「先后落盘不互相覆盖，同场双开仍会分叉」。
+- 真机验证章节补充 v2.0.2 起已确认的链路，并列出仍未完整走一遍的两项。
+
+### 验证方式
+
+- 仓库根目录：`node tools/selftest.mjs` → **97 项断言全部通过**
+- 仓库根目录：`node tools/panel-smoke.mjs --require-browser` → **40 项断言全部通过**
+- `node tools/check-data.mjs` / `node tools/check-workflows.mjs` / `node tools/merge-bank.mjs ... --emit-snapshot` 全绿
+
+---
+
 ## v2.0.3
 
 **2026-10-19**

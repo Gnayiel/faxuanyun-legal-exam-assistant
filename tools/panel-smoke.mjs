@@ -40,6 +40,12 @@ if (!BROWSERS) {
 
 const userscript = readFileSync(SCRIPT, 'utf8');
 
+// 面板控件清单不再手抄：直接从用户脚本的面板模板里提取所有带 id 的 button / input。
+// 少一个按钮、改了 id 或新增控件，这里自动跟着变，不用再同步一份手工清单。
+const PANEL_IDS = [...new Set(
+    [...userscript.matchAll(/<(?:button|input)\b[^>]*\bid="(fx-[A-Za-z0-9-]+)"/g)].map(m => m[1])
+)];
+
 const html = `<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>panel smoke</title></head>
 <body>
@@ -103,19 +109,15 @@ ${userscript}
         ok('分类标题带无障碍属性',
             $$('.group-head').every(h => h.getAttribute('role') === 'button' && h.getAttribute('tabindex') === '0' && h.getAttribute('aria-expanded') === 'false'));
 
-        // ---- 控件清单 ----
-        const WANT_IDS = [
-            'fx-stop', 'fx-pause', 'fx-toggle',
-            'fx-speed', 'fx-submit', 'fx-debug',
-            'fx-settings-btn', 'fx-test', 'fx-f-url', 'fx-f-key', 'fx-f-model', 'fx-f-save', 'fx-f-cancel',
-            'fx-export', 'fx-import', 'fx-reparse', 'fx-autoclose', 'fx-clear-session',
-            'fx-crosscheck',
-            'fx-log-clear', 'fx-log-copy', 'fx-log-export', 'fx-selftest',
-        ];
+        // ---- 控件清单（WANT_IDS 由外层从用户脚本面板模板自动提取）----
+        const WANT_IDS = ${JSON.stringify(PANEL_IDS)};
         const missing = WANT_IDS.filter(id => !$(id));
-        ok('23 个具名控件一个不少', missing.length === 0, missing.join(','));
-        ok('两个模式按钮在', $$('.mode-btn').length === 2, $$('.mode-btn').length + ' 个');
-        ok('控件总数 25（23 具名 + 2 模式）', $$('button, input').length === 25, $$('button, input').length + ' 个');
+        ok(WANT_IDS.length + ' 个具名控件一个不少', missing.length === 0, missing.join(','));
+        const modeCount = $$('.mode-btn').length;
+        ok('两个模式按钮在', modeCount === 2, modeCount + ' 个');
+        const controlCount = $$('button, input').length;
+        ok('控件总数 ' + (WANT_IDS.length + modeCount) + '（' + WANT_IDS.length + ' 具名 + ' + modeCount + ' 模式）',
+            controlCount === WANT_IDS.length + modeCount, controlCount + ' 个');
 
         // ---- 新增开关：二源交叉验证 / 关闭页档位 ----
         ok('二源按钮默认「自动」且 aria-pressed 同步',
@@ -134,6 +136,13 @@ ${userscript}
         ok('关闭页按钮点击切到 15 秒并落盘',
             $('fx-autoclose').textContent === '关闭页：15 秒' && window.GM_getValue('autoCloseSec', null) === 15,
             $('fx-autoclose').textContent + ' / ' + JSON.stringify(window.GM_getValue('autoCloseSec', null)));
+
+        // ---- 新增控件：仅会话 Key / 手动对账 ----
+        ok('「仅本次会话」Key 选项默认关闭', $('fx-f-key-session').checked === false);
+        ok('「手动对账」按钮在 bank 分类', !!$('fx-manual-reconcile') && $('fx-manual-reconcile').textContent === '手动对账');
+        ok('无作答记录时点「手动对账」只提示、不抛错', (() => {
+            try { $('fx-manual-reconcile').click(); return true; } catch { return false; }
+        })());
 
         // ---- 摘要 ----
         const badge = k => $('fx-gb-' + k).textContent;

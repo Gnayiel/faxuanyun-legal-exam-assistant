@@ -108,13 +108,13 @@ ${userscript}
             'fx-stop', 'fx-pause', 'fx-toggle',
             'fx-speed', 'fx-submit', 'fx-debug',
             'fx-settings-btn', 'fx-test', 'fx-f-url', 'fx-f-key', 'fx-f-model', 'fx-f-save', 'fx-f-cancel',
-            'fx-export', 'fx-import', 'fx-reparse', 'fx-clear-session',
+            'fx-export', 'fx-import', 'fx-reparse', 'fx-autoclose', 'fx-clear-session',
             'fx-log-clear', 'fx-log-copy', 'fx-log-export', 'fx-selftest',
         ];
         const missing = WANT_IDS.filter(id => !$(id));
-        ok('21 个具名控件一个不少', missing.length === 0, missing.join(','));
+        ok('22 个具名控件一个不少', missing.length === 0, missing.join(','));
         ok('两个模式按钮在', $$('.mode-btn').length === 2, $$('.mode-btn').length + ' 个');
-        ok('控件总数 23（21 具名 + 2 模式）', $$('button, input').length === 23, $$('button, input').length + ' 个');
+        ok('控件总数 24（22 具名 + 2 模式）', $$('button, input').length === 24, $$('button, input').length + ' 个');
 
         // ---- 摘要 ----
         const badge = k => $('fx-gb-' + k).textContent;

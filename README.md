@@ -1,6 +1,6 @@
 # 甘肃省国家工作人员学法考试平台自动答题助手
 
-[![version](https://img.shields.io/badge/version-2.0.12-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.13-blue)](CHANGELOG.md)
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
@@ -74,7 +74,7 @@
 1. 浏览器安装 [Tampermonkey](https://www.tampermonkey.net/)（或 Violentmonkey）
 2. 安装脚本，任选其一：
    - **推荐**：jsDelivr 镜像地址（国内可直连；自动更新也走这个源），油猴会直接弹出安装页：
-     `https://cdn.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@main/faxuanyun-legal-exam-assistant.user.js`
+     `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@main/faxuanyun-legal-exam-assistant.user.js`
      ⚠️ 镜像路径**区分大小写**，请照抄 `Gnayiel`。
    - GitHub 原始地址（海外网络更稳；国内多数网络下不可达，可作备用）：
      `https://raw.githubusercontent.com/Gnayiel/faxuanyun-legal-exam-assistant/main/faxuanyun-legal-exam-assistant.user.js`
@@ -122,7 +122,7 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
 ## 更新与自动更新
 
 脚本头部已经写好 `@updateURL` / `@downloadURL`，都指向本仓库 `main` 分支上这个脚本的
-**jsDelivr 镜像**（`cdn.jsdelivr.net/gh/Gnayiel/...@main/...`）——换成镜像是因为
+**jsDelivr 镜像**（`fastly.jsdelivr.net/gh/Gnayiel/...@main/...`）——换成镜像是因为
 `raw.githubusercontent.com` 在国内多数网络下不可达，会让「检查更新」静默失败。
 **用户装好一版之后不需要再做任何事**，后续版本由油猴自动更新。
 
@@ -294,7 +294,12 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 
 ## 更新记录
 
-当前版本 **v2.0.12**（2026-10-21）：自动更新改走国内可达的 jsDelivr，答题过程中题库定时落盘
+当前版本 **v2.0.13**（2026-10-21）：自动更新改用国内实测可达的 jsDelivr 边缘域名（fastly）
+
+- 修复：`@downloadURL` / `@updateURL` 从 `cdn.jsdelivr.net` 换成 `fastly.jsdelivr.net` —— 实测 `cdn.jsdelivr.net` 在国内被重置（`ERR_CONNECTION_RESET`），换域名后同一路径可用；`gcore` / `testingcf` 两个边缘域名同样可用，可手动替换
+- 说明：三个 jsDelivr 边缘域名内容一致，缓存共用；若某天 `fastly` 也不通，把 `fastly` 换成 `gcore` 或 `testingcf` 再手动装一次即可（自动更新地址随脚本走）
+
+v2.0.12（2026-10-21）：自动更新改走 jsDelivr，答题过程中题库定时落盘
 
 - 变更：`@downloadURL` / `@updateURL` 改指 jsDelivr 镜像（`raw.githubusercontent.com` 在国内多数网络下不可达，旧地址会让自动更新静默失败）；安装说明把镜像提到推荐位
 - 变更：每答一题尝试落盘一次，节流到最少 20 秒写一次（新增 `CONFIG.bankFlushMinInterval`）；以前只在导入 / 对账 / 页面关闭时落盘，浏览器崩溃或被系统回收会丢掉这一轮新学的答案与命中统计

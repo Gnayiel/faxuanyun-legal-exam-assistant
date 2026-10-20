@@ -13,6 +13,26 @@
 
 ---
 
+## v2.0.13
+
+**2026-10-21**
+
+> v2.0.12 把自动更新指向了 `cdn.jsdelivr.net`，实测在国内被重置（`ERR_CONNECTION_RESET`）——换成同一 CDN 的 `fastly.jsdelivr.net` 边缘域名，路径不变。
+
+**修复**
+
+- `@downloadURL` / `@updateURL` 的主机从 `cdn.jsdelivr.net` 换成 `fastly.jsdelivr.net`。`cdn.jsdelivr.net` 在用户网络（甘肃移动）下连接被重置，`fastly` / `gcore` / `testingcf` 三个边缘域名实测均 200 且内容为同一份（`@version` 一致）；三个域名共享缓存，可随时互换。
+- `tools/selftest.mjs` 的镜像 host 断言从只认 `cdn.jsdelivr.net` 改为认 `cdn` / `fastly` / `gcore` / `testingcf` 四个边缘域名；`release.yml` 的 purge 步骤改为按路径拼 `purge.jsdelivr.net` 地址，不再假定具体边缘域名。
+
+**验证方式**
+
+- `node tools/selftest.mjs`：元数据 + 内置 **181 项**断言 + 文档数字校验全部通过。
+- `node tools/check-data.mjs`、`node tools/check-workflows.mjs`：通过。
+- `node tools/panel-smoke.mjs --require-browser`：**40 项断言全部通过**；`node tools/page-smoke.mjs --require-browser`：**72 项断言全部通过**。
+- `node tools/release.mjs --check-ci v2.0.13`：通过。
+
+---
+
 ## v2.0.12
 
 **2026-10-21**
@@ -63,34 +83,4 @@
 
 ---
 
-## v2.0.10
-
-**2026-10-21**
-
-> 安全与健壮性收尾：修掉 GitHub CodeQL 首扫报出的正则回溯与 HTML 实体二次解码两处真实缺陷，顺手把 README 预览图从 PNG 换成 WebP。
-
-**修复**
-
-- 答案文本解析的「提示词 + 字母」正则把 `[\s]*` 嵌在 `(?:…)*` 里，遇到「答案是」后面跟超长空白时会发生灾难性回溯、整页假死（CodeQL `js/redos`）。改为单层字符类 `[是为:：\]】）)］\s]*`，匹配线性化，语义不变。
-- `stripHtml` 先解 `&amp;` 再解 `&lt;`/`&gt;`，`&amp;lt;` 会被二次解码成 `<`（CodeQL `js/double-escaping`）。改为单遍实体映射 `decodeEntities`，并把 script/style 剥离正则收紧为允许属性与结尾空白。
-- `tools/panel-smoke.mjs` / `tools/page-smoke.mjs` 的 DOM 反解实体同样改成单遍，快照里的 `&amp;quot;` 不再解错。
-- `tools/selftest.mjs` 的 `@match` 与四个仓库地址断言从 `includes()` 改成锚定正则 / URL 解析（CodeQL `js/incomplete-url-substring-sanitization`），顺带堵住 `*://evil.com/?u=faxuanyun.com/*` 这类假通过。
-- `tools/selftest.mjs` 的 `slugify` 告警（`js/incomplete-multi-character-sanitization`）属误报：它只用于算 README 锚点、不产出 HTML，加注释说明后在 Security 页面 dismiss。
-
-**变更**
-
-- README 顶部深浅色预览图从 PNG（728 KB + 619 KB）换成 WebP Q82（59 KB + 60 KB），合计 **1.35 MB → 117 KB**；`docs/social-preview-*.png` 不再随仓库分发。
-- CI 小加固：`.github/workflows/selftest.yml` 的 checkout 设 `persist-credentials: false`（该 job 不推送代码）；`.github/dependabot.yml` 补 `labels` 与 `open-pull-requests-limit: 5`。
-- 内置自检 **179 → 181 项**：新增「提示词正则遇到超长空白不回溯爆炸」「实体单遍解码」两条纯函数断言。
-
-**验证方式**
-
-- `node tools/selftest.mjs`：元数据 + 内置 **181 项**断言 + 文档数字校验全部通过。
-- `node tools/check-data.mjs`、`node tools/check-workflows.mjs`：通过。
-- `node tools/panel-smoke.mjs --require-browser`：**40 项断言全部通过**；`node tools/page-smoke.mjs --require-browser`：**72 项断言全部通过**。
-- `node --check faxuanyun-legal-exam-assistant.user.js`：通过。
-- `node tools/release.mjs --check-ci v2.0.10`：通过。
-
----
-
-更早的版本记录（v2.0.0 – v2.0.9）见 [CHANGELOG-archive.md](CHANGELOG-archive.md)。
+更早的版本记录（v2.0.0 – v2.0.10）见 [CHANGELOG-archive.md](CHANGELOG-archive.md)。

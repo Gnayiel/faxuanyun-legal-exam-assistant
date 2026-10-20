@@ -34,7 +34,7 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
   CI 用的就是强制模式，防止「没装浏览器 → 静默跳过 → 假绿」。
 - `selftest.mjs` 会校验 README / CHANGELOG / 脚本注释里写死的自检断言数、page-smoke 断言数与 README 版本徽章是否与 `@version` 一致。
   改了这些数字必须同步，否则测试会直接指出缺哪个字符串；它还会校验 `@updateURL` / `@downloadURL` 是否为 `main`
-  分支的完整 https 直链（默认走 `cdn.jsdelivr.net` 镜像，也认 `raw.githubusercontent.com`），以及用户脚本体积不超过 512 KB。
+  分支的完整 https 直链（默认走 `fastly.jsdelivr.net` 等 jsDelivr 边缘域名，也认 `raw.githubusercontent.com`），以及用户脚本体积不超过 512 KB。
 - 手动冒烟：装脚本 → 打开任意 `*.faxuanyun.com` 页面 → 面板能建起来、按钮与快捷键正常。
 
 ## 更新日志与版本号

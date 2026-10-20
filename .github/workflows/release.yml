@@ -148,8 +148,10 @@ jobs:
 
           # 1) 主动清一次 jsDelivr 缓存（失败不影响发版结论，只是少一个加速手段）
           case "$script_url" in
-            https://cdn.jsdelivr.net/gh/*)
-              purge_url="https://purge.jsdelivr.net/gh/${script_url#https://cdn.jsdelivr.net/gh/}"
+            https://*jsdelivr.net/gh/*)
+              # 边缘域名可能被换成 fastly / gcore / testingcf，这里按路径拼 purge 地址（purge 端点不分边缘）
+              purge_path="${script_url#*jsdelivr.net}"
+              purge_url="https://purge.jsdelivr.net${purge_path}"
               echo "purge 镜像缓存：$purge_url"
               curl -fsS --max-time 20 "$purge_url" >/dev/null 2>&1 || echo "::warning::purge jsDelivr 失败（不影响发版，镜像会自行过期刷新）"
               ;;

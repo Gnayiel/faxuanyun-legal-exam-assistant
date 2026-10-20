@@ -75,7 +75,8 @@ const inRepo = k => {
         if (host === 'github.com' || host === 'raw.githubusercontent.com') {
             return p === base || p.startsWith(base + '/');
         }
-        if (host === 'cdn.jsdelivr.net') {
+        // jsDelivr 提供多个等价边缘域名；国内 cdn.jsdelivr.net 常被重置，fastly/gcore/testingcf 通常可用
+        if (/^(cdn|fastly|gcore|testingcf)\.jsdelivr\.net$/.test(host)) {
             // jsDelivr 的 GitHub 路径形式：/gh/<owner>/<repo>@<ref>/<文件...>
             const m = p.match(/^\/gh\/([^/]+)\/([^@/]+)(?:@[^/]+)?(?:\/|$)/);
             return !!m && `${m[1]}/${m[2]}` === REPO.toLowerCase();
@@ -102,7 +103,7 @@ const RAW_FILE = 'faxuanyun-legal-exam-assistant.user.js';
 const UPDATE_URL_PREFIXES = [
     // 自动更新优先走 jsDelivr：raw.githubusercontent / github.com/raw 在国内多数网络下不可达，
     // 会让「检查更新」静默失败（这正是 v2.0.12 改地址的原因）。
-    `https://cdn.jsdelivr.net/gh/${REPO}@main/`,
+    `https://fastly.jsdelivr.net/gh/${REPO}@main/`,
     `https://raw.githubusercontent.com/${REPO}/main/`,
     `https://github.com/${REPO}/raw/main/`,
 ];

@@ -1,5 +1,9 @@
-blank_issues_enabled: true
+# 关掉空白 issue：强制走模板，减少「求脚本 / 刷视频」这类与本项目无关的空白 issue。
+blank_issues_enabled: false
 contact_links:
   - name: 安全问题 / 漏洞报告
     url: https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/blob/main/SECURITY.md
     about: 请勿在公开 issue 里贴 API Key 或安全问题细节，按 SECURITY.md 私下报告。
+  - name: 功能建议 / 使用问题 / 其他讨论（GitHub Discussions）
+    url: https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/discussions
+    about: 不是 bug 的讨论、求脚本、刷课刷视频之类请走 Discussions，不要开 issue。

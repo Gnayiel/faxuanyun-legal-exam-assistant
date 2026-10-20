@@ -7,7 +7,7 @@
  * 不联网、不写盘、不需要浏览器。脚本在最小 DOM / 油猴 API 打桩下加载，
  * 因此这里跑的就是面板「自检」按钮调用的同一批用例。
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -245,6 +245,14 @@ ok(`README 的 panel-smoke 命令注释写着 ${m} 项断言`,
     readmeCmd('tools/panel-smoke.mjs').includes(`${m} 项断言`), readmeCmd('tools/panel-smoke.mjs'));
 ok(`README 的 page-smoke 命令注释写着 ${PAGE_N} 项断言`,
     readmeCmd('tools/page-smoke.mjs').includes(`${PAGE_N} 项断言`), readmeCmd('tools/page-smoke.mjs'));
+
+// README 里引用的本地图片必须真实存在，否则 GitHub 上就是裂图（换预览图时最容易漏提交）
+const imgRefs = [...readDoc('README.md').matchAll(/(?:src|srcset)="([^"#?]+)"/g)]
+    .map(mm => mm[1])
+    .filter(p => !/^[a-z][a-z0-9+.-]*:/i.test(p));
+const missingImg = imgRefs.filter(p => !existsSync(join(ROOT, p)));
+ok('README 引用的本地图片都存在', imgRefs.length > 0 && missingImg.length === 0,
+    imgRefs.length ? missingImg.join(', ') : '没找到本地图片引用');
 
 console.log(failed === 0
     ? `\n全部通过。\n`

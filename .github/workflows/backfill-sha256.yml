@@ -4,9 +4,10 @@ name: 补齐旧 Release 的 SHA256
 # 这里对「已有 .user.js、但缺同名 .sha256」的 Release 自动补一份，内容格式与
 # 新 Release 一致；已齐全的直接跳过，可安全重复运行，不修改说明与既有资产。
 on:
-  push:
-    branches: [main]
+  # 一次性补齐早已完成，之后只在手动触发或每月巡检时跑，避免每次 push 都空跑一遍
   workflow_dispatch:
+  schedule:
+    - cron: '17 3 1 * *'   # 每月 1 日 03:17 UTC 巡检一次
 
 permissions:
   contents: write

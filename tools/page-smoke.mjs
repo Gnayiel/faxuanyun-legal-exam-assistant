@@ -423,8 +423,11 @@ if (failures.length) {
 }
 console.log('');
 if (fatal) {
-    console.error(`页面适配冒烟测试：${pass}/${total || '?'} 通过，但有 ${fatal} 个用例没能跑起来。`);
+    console.error(`页面适配冒烟测试：${pass}/${total || '?'} 断言通过，但有 ${fatal} 个用例没能跑起来。`);
     process.exit(2);
 }
-console.log(`页面适配冒烟测试：${pass}/${total} 通过（EXPECTED_ASSERTIONS=${EXPECTED_ASSERTIONS}）  （浏览器：${BROWSERS}）`);
-process.exit(pass === total && total === EXPECTED_ASSERTIONS ? 0 : 1);
+const allOk = pass === total && total === EXPECTED_ASSERTIONS;
+console.log(allOk
+    ? `页面适配冒烟测试：${pass}/${total} 通过（EXPECTED_ASSERTIONS=${EXPECTED_ASSERTIONS}）  （浏览器：${BROWSERS}）`
+    : `页面适配冒烟测试：${pass}/${total} 未通过（EXPECTED_ASSERTIONS=${EXPECTED_ASSERTIONS}，浏览器：${BROWSERS}）`);
+process.exit(allOk ? 0 : 1);

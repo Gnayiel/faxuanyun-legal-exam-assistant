@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.7
-// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 174 项内置自检
+// @version      2.0.8
+// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 177 项内置自检
 // @author       GNAYIEL
 // @license      MIT
 // @match        *://gs.faxuanyun.com/*
@@ -90,7 +90,7 @@
  *   作答策略          多选组合枚举、chooseAnswer 决策、answerCurrent 单题流程
  *   成绩解析          答题卡颜色判定、分数读取、交卷对账入库
  *   考试流程控制      退出原因、暂停等待、倒计时、弹窗、最后一题、mainLoop
- *   内置自检          174 项纯函数断言 + window.__FX_TEST__ 测试钩子
+ *   内置自检          177 项纯函数断言 + window.__FX_TEST__ 测试钩子
  *   面板              UI 构建、分类折叠、拖拽、状态摘要、AI 设置、导入导出与日志按钮
  */
 
@@ -1535,6 +1535,30 @@
         .replace(/\u3000/g, ' '));
 
     /**
+     * 判断题模态词闸门（v2.0.8，R1 加强）：词形不同 = 语义可能不同（应当↔可以、必须↔无需），
+     * 与否定词同理，编辑距离再小也不能当成同一题。
+     */
+    const MODAL_WORDS = ['不得', '禁止', '无需', '无须', '应当', '不能', '不应', '有权', '无权', '可以', '必须'];
+
+    /**
+     * 题干里的模态词签名（纯函数，自检可断言）：按最长匹配、不重叠地统计各词出现次数，
+     * 返回排序后的「词×次数」串；两个题干签名相同才允许做判断题安全复用。
+     */
+    function modalSignature(s) {
+        let rest = String(s || '');
+        const counts = {};
+        for (const w of MODAL_WORDS.slice().sort((a, b) => b.length - a.length)) {
+            let i = rest.indexOf(w);
+            while (i >= 0) {
+                counts[w] = (counts[w] || 0) + 1;
+                rest = rest.slice(0, i) + ' '.repeat(w.length) + rest.slice(i + w.length);
+                i = rest.indexOf(w);
+            }
+        }
+        return Object.keys(counts).sort().map(w => `${w}×${counts[w]}`).join(',');
+    }
+
+    /**
      * 判断题专用安全复用（纯函数，自检可断言，R1）
      * 判断题的选项永远是「正确/错误」，普通相似度分不清「属于人民」与「不属于人民」——
      * 复用错了就是稳定答反，而且毫无提示。所以只接受两种极强证据：
@@ -1562,6 +1586,8 @@
             // 编辑距离再小也不能当成同一题——否则答案会稳定答反。这类一律维持联网。
             const negCount = s => (s.match(/[不无非未]/g) || []).length;
             if (negCount(target) !== negCount(norm)) continue;
+            // 模态词不同（应当↔可以、必须↔无需）同样是语义差异，编辑距离小也不能复用（v2.0.8）
+            if (modalSignature(target) !== modalSignature(norm)) continue;
             const diff = levenshtein(target, norm);
             if (diff <= limit) {
                 hits.push({ key, e, diff, sim: 1 - diff / Math.max(target.length, norm.length) });
@@ -2714,6 +2740,16 @@
         return s.slice(0, i);
     }
 
+    /**
+     * 单次请求的响应体上限（纯函数，自检可断言，R7 收尾）：
+     * 显式 0 = 不截断（AI 主响应不能被截断）；未指定时沿用 followPageMaxBytes。
+     */
+    function responseMaxBytes(o) {
+        const v = o && o.maxResponseBytes;
+        if (v === 0) return 0;
+        return +v > 0 ? Math.floor(+v) : CONFIG.followPageMaxBytes;
+    }
+
     /** 各来源请求统计（R11 诊断包用）：desc → { n, ok, fail, timeout, totalMs } */
     const reqStats = {};
     function noteReqStat(desc, r, ms) {
@@ -2770,7 +2806,7 @@
                         data: o.data,
                         timeout,
                         // R7：大页面在进内存前就按字节上限截断，避免广告页/导航页把整段正文留在内存里
-                        onload: x => resolve({ ok: x.status >= 200 && x.status < 300, status: x.status, text: truncateResponseText(x.responseText || '', CONFIG.followPageMaxBytes), err: '' }),
+                        onload: x => resolve({ ok: x.status >= 200 && x.status < 300, status: x.status, text: truncateResponseText(x.responseText || '', responseMaxBytes(o)), err: '' }),
                         onerror: () => resolve({ ok: false, status: 0, text: '', err: 'network' }),
                         ontimeout: () => resolve({ ok: false, status: 0, text: '', err: 'timeout' }),
                     });
@@ -3051,6 +3087,7 @@
 
         const r = await request({
             method: 'POST', url, timeout: CONFIG.aiTimeout, desc: 'AI', deadline: ctx.deadline,
+            maxResponseBytes: 0,   // AI 主响应（JSON）不截断，避免超大 JSON 被 512KB 预算截坏（v2.0.8）
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
             data: JSON.stringify({
                 model: CONFIG.aiModel,
@@ -3113,6 +3150,19 @@
     }
     function clearAnswerCache() {
         answerCache.clear();
+    }
+
+    /**
+     * 失效某题（题型 + 题干指纹）在会话缓存里的全部键（纯函数，自检可断言，R5 收尾）：
+     * 交卷对账删除/改写题库条目后调用，避免同一场重放同题时命中旧答案。
+     */
+    function answerCacheInvalidate(stem, type) {
+        const prefix = `${type || ''}|${fpKey(stem)}|`;
+        let n = 0;
+        for (const k of Array.from(answerCache.keys())) {
+            if (k.startsWith(prefix)) { answerCache.delete(k); n++; }
+        }
+        return n;
     }
 
     /**
@@ -4451,6 +4501,7 @@
                 const sv = saveCorrect(rec.stem, rec.letters, texts, rec.type, by);
                 if (sv) saved++;
                 if (sv === 2) conflict++;
+                answerCacheInvalidate(rec.stem, rec.type);   // 库内答案已变，失效本题的会话缓存（v2.0.8）
                 if (rec.userEdited) edited++;
                 if (by === 'user') log(`✅ 第${no}题您手动作答/改过的答案答对了，已按用户答案入库：${rec.letters}`);
             } else {
@@ -4473,6 +4524,7 @@
                     }
                     dirty = true; bankVer++;
                     log(`${by === 'user' ? '（您手动作答的）' : ''}第${no}题答错，已删除库里记错的答案：${rec.letters}${found.keyFrom === 'history' ? '（按作答时的库键定位）' : ''}`);
+                    answerCacheInvalidate(rec.stem, rec.type);   // 库内答案已删，失效本题的会话缓存（v2.0.8）
                 } else if (e) {
                     e.bad = (e.bad || 0) + 1;            // 答案对不上：只记一次答错，不删库
                     dirty = true;
@@ -5834,15 +5886,17 @@
         });
 
         // R10
-        t('争议导出：题库 bad>0 / disputed、错题与 fx_disputes 都进导出结构（R10）', () => {
+        t('争议导出：题库 bad>0、错题与 fx_disputes 都在，disputed 字段已移除（R10）', () => {
             const bank = {
                 k1: { t: 'single', q: '争议题', a: ['X'], bad: 2 },
                 k2: { t: 'single', q: '干净题', a: ['Y'], bad: 0 },
-                k3: { t: 'judge', q: '争议判定', a: ['正确'], disputed: true },
+                k3: { t: 'judge', q: '只有旧 disputed 标记', a: ['正确'], disputed: true },
             };
             const wrong = { w1: { q: '错题', bad: 1 }, w2: { q: '干净错题', bad: 0 } };
             const data = buildDisputesExport(bank, wrong, [{ stem: '冲突题', cands: [] }], 1710000000000);
-            return data.bank.length === 2 && data.wrong.length === 1 && data.disputes.length === 1
+            return data.bank.length === 1 && data.bank[0].key === 'k1'
+                && data.wrong.length === 1 && data.disputes.length === 1
+                && !('disputed' in data.bank[0])
                 && /^fx-disputes-\d{8}\.json$/.test(data.file) && JSON.stringify(data).length > 10;
         });
 
@@ -5888,6 +5942,32 @@
         t('日志级别：✅/📊/🎯 判为成功', () => logLevel('✅ 成功') === 'ok' && logLevel('📊 统计') === 'ok' && logLevel('🎯 目标') === 'ok');
         t('日志级别：🔍/🧪 判为调试', () => logLevel('🔍 调试') === 'debug' && logLevel('🧪 测试') === 'debug');
 
+        // v2.0.8 收尾：判断题模态词闸门 / 对账后缓存失效 / 响应上限只作用于跟进页
+        t('判断题安全复用：模态词不同（应当↔可以）即使编辑距离≤2 也不复用', () => {
+            const base = '考生应当严格遵守考场纪律规定';
+            const entries = [['k1', { t: 'judge', q: base, a: ['正确'] }]];
+            const exact = judgeStemMatch(base, 'judge', entries);
+            const modal = judgeStemMatch('考生可以严格遵守考场纪律规定', 'judge', entries);
+            const modal2 = judgeStemMatch('考生应严格遵守考场纪律规定', 'judge', entries);
+            return !!exact && exact.diff === 0 && modal === null && modal2 === null
+                && modalSignature('甲应当乙') !== modalSignature('甲可以乙')
+                && modalSignature('甲应当乙') === modalSignature('甲应当乙');
+        });
+        t('会话缓存：题库条目被删后同题缓存立即失效，别的题不受影响（R5 收尾）', () => {
+            const key = answerCacheKey('V208缓存测试甲题', 'single', [{ text: 'A' }, { text: 'B' }]);
+            const other = answerCacheKey('V208缓存测试乙题', 'single', [{ text: 'A' }]);
+            cacheStore(answerCache, key, { letters: 'A' });
+            cacheStore(answerCache, other, { letters: 'B' });
+            const n = answerCacheInvalidate('V208缓存测试甲题', 'single');
+            return n === 1 && cacheLookup(answerCache, key) === null && cacheLookup(answerCache, other) !== null;
+        });
+        t('响应上限：未指定沿用跟进页预算，显式 0 表示不截断（R7 收尾）', () => {
+            return responseMaxBytes({}) === CONFIG.followPageMaxBytes
+                && responseMaxBytes({ maxResponseBytes: 0 }) === 0
+                && responseMaxBytes({ maxResponseBytes: 1024 }) === 1024
+                && truncateResponseText('x'.repeat(10), 0).length === 10;
+        });
+
         return cases;
     }
 
@@ -5923,9 +6003,9 @@
             connectRoot, validateApi, cellNumberText, lockIsStale, lightLooksLikeResult,
             parseManualVerdicts, tabClaimConflict, planResultActions,
             paperFingerprint, requestTimeout, trailingThrottle,
-            judgeStemMatch, judgeStemNorm, tombPurgeDue, trimTombMap, addDispute, loadDisputes,
-            combineSourceResults, dualSourcePlan, answerCacheKey, cacheLookup, cacheStore, answerCacheBypassed,
-            utf8Bytes, truncateResponseText, noteReqStat, reqStatsSnapshot,
+            judgeStemMatch, judgeStemNorm, modalSignature, tombPurgeDue, trimTombMap, addDispute, loadDisputes,
+            combineSourceResults, dualSourcePlan, answerCacheKey, cacheLookup, cacheStore, answerCacheBypassed, answerCacheInvalidate,
+            utf8Bytes, truncateResponseText, responseMaxBytes, noteReqStat, reqStatsSnapshot,
             multiComboPlan, multiComboCount, binomial,
             storageFootprint, storageOverLimit, buildDisputesExport, buildDiagnostics,
             purgeTombstones, filterTombstoned, addTombKey, clearTombKey,
@@ -5998,13 +6078,13 @@
 
     /**
      * 争议题导出结构（纯函数，自检可断言，R10）
-     * 题库/错题里 bad>0 或 disputed 的条目 + fx_disputes 冲突记录。
+     * 题库/错题里 bad>0 的条目 + fx_disputes 冲突记录（v2.0.8 移除了从未写入的 disputed 字段）。
      * 返回 { file, generatedAt, version, bank, wrong, disputes }。
      */
     function buildDisputesExport(bank, wrong, disputes, now = Date.now()) {
         const t = new Date(+now || Date.now());
         const keep = map => Object.entries(map || {})
-            .filter(([, e]) => e && ((+e.bad || 0) > 0 || e.disputed))
+            .filter(([, e]) => e && (+e.bad || 0) > 0)
             .map(([key, e]) => ({
                 key,
                 type: e.t || '',
@@ -6012,7 +6092,6 @@
                 answer: Array.isArray(e.a) ? e.a : (e.a == null ? [] : [e.a]),
                 letters: e.l || '',
                 bad: +e.bad || 0,
-                disputed: !!e.disputed,
                 src: e.src || '',
                 by: e.by || '',
                 hit: +e.hit || 0,

@@ -21,8 +21,9 @@
 
 ### 修复
 - `@downloadURL` / `@updateURL` 的 jsDelivr 路径从 `@main` 改为 `@latest`：jsDelivr 对分支路径有最长 12 小时的边缘缓存，
-  发版后 purge 接口返回 `"status": "finished"` 但三个边缘仍持续返回旧版本（v2.0.13 → v2.0.14 实测）；`@latest` 按 tag 解析，
-  新 tag 推送后秒级生效（实测 v2.0.14 在 fastly / gcore / testingcf 三个边缘立刻可读）。
+  发版后 purge 接口返回 `"status": "finished"` 但三个边缘仍持续返回旧版本（实测发 v2.0.14 后 `@main` 仍停在 2.0.12）；
+  `@latest` 按 tag 解析，缓存窗口更短（同一次发版实测 `@latest` 只落后 1 个版本）。仍受边缘缓存影响，不等同即时生效；
+  需要固定版本时用 `@vX.Y.Z` 直链（实测新 tag 的该路径在三个边缘立即返回新版本）。
 - `tools/selftest.mjs` 的自动更新地址白名单同步接受 `@latest`。
 
 ### 验证方式

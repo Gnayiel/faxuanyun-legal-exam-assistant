@@ -49,7 +49,7 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
 
 - 随仓库分发的快照（如 `data/faxuanyun-legal-exam-bank-20261020.*`）是某一时刻的切片，**不会随每个版本自动更新**。
 - 题库有实质变化时，用面板导出新的 `.json` + `.csv`，按 `data/README.md` 的命名规则替换或新增，并在 `CHANGELOG.md` 里说明来源与日期。
-- 带日期的新快照默认被 `.gitignore` 排除；想让它进仓库，照 `data/README.md` 加一行 `!data/...` 放行。
+- 换成新快照时，用新日期戳的一对文件替换旧文件即可（`.gitignore` 已按命名规则通配放行）；`data/` 只保留一份快照，`tools/check-data.mjs` 会拦第二份。
 
 ## 发版流程（维护者）
 
@@ -66,6 +66,7 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
    > 本机 `github.com:443` 连不上时（`raw.githubusercontent.com` 也可能不通），可以改用 SSH over 443 显式推送：
    > `git push ssh://git@ssh.github.com:443/Gnayiel/faxuanyun-legal-exam-assistant.git main`，
    > tag 同理 `git push ssh://git@ssh.github.com:443/Gnayiel/faxuanyun-legal-exam-assistant.git vX.Y.Z`。
+   > 常驻配置：`git config remote.origin.pushurl ssh://git@ssh.github.com:443/Gnayiel/faxuanyun-legal-exam-assistant.git`（之后直接 `git push origin main` 即可）。
 
 5. 打 tag：推送后 `.github/workflows/release.yml` 会自动跑自检、建 Release 并上传
    该版本的 `.user.js` 与同名 `.sha256`（**自动更新不依赖 Release**；Release 是下载镜像与版本留档，打 tag 即触发）：

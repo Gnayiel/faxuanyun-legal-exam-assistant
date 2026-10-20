@@ -7,7 +7,7 @@
  * 不联网、不写盘、不需要浏览器。脚本在最小 DOM / 油猴 API 打桩下加载，
  * 因此这里跑的就是面板「自检」按钮调用的同一批用例。
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -201,11 +201,12 @@ for (const [file, needle, label] of [
 // 却忘了同步 README / CHANGELOG 时，这里和 page-smoke 自己的运行时计数都会红。
 const pageSrc = readDoc('tools/page-smoke.mjs');
 const pageConst = pageSrc.match(/const EXPECTED_ASSERTIONS = (\d+);/);
+let PAGE_N = 0;
 if (!pageConst) {
     ok('page-smoke 源码里声明了 EXPECTED_ASSERTIONS 常量', false,
         '缺「const EXPECTED_ASSERTIONS = <断言总数>;」');
 } else {
-    const PAGE_N = +pageConst[1];
+    PAGE_N = +pageConst[1];
     ok(`数得出 page-smoke 的断言数（${PAGE_N} 项）`, PAGE_N > 0, 'EXPECTED_ASSERTIONS 必须是正整数');
     const declared = [...pageSrc.matchAll(/expectCount:\s*(\d+)/g)].map(x => +x[1]);
     ok('page-smoke 各用例的 expectCount 之和与 EXPECTED_ASSERTIONS 一致',
@@ -220,6 +221,30 @@ if (!pageConst) {
         ok(`${label}写着 ${PAGE_N}`, readDoc(file).includes(needle), `缺「${needle}」`);
     }
 }
+
+// README 命令注释最容易漂（例如 page-smoke 从 40 项加到 72 项时漏改一行）：前面只校验
+// 「数字出现过」，这里再校验「出现在正确的那条命令后面」，并全量扫描文档 / 工作流里的
+// 「N 项断言」，只允许 n / m / PAGE_N 三个真实数字（CHANGELOG 属历史记录，不扫）。
+const allowedNums = new Set([String(n), String(m), String(PAGE_N)]);
+const scanTargets = ['README.md', 'CONTRIBUTING.md', 'data/README.md'];
+try {
+    for (const f of readdirSync(join(ROOT, '.github', 'workflows'))) {
+        if (/\.ya?ml$/i.test(f)) scanTargets.push(`.github/workflows/${f}`);
+    }
+} catch { /* 没有 workflows 目录时只扫文档 */ }
+const staleNums = [];
+for (const f of scanTargets) {
+    for (const hit of readDoc(f).matchAll(/(\d+)\s*项断言/g)) {
+        if (!allowedNums.has(hit[1])) staleNums.push(`${f}「${hit[0]}」`);
+    }
+}
+ok('文档 / 工作流里没有过期的断言数', staleNums.length === 0, staleNums.slice(0, 8).join('；'));
+
+const readmeCmd = cmd => (readDoc('README.md').split('\n').find(l => l.includes(cmd)) || '').trim();
+ok(`README 的 panel-smoke 命令注释写着 ${m} 项断言`,
+    readmeCmd('tools/panel-smoke.mjs').includes(`${m} 项断言`), readmeCmd('tools/panel-smoke.mjs'));
+ok(`README 的 page-smoke 命令注释写着 ${PAGE_N} 项断言`,
+    readmeCmd('tools/page-smoke.mjs').includes(`${PAGE_N} 项断言`), readmeCmd('tools/page-smoke.mjs'));
 
 console.log(failed === 0
     ? `\n全部通过。\n`

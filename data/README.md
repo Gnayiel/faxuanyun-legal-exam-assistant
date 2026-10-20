@@ -23,12 +23,14 @@
 
 `.gitignore` 默认忽略所有 `faxuanyun-legal-exam-bank-*.{csv,json}` 与 `faxuanyun-legal-exam-log-*.txt`
 （那是你自己的数据；v1.x 的旧前缀 `faxuanyun-answer-bank-*` / `faxuanyun-exam-log-*` 同样继续忽略）。
-**随仓库分发的那一份**用显式 `!` 规则单独放行：
+**随仓库分发的那一份**按命名规则自动放行（`.gitignore` 里是
+`!data/faxuanyun-legal-exam-bank-*.csv` / `!data/faxuanyun-legal-exam-bank-*.json` 两条通配）：
 
 - `data/faxuanyun-legal-exam-bank-20261020.csv`
 - `data/faxuanyun-legal-exam-bank-20261020.json`
 
-想再放一份进仓库，就在 `.gitignore` 里照着加一行 `!data/你的文件名`。
+仓库**只保留一份快照**（`tools/check-data.mjs` 发现第二份会直接报错）：换题库时用新日期戳的一对文件
+替换旧的两个文件即可，不用再改 `.gitignore`；旧版本留在 git 历史里。
 
 ## 关于本次随附的快照
 

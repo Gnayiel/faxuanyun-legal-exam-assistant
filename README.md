@@ -12,6 +12,8 @@
 用于 **法宣在线**（`*.faxuanyun.com`）学法考试平台的 Tampermonkey 用户脚本。
 单文件、无构建、无第三方依赖：结构化题库 + 站点适配层 + AI / 百度双通道查答案 + 内置自检。
 
+<p align="center"><img src="docs/panel.png" alt="脚本面板：模式、节奏、题库与本场、日志与自检" width="300"></p>
+
 > [!WARNING]
 > **本项目仅供个人学习与研究使用。** 自动答题可能违反考试平台的使用规则，
 > 由此产生的一切后果由使用者自行承担。
@@ -285,7 +287,7 @@ node tools/check-data.mjs                    # 题库快照与 README / data/REA
 node tools/check-workflows.mjs               # GitHub Actions 配置静态检查（action 必须 pin SHA 等）
 node tools/merge-bank.mjs data/*.json -o /tmp/merged.json   # 题库合并工具冒烟（幂等）
 node tools/panel-smoke.mjs --require-browser # 用真实 Chromium 内核（Edge / Chrome）建面板，40 项断言
-node tools/page-smoke.mjs --require-browser  # 用真实 Chromium 加载页面 fixture 走答题链路，40 项断言
+node tools/page-smoke.mjs --require-browser  # 用真实 Chromium 加载页面 fixture 走答题链路，72 项断言
 node tools/release.mjs --dry-run             # 本地发版助手：版本/CHANGELOG 校验 + 跑测试 + 打 tag 预演
 ```
 

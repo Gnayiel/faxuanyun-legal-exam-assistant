@@ -7,3 +7,6 @@
 # 题库 CSV 保持字节原样：脚本导出的是 UTF-8 BOM + CRLF（Excel 双击不乱码），
 # 交给脚本 / Excel 自己处理，不要让 git 转换换行或编码
 *.csv -text
+
+# 图片按二进制处理，不做换行转换
+*.png binary

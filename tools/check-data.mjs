@@ -68,6 +68,9 @@ const prefixSame = (a, b) => {
 
 console.log('\n[1/3] 找快照文件');
 const files = readdirSync(DATA).filter(f => /^faxuanyun-legal-exam-bank-\d{8}\.(json|csv)$/.test(f));
+const snapshotJsonCount = files.filter(f => f.endsWith('.json')).length;
+ok('data/ 只保留一份题库快照（旧版本交给 git 历史）', snapshotJsonCount <= 1,
+    `发现 ${snapshotJsonCount} 份 JSON：${files.join(', ')}`);
 const jsonFiles = files.filter(f => f.endsWith('.json')).sort();
 ok('data/ 下有题库快照 JSON', jsonFiles.length > 0, files.join(', ') || '（空）');
 if (!jsonFiles.length) process.exit(1);

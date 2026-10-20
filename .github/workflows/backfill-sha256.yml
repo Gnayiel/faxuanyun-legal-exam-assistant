@@ -1,0 +1,44 @@
+name: 补齐旧 Release 的 SHA256
+
+# 早期 Release（v2.0.0–v2.0.2）只有脚本资产、没有 .sha256 校验文件。
+# 这里对「已有 .user.js、但缺同名 .sha256」的 Release 自动补一份，内容格式与
+# 新 Release 一致；已齐全的直接跳过，可安全重复运行，不修改说明与既有资产。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill-sha256
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: 补 .sha256 校验文件
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          name=faxuanyun-legal-exam-assistant.user.js
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName -q '.[].tagName' |
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            json=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets)
+            has_js=$(printf '%s' "$json" | jq -r --arg n "$name" '[.assets[].name] | index($n) // empty')
+            has_sum=$(printf '%s' "$json" | jq -r --arg n "$name.sha256" '[.assets[].name] | index($n) // empty')
+            if [ -z "$has_js" ] || [ -n "$has_sum" ]; then
+              echo "$tag: 跳过（无脚本资产或已带 .sha256）"; continue
+            fi
+            echo "== $tag 补 .sha256 =="
+            tmp=$(mktemp -d)
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir "$tmp"
+            ( cd "$tmp" && sha256sum "$name" > "$name.sha256" )
+            gh release upload "$tag" "$tmp/$name.sha256" --repo "$GITHUB_REPOSITORY"
+            rm -rf "$tmp"
+          done

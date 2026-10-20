@@ -2,7 +2,8 @@ name: 发版
 
 # 推送 vX.Y.Z tag 时自动发布 Release：先做 tag/版本/CHANGELOG 门禁与全套自检，
 # 再建 Release、上传 .user.js 与同名 .sha256，最后下载远端附件复算校验和。
-# tag 打错可以删掉重打；脚本用 --clobber 覆盖附件，验证失败修好后可重跑本 workflow。
+# `v*` tag 受 protect-release-tags 规则集保护（不能删除 / 改指向）：tag 打错请改用新版本号；
+# 确实要重打 tag 时先临时停用该 ruleset。脚本用 --clobber 覆盖附件，验证失败修好后可直接重跑本 workflow。
 on:
   push:
     tags: ['v*']

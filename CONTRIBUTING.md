@@ -78,9 +78,9 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
    也可以在工作流跑完后到 Release 页面核对附件与发布说明。
 6. **断点续发**：workflow 失败时按报错处理——`release.mjs --check-ci` 门禁失败（tag 与 `@version` 不符、CHANGELOG 缺章节）
    要先改代码 / 文档再重打 tag；发布后回读校验失败（附件数 / SHA256 不一致）时 Release 其实已经建好，修好原因后
-   直接在 Actions 里重跑本 workflow 即可，附件会用 `--clobber` 覆盖，**不需要**删 tag 重打。只有 tag 本身打错时才删除重打。
+   直接在 Actions 里重跑本 workflow 即可，附件会用 `--clobber` 覆盖，**不需要**删 tag 重打。只有 tag 本身打错时，才需要先临时停用 `protect-release-tags` ruleset、删除后重打，打完记得重新启用（平时 `v*` tag 受保护，删不掉是正常的）。
 7. **只升不降**：不要发布比已在线版本更低的 `@version`（油猴不会降级到旧版）；某版有问题时，改代码后发一个
-   **更高**的版本修正，不要删除或重打已经推送的 tag——Release 附件与 SHA256 是按 tag 固化的，删 tag 会让
+   **更高**的版本修正，不要删除或重打已经推送的 tag（`protect-release-tags` 规则集会直接拦截）——Release 附件与 SHA256 是按 tag 固化的，删 tag 会让
    已下载的用户对不上版本。
 8. 发布后自查：浏览器打开 `@updateURL` 指向的 raw 文件确认新 `@version`；或留一个旧版装油猴点「检查更新」，验证自动更新链路（raw 走 CDN，可能需要等几分钟）。
    CI 也会自动核对远端 `@updateURL` 的 `@version` 与 latest tag；如果刚推完 tag 就红，多半是 CDN 延迟，重跑即可。

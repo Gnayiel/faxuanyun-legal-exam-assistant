@@ -8,7 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "node tools/selftest.mjs && node tools/check-data.mjs && node tools/check-workflows.mjs",
+    "check": "node --check faxuanyun-legal-exam-assistant.user.js && node tools/selftest.mjs && node tools/check-data.mjs && node tools/check-workflows.mjs",
     "smoke": "node tools/panel-smoke.mjs --require-browser && node tools/page-smoke.mjs --require-browser",
     "release": "node tools/release.mjs"
   }

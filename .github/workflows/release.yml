@@ -22,6 +22,9 @@ jobs:
     steps:
       # 第三方 action 全部 pin 到 commit SHA，升级由 Dependabot 开 PR。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          # 版本单调 / 历史比较要读完整 tag 历史，浅克隆下会退化。
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '22'
@@ -64,6 +67,8 @@ jobs:
             printf -- '- 已安装旧版：油猴会按 `@updateURL` 自动检查更新，也可在油猴面板点「检查脚本更新」。\n'
             printf -- '- 首次安装：[安装脚本](https://github.com/%s/raw/main/faxuanyun-legal-exam-assistant.user.js)\n' "$GITHUB_REPOSITORY"
             printf -- '- 附件含 `.user.js` 与本版同名 `.sha256` 校验文件。\n'
+            size_bytes="$(wc -c < faxuanyun-legal-exam-assistant.user.js)"
+            printf -- '- 脚本体积：%s KB（预算 512 KB）\n' "$(awk -v b="$size_bytes" 'BEGIN{printf "%.1f", b/1024}')"
             printf -- '- 校验和：`%s`\n' "$(cut -d' ' -f1 faxuanyun-legal-exam-assistant.user.js.sha256)"
           } > release-notes.md
 

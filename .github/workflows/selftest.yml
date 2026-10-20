@@ -23,6 +23,9 @@ jobs:
       # 第三方 action 全部 pin 到 commit SHA（行尾注释是版本号）；
       # 升级由 .github/dependabot.yml 自动开 PR 完成。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          # 版本单调 / 历史比较要读完整 tag 历史，浅克隆下会退化。
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '22'

@@ -79,6 +79,15 @@ const version = (script.match(/^\/\/ @version\s+(\S+)/m) || [])[1];
 if (!version) die('读不到用户脚本的 @version');
 if (!VERSION_RE.test(version)) die(`@version 不是 x.y.z：${version}`);
 
+// 体积行：--dry-run / --check-ci 的输出里都要能看到按实际文件字节数折算的 KB。
+// 预算与 tools/selftest.mjs 的 SIZE_BUDGET 保持一致（512 KB），超出只告警不阻断：
+// 是否允许发版交给 selftest 的体积断言（硬门禁）判断。
+const SIZE_BUDGET = 512 * 1024;
+const sizeBytes = Buffer.byteLength(script, 'utf8');
+const sizeKb = (sizeBytes / 1024).toFixed(1);
+const sizePct = (sizeBytes / SIZE_BUDGET * 100).toFixed(1);
+console.log(`脚本体积：${sizeKb} KB（预算 ${SIZE_BUDGET / 1024} KB，使用 ${sizePct}%）${sizeBytes > SIZE_BUDGET ? ' ⚠ 已超出预算' : ''}`);
+
 const changelog = readFileSync(CHANGELOG, 'utf8');
 const changelogSection = extractChangelogSection(changelog, version);
 /** 本地发版和 CI 门禁共用同一套版本/CHANGELOG 校验逻辑。 */

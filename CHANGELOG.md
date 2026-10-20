@@ -13,6 +13,73 @@
 
 ---
 
+## v2.0.7
+
+**2026-10-20**
+
+> 一轮以「命中率、网络效率、可观测性、门禁闭环」为中心的优化：判断题安全复用、答案会话缓存、
+> 双源并行、多选组合上限、争议题与诊断包导出、墓碑定期清理与存储体积监控；工程侧把页面适配冒烟
+> 扩到 6 个 fixture 并结构化断言，selftest 机检 page-smoke 数字、CI 深历史检出与发布体积留痕。
+> 内置断言 136 → 174（面板冒烟保持 40，页面适配冒烟 40 → 72）。
+
+### 新增
+
+- **判断题安全相似复用**（`judgeStemMatch`，`CONFIG.judgeFuzzyMaxDiff = 2`）：规范化题干（去空白 / 标点 / 全半角统一）后
+  完全相等，或长度 ≥ 10 且编辑距离 ≤ 2、题库中唯一命中时才复用该题答案；语义相反的题干不会因字面相似而答反，
+  多命中或超差仍走网络。
+- **会话级答案缓存**（`CONFIG.answerCacheTtl = 30 分钟`，最多 200 条）：同一题型 + 题干 + 选项组合在有效期内直接复用
+  已合并的答案；强制造次源（`forceCrossCheck`）时绕过缓存；清场 / 新卷自动清空。
+- **双源并行**（`CONFIG.parallelDualSource`）：需要次源时主源与次源共享同一 deadline 并行请求，
+  单个来源失败不影响另一来源；可关闭开关回到串行。
+- **争议题记录与导出**（GM 键 `fx_disputes`，上限 100 条）：两个来源都高置信但分歧、无法按 gap 定论时，
+  把题干 / 选项 / 候选 / 理由记入争议列表；面板新增「导出争议题」，生成 JSON 供人工复核。
+- **诊断包导出**：面板一键导出 JSON（版本、User-Agent、URL、选择器命中情况、CONFIG 快照、各来源请求统计、
+  存储占用、墓碑 / 题库 / 错题计数、最近 300 条日志），报 bug 时可回传；不含 API Key。
+- **存储占用监控**（`storageFootprint()`）：面板显示「存储占用 xx KB（题库 / 错题 / 墓碑）」，
+  超过 `CONFIG.storageWarnBytes`（3 MB）时提醒一次。
+- **多选组合上限**（`CONFIG.multiComboLimit = 256`、`multiComboBudgetMs = 1500`）：选项组合超过上限或生成超时
+  不再穷举，可信候选优先，否则保留随机策略。
+- **发布体积留痕**：Release notes 与 `tools/release.mjs` 输出脚本体积（KB、512 KB 预算、使用率）；
+  上传前仍由 `selftest.mjs` 做体积硬门禁。
+- **页面适配冒烟扩容**：新增判断题页、答题卡页、无总题数成绩页 3 个 fixture（共 6 个），断言改为结构化 JSON
+  输出，并在文件内用 `EXPECTED_ASSERTIONS` 自洽校验，共 72 项；`selftest.mjs` 机检 README / CHANGELOG 里的
+  page-smoke 数字。
+- **真机回归清单**：README 新增维护者清单（自动更新跨版本、bfcache 返回、自动关闭、多标签同场双开、
+  百度 / AI 真实站点收益、诊断包回传）。
+
+### 变更
+
+- `paperFingerprint` 的试卷指纹从「前 3 题」扩展到「前 6 题」（去重后排序），进一步降低不同试卷共用幂等键的概率。
+- AI 结构化直采阈值从 conf ≥ 0.8 提高到 0.9（`CONFIG.aiDirectAcceptConf`），其余场景仍按 gap ≥ 0.3 判定。
+- 百度跟进页响应体上限 512 KB（`CONFIG.followPageMaxBytes`），超长广告页截断后不再参与抽取。
+- 墓碑清理从「仅加载时」改为「每 10 次落盘或条目 > 500 时」定期清理（`CONFIG.tombPurgeEvery`），长期挂页也不膨胀。
+- `tools/selftest.mjs` 改为按脚本自身路径解析仓库（任意 cwd 运行都能过）；CI checkout 改为完整历史（`fetch-depth: 0`）。
+- `tools/browser.mjs` 跑完冒烟自动清理临时 profile 目录。
+
+### 修复
+
+- `bankAnswerIsWrongPick` 对 `e.a` 非数组（历史数据单值 / `undefined`）不再抛错，按单值或文本安全降级判等。
+- `selftest.mjs` 此前只机检 panel-smoke 断言数、漏检 page-smoke 数字；现在 README / CHANGELOG 的 page-smoke
+  数字漏改会直接变红。
+- `tools/selftest.mjs` 头部注释里过期的「97 项断言」文案。
+- **面板 4 枚状态按钮文字压边框（v2.0.6 起）**：300–345px 宽的面板里，「节奏 / 交卷 / 调试 / 二源」和题库首行
+  4 枚按钮一行放不下（按钮文字宽于内容区，字符压到边框、挤向相邻按钮，看起来像字体排版错位）；
+  这两行改为 2×2 等宽网格（`.row.grid-2`），行内按钮内边距 8px→6px，其余行不变。
+- **面板日志级别误判（v2.0.6 回归）**：`LOG_LEVELS` 的 emoji 字符类正则缺 `u` 标志，`🚫` 被拆成代理对后字符类里留下 `\uD83D`，
+  导致 `🕒` / `📊` / `🎯` 等共享高位码元的普通日志被判成 `error`、显示成红色；补 `u` 标志并加 6 条日志级别回归断言。
+
+### 验证方式
+
+- `node --check faxuanyun-legal-exam-assistant.user.js` ✅
+- `node tools/selftest.mjs` → **174 项断言全部通过**（内置 174 项 + 元数据 / 文档数字 / 版本徽章 / 体积预算校验）
+- `node tools/panel-smoke.mjs --require-browser` → **40 项断言全部通过**（真实 Chromium 内核）
+- `node tools/page-smoke.mjs --require-browser` → **72 项断言全部通过**（6 个脱敏 fixture）
+- `node tools/check-data.mjs`、`node tools/check-workflows.mjs`、`node tools/merge-bank.mjs data/*.json -o /tmp/merged.json` 全部通过
+- `node tools/release.mjs --check-ci v2.0.7` 通过；`node tools/release.mjs --dry-run` 前置检查全过
+- 未做真实站点回归（同 v2.0.6）：百度反爬页面结构、站点整体改版与真实多标签页行为不在本机验证范围
+
+---
+
 ## v2.0.6
 
 **2026-10-20**

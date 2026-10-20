@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>学法考试（脱敏样例）· 答题卡</title></head>
+<body>
+<!--
+  脱敏成绩页：只有答题卡，没有分数与总分。
+  答题卡默认收起（display:none），点「查看解析」后才展开——覆盖「首轮扫描不到判定 →
+  提示页面入口 → 用户点开入口后自动再解析一次」这条真实分支。
+  题号格子分别用类名 / 内联背景色两种方式标对错，覆盖类名与图例配色两条判定路径。
+-->
+<div class="result-head">
+  <h1>考试结果</h1>
+  <p class="rate">正确率 50%</p>
+</div>
+
+<a href="javascript:;" id="card-open">查看解析</a>
+
+<div id="card-wrap" style="display:none">
+  <p>答题卡</p>
+  <div class="legend">
+    <span class="legend-item" style="background-color:#52c41a">正确</span>
+    <span class="legend-item" style="background-color:#ff4d4f">错误</span>
+    <span class="legend-item" style="background-color:#bfbfbf">未答</span>
+  </div>
+  <ul class="answer-card">
+    <li class="correct">1</li>
+    <li style="background-color:#52c41a">2</li>
+    <li class="wrong">3</li>
+    <li style="background-color:#ff4d4f">4</li>
+  </ul>
+</div>
+
+<script>
+/* 脱敏页面的最小交互：点「查看解析」展开答题卡（相当于真实站点异步渲染出答题卡） */
+window.__resultPage = true;
+window.__cardOpened = false;
+document.getElementById('card-open').addEventListener('click', function () {
+  window.__cardOpened = true;
+  document.getElementById('card-wrap').style.display = '';
+});
+</script>
+</body>
+</html>

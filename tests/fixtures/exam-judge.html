@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>学法考试（脱敏样例）· 判断题</title></head>
+<body>
+<!--
+  脱敏页面：单题判断题，选项文本是「正确 / 错误」而不是对 / 错。
+  覆盖：判断题识别（题型统计 + 选项语义）、总题数推断（判断题：共 1 题）、
+        无「下一题」时答完一题即收工、交卷按钮存在但不自动点。
+  不含任何真实姓名、学号或站点 URL。
+-->
+<header class="exam-header">
+  <span class="exam-title">国家工作人员学法考试（脱敏样例）</span>
+  <span class="exam-timer">剩余时间：04:59</span>
+</header>
+
+<div id="timucontent">
+  <h2>1、判断题：行政机关作出行政处罚决定前，应当告知当事人拟作出的处罚内容。</h2>
+  <div class="options">
+    <label><input type="radio" name="option" value="A">正确</label>
+    <label><input type="radio" name="option" value="B">错误</label>
+  </div>
+</div>
+
+<div class="opbar">
+  <a href="javascript:;" class="op-btn">上一题</a>
+  <a href="javascript:;" id="btn-submit" class="op-btn">交卷</a>
+</div>
+
+<div class="exam-footer">
+  题型分布：单选题：共 0 题 · 判断题：共 1 题
+</div>
+
+<script>
+/* 脱敏页面的最小交互：交卷只记录点击，不真正提交 */
+window.__picks = [];
+document.getElementById('btn-submit').addEventListener('click', function (e) {
+  e.preventDefault();
+  window.__picks.push('submit');
+});
+</script>
+</body>
+</html>

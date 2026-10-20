@@ -18,19 +18,19 @@
 ## 本地验证（提交前必跑）
 
 ```bash
-node tools/selftest.mjs                      # 元数据 + 136 项内置断言 + 文档数字校验，不联网
+node tools/selftest.mjs                      # 元数据 + 174 项内置断言 + 文档数字校验，不联网
 node tools/check-workflows.mjs               # GitHub Actions 配置静态检查（pin SHA / 权限 / 脚本路径）
 node tools/release.mjs --dry-run             # 本地发版助手：版本与 CHANGELOG 校验 + 跑测试 + 打 tag 预演
 node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致
 node tools/merge-bank.mjs data/*.json -o /tmp/merged.json   # 题库合并工具冒烟（幂等）
 node tools/panel-smoke.mjs --require-browser # 真实浏览器面板冒烟（40 项）
-node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟（40 项）
+node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟（72 项）
 ```
 
 - 两种浏览器冒烟共用 `tools/browser.mjs` 探测浏览器（`FX_BROWSER` → 常见安装路径 → PATH，Windows 也支持），
   找不到浏览器时默认**跳过**（退出码 0）；加 `--require-browser`（或设 `FX_REQUIRE_BROWSER=1`）则改为失败——
   CI 用的就是强制模式，防止「没装浏览器 → 静默跳过 → 假绿」。
-- `selftest.mjs` 会校验 README / CHANGELOG / 脚本注释里写死的断言数，以及 README 版本徽章是否与 `@version` 一致。
+- `selftest.mjs` 会校验 README / CHANGELOG / 脚本注释里写死的自检断言数、page-smoke 断言数与 README 版本徽章是否与 `@version` 一致。
   改了这些数字必须同步，否则测试会直接指出缺哪个字符串；它还会校验 `@updateURL` / `@downloadURL` 是否为 `main`
   分支的完整 https 直链，以及用户脚本体积不超过 512 KB。
 - 手动冒烟：装脚本 → 打开任意 `*.faxuanyun.com` 页面 → 面板能建起来、按钮与快捷键正常。

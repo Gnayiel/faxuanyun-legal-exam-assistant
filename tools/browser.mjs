@@ -8,7 +8,7 @@
 //
 // 启动参数与原来的 panel-smoke 内联实现保持一致（--headless=new + --dump-dom），
 // 两个冒烟工具只是页面内容不同，浏览器这一层不该各写一份、慢慢跑偏。
-import { existsSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { existsSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, delimiter, isAbsolute } from 'node:path';
@@ -66,16 +66,22 @@ export function findBrowser() {
  */
 export function runHeadless(browser, html, opts = {}) {
     const dir = mkdtempSync(join(tmpdir(), opts.prefix || 'fx-smoke-'));
-    const page = join(dir, 'smoke.html');
-    writeFileSync(page, html, 'utf8');
-    const dom = execFileSync(browser, [
-        '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-        '--disable-extensions', '--disable-background-networking', '--mute-audio',
-        // CI 容器里以 root 运行，需要用 --no-sandbox 才能起内核；本地不加
-        ...(process.platform === 'linux' ? ['--no-sandbox', '--disable-dev-shm-usage'] : []),
-        '--user-data-dir=' + join(dir, 'profile'),
-        '--virtual-time-budget=' + (opts.budgetMs || 20000),
-        '--dump-dom', 'file:///' + page.replace(/\\/g, '/'),
-    ], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
-    return { dom, page, dir };
+    try {
+        const page = join(dir, 'smoke.html');
+        writeFileSync(page, html, 'utf8');
+        const dom = execFileSync(browser, [
+            '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+            '--disable-extensions', '--disable-background-networking', '--mute-audio',
+            // CI 容器里以 root 运行，需要用 --no-sandbox 才能起内核；本地不加
+            ...(process.platform === 'linux' ? ['--no-sandbox', '--disable-dev-shm-usage'] : []),
+            '--user-data-dir=' + join(dir, 'profile'),
+            '--virtual-time-budget=' + (opts.budgetMs || 20000),
+            '--dump-dom', 'file:///' + page.replace(/\\/g, '/'),
+        ], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
+        return { dom, page };
+    } finally {
+        // 正常结束、浏览器启动失败、超时被杀都要清掉临时 profile：这些目录里有
+        // user-data-dir 和页面副本，留着会越积越多（CI 上还可能占满 tmpfs）。
+        try { rmSync(dir, { recursive: true, force: true, maxRetries: 3 }); } catch { }
+    }
 }

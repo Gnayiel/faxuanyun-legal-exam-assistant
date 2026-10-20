@@ -36,6 +36,12 @@ const REQUIRE_BROWSER = process.argv.includes('--require-browser') || process.en
 const FIXTURES = join(ROOT, 'tests', 'fixtures');
 const DUMP = process.env.FX_PAGE_SMOKE_DUMP === '1' || !!process.env.FX_PAGE_SMOKE_DUMP;
 
+// 六个用例的断言总数（README 徽章 / CHANGELOG 验证方式都写这个数）。
+// 每个用例在 CASES 里另有 expectCount；父进程会核对运行时 total 与这里的常量一致，
+// tools/selftest.mjs 也会数这一行并检查 README / CHANGELOG 是否同步，避免改了 fixture
+// 却忘记更新文档。改断言时先改这里，再跑一遍确认运行时总数一致。
+const EXPECTED_ASSERTIONS = 72;
+
 // 浏览器探测复用了 panel-smoke 抽出来的 ./browser.mjs（FX_BROWSER → 常见安装路径 → PATH）。
 const BROWSERS = findBrowser();
 if (!BROWSERS) {
@@ -149,6 +155,66 @@ function driverScript(cfg) {
       ok('未答题号正确（5）', has(/未答 1 题：5/), tail());
       ok('分数 / 总分 / 正确率解析正确（40 / 100 / 40%）', has(/🎯 分数 40 \\/ 100 分 · 正确率 40%（2\\/5）/), tail());
       ok('题库统计正常（空库 0 题）', has(/📊 题库现有 0 题/), tail());
+    } else if (CFG.scenario === 'judge') {
+      ok('页面作答记录器就位（fixture 脚本已注入）', Array.isArray(window.__picks));
+      await waitFor(function () { return has(/答题完成|已答满|⛔ 已停止|未找到「下一题」/); }, '答题流程结束');
+      for (var j = 0; j < 200 && !has(/答题完成|已停止/); j++) await sleep(25);
+      collect();
+      var J = CFG.expect, qj = J.q1;
+      ok('页面就绪后自动开始答题', has(/页面就绪，开始答题/), tail());
+      ok('从页面题型统计推断出总题数 1', has(new RegExp(J.totalRe)), tail());
+      ok('第 1 题题干与题型识别（' + qj.typeLabel + '）', has(new RegExp('第1题（' + qj.typeLabel + '）：[^|]*' + qj.stemPart)), tail());
+      ok('第 1 题采用打桩的百度答案（' + qj.answer + '）', has(new RegExp('采用百度答案：' + qj.answer)), tail());
+      var jchecked = currentChecked();
+      ok('第 1 题页面选中态正确（' + qj.answer + '）', jchecked === qj.answer.split('').sort().join(''), '实际选中：' + jchecked);
+      ok('无「下一题」时答完一题即收工', has(/未找到「下一题」按钮，可能已是最后一题/) && has(/答题完成！共答 1 题，请检查后点击交卷/), tail());
+      var jsess = window.__store.get('pendingSession');
+      var jhist = jsess && jsess.history ? jsess.history : [];
+      var jhistOk = jhist.length === 1 && jhist[0].letters === qj.answer && jhist[0].type === qj.saveType;
+      ok('作答记录写入本地会话（答案 / 题型 / 题干）', jhistOk, jhist.length ? JSON.stringify(jhist.map(function (h) { return { n: h.qNum, letters: h.letters, type: h.type }; })) : '没有 pendingSession');
+      var jtxt = jhist.length ? String(jhist[0].pickedText || '') : '';
+      ok('作答记录里的选项文本与页面一致', qj.pickedHas.every(function (s) { return jtxt.indexOf(s) >= 0; }), jtxt || '没有 pendingSession');
+      var jnet = window.__fxNet || [];
+      ok('只走打桩的百度接口（1 次请求，未联网）',
+        jnet.length === 1 && jnet.every(function (u) { return /^https:\\/\\/www\\.baidu\\.com\\/s\\?wd=/.test(u); }),
+        jnet.slice(0, 3).join(' | '));
+    } else if (CFG.scenario === 'answer-card') {
+      var wrap = document.getElementById('card-wrap');
+      ok('答题卡页 fixture 就位（答题卡默认收起）',
+        !!document.querySelector('.answer-card') && !!wrap && getComputedStyle(wrap).display === 'none');
+      await waitFor(function () { return has(/答题卡上没识别到任何对错标记/); }, '首轮空答题卡提示');
+      collect();
+      ok('识别到成绩页并自动开始解析', has(/检测到考试结果页，自动解析成绩/), tail());
+      ok('首轮扫描不到判定时给出提示', has(/答题卡上没识别到任何对错标记，本次不入库/), tail());
+      ok('提示页面上的「查看解析」入口', has(/页面上有「查看解析」入口/), tail());
+      document.getElementById('card-open').click();
+      await waitFor(function () { return has(/看到你点开答题卡入口/); }, '入口点击后的自动重解析提示', 400);
+      collect();
+      ok('点击入口后触发「2 秒后自动再解析」', has(/看到你点开答题卡入口，2 秒后自动再解析一次/), tail());
+      await waitFor(function () { return has(/📊 题库现有|成绩解析完成|成绩解析异常/); }, '自动重解析结束');
+      await sleep(300);
+      collect();
+      ok('展开后答题卡题号识别到 1-4', has(/答题卡识别到 4 个题号：1, 2, 3, 4/), tail());
+      ok('逐题判定（类名 / 背景色两条路径）正确', has(/逐题明细：1✅ 2✅ 3❌ 4❌/), tail());
+      ok('答对题号正确（1, 2）', has(/答对 2 题：1, 2/), tail());
+      ok('无分数时按答对 / 总题数算正确率（50%）', has(/🎯 正确率 50%（2\\/4）/), tail());
+      ok('题库统计正常（空库 0 题）', has(/📊 题库现有 0 题/), tail());
+    } else if (CFG.scenario === 'result-no-total') {
+      ok('无总分成绩页 fixture 就位（有分数 / 无总分）',
+        !!document.querySelector('.layui-layer .answer-card')
+        && document.body.innerText.indexOf('总分') < 0
+        && document.body.innerText.indexOf('您的分数：80 分') >= 0);
+      await waitFor(function () { return has(/📊 题库现有|成绩解析完成|成绩解析异常/); }, '成绩解析结束');
+      await sleep(300);
+      collect();
+      ok('识别到成绩页并开始解析', has(/正在解析考试结果/), tail());
+      ok('答题卡题号识别到 1-5', has(/答题卡识别到 5 个题号：1, 2, 3, 4, 5/), tail());
+      ok('逐题判定（4 对 1 错）正确', has(/逐题明细：1✅ 2✅ 3✅ 4✅ 5❌/), tail());
+      ok('答对题号正确（1, 2, 3, 4）', has(/答对 4 题：1, 2, 3, 4/), tail());
+      ok('答错题号正确（5）', has(/答错 1 题：5/), tail());
+      ok('总分缺失时分数行不拼「/ 总分」', has(/🎯 分数 80 分 · 正确率 80%（4\\/5）/) && !has(/分数 80 \\/ /), tail());
+      ok('总分缺失时不做「分数推算题数」交叉校验', !has(/分数与答题卡对不上/), tail());
+      ok('题库统计正常（空库 0 题）', has(/📊 题库现有 0 题/), tail());
     } else {
       ok('页面作答记录器就位（fixture 脚本已注入）', Array.isArray(window.__picks));
       // 考试页是「页面就绪后自动开始」的（面板初始化的就绪探测会调 mainLoop），不点按钮
@@ -195,7 +261,7 @@ function driverScript(cfg) {
   var failed = R.filter(function (r) { return !r.pass; });
   var out = document.getElementById('fx-out');
   if (!out) { out = document.createElement('div'); out.id = 'fx-out'; document.body.appendChild(out); }
-  out.textContent = 'FX_RESULT ' + JSON.stringify({ pass: R.length - failed.length, total: R.length, failed: failed });
+  out.textContent = 'FX_RESULT ' + JSON.stringify({ case: CFG.case, pass: R.length - failed.length, total: R.length, expectCount: CFG.expectCount, failed: failed });
 })();
 `;
 }
@@ -209,9 +275,11 @@ function driverScript(cfg) {
 const CASES = [
     {
         name: '单选题页：题干/选项/题数/按钮识别与作答',
+        case: 'exam-single',
         file: 'exam-single.html',
         budgetMs: 40000,
         scenario: 'exam',
+        expectCount: 15,
         store: { answerMode: 'baidu', autoCloseSec: 0 },
         answers: [
             { clue: '限制人身自由的行政处罚权', answer: 'B' },
@@ -225,9 +293,11 @@ const CASES = [
     },
     {
         name: '多选 / 判断题页：题型识别与作答',
+        case: 'exam-multi',
         file: 'exam-multi.html',
         budgetMs: 40000,
         scenario: 'exam',
+        expectCount: 15,
         store: { answerMode: 'baidu', autoCloseSec: 0 },
         answers: [
             { clue: '行政处罚决定前', answer: 'AB' },
@@ -241,9 +311,47 @@ const CASES = [
     },
     {
         name: '成绩页：答题卡判定与得分统计',
+        case: 'result',
         file: 'result.html',
         budgetMs: 45000,
         scenario: 'result',
+        expectCount: 10,
+        store: { answerMode: 'baidu', autoCloseSec: 0 },
+        answers: [],
+        expect: {},
+    },
+    {
+        name: '判断题页：正确/错误选项与单题收尾',
+        case: 'judge',
+        file: 'exam-judge.html',
+        budgetMs: 40000,
+        scenario: 'judge',
+        expectCount: 11,
+        store: { answerMode: 'baidu', autoCloseSec: 0 },
+        answers: [{ clue: '行政机关作出行政处罚决定前', answer: 'B' }],
+        expect: {
+            totalRe: '总题数[:：]\\s*1',
+            q1: { typeLabel: '判断', stemPart: '行政机关作出行政处罚决定前', answer: 'B', saveType: 'judge', pickedHas: ['错误'] },
+        },
+    },
+    {
+        name: '答题卡页：默认收起 → 点「查看解析」自动重解析',
+        case: 'answer-card',
+        file: 'answer-card.html',
+        budgetMs: 50000,
+        scenario: 'answer-card',
+        expectCount: 11,
+        store: { answerMode: 'baidu', autoCloseSec: 0 },
+        answers: [],
+        expect: {},
+    },
+    {
+        name: '无总分成绩页：分数照常解析、不拼「/ 总分」',
+        case: 'result-no-total',
+        file: 'result-no-total.html',
+        budgetMs: 45000,
+        scenario: 'result-no-total',
+        expectCount: 10,
         store: { answerMode: 'baidu', autoCloseSec: 0 },
         answers: [],
         expect: {},
@@ -292,13 +400,22 @@ for (const c of CASES) {
         continue;
     }
     const r = JSON.parse(unescapeDom(m[1]));
+    if (r.case !== c.case || r.expectCount !== c.expectCount || r.total !== c.expectCount) {
+        fatal++;
+        console.error(`  ✗ ${c.name}：结构化结果与用例声明不符（case=${r.case}，total=${r.total}，expectCount=${r.expectCount}/${c.expectCount}）`);
+        continue;
+    }
     pass += r.pass;
     total += r.total;
+    console.log(`__FX_SMOKE__ ${JSON.stringify({ case: c.case, pass: r.pass, total: r.total, expectCount: c.expectCount })}`);
     const mark = r.pass === r.total ? '✓' : '✗';
-    console.log(`  ${mark} ${c.name}：${r.pass}/${r.total}`);
+    console.log(`  ${mark} ${c.name}：${r.pass}/${r.total}（预期 ${c.expectCount}）`);
     for (const f of r.failed || []) {
         failures.push(`  ✗ [${c.name}] ${f.name}${f.extra ? '  → ' + f.extra : ''}`);
     }
+}
+if (total > 0 && total !== EXPECTED_ASSERTIONS) {
+    failures.push(`  ✗ 断言总数与 EXPECTED_ASSERTIONS 不一致：运行时 ${total} 项，常量 ${EXPECTED_ASSERTIONS} 项`);
 }
 if (failures.length) {
     console.log('');
@@ -309,5 +426,5 @@ if (fatal) {
     console.error(`页面适配冒烟测试：${pass}/${total || '?'} 通过，但有 ${fatal} 个用例没能跑起来。`);
     process.exit(2);
 }
-console.log(`页面适配冒烟测试：${pass}/${total} 通过  （浏览器：${BROWSERS}）`);
-process.exit(pass === total ? 0 : 1);
+console.log(`页面适配冒烟测试：${pass}/${total} 通过（EXPECTED_ASSERTIONS=${EXPECTED_ASSERTIONS}）  （浏览器：${BROWSERS}）`);
+process.exit(pass === total && total === EXPECTED_ASSERTIONS ? 0 : 1);

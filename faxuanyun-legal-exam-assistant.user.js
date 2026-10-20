@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.6
-// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 136 项内置自检
+// @version      2.0.7
+// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 174 项内置自检
 // @author       GNAYIEL
 // @license      MIT
 // @match        *://gs.faxuanyun.com/*
@@ -90,7 +90,7 @@
  *   作答策略          多选组合枚举、chooseAnswer 决策、answerCurrent 单题流程
  *   成绩解析          答题卡颜色判定、分数读取、交卷对账入库
  *   考试流程控制      退出原因、暂停等待、倒计时、弹窗、最后一题、mainLoop
- *   内置自检          136 项纯函数断言 + window.__FX_TEST__ 测试钩子
+ *   内置自检          174 项纯函数断言 + window.__FX_TEST__ 测试钩子
  *   面板              UI 构建、分类折叠、拖拽、状态摘要、AI 设置、导入导出与日志按钮
  */
 
@@ -237,6 +237,19 @@
         mutationThrottleMs: 100,      // DOM 观察器尾沿节流窗口（毫秒）：倒计时每秒改 DOM，不该每次都读题（B6）
         crashMax: 5,                  // 主循环连续异常多少次后停手
         errLogPerMin: 8,              // 站点自身异常每分钟最多记几条，避免刷屏
+        // ---------- v2.0.7 新增 ----------
+        judgeFuzzyMaxDiff: 2,         // 判断题题干安全复用的编辑距离容差（仅唯一命中时启用）
+        aiDirectAcceptConf: 0.9,      // AI 结构化答案直采门槛（v2.0.6 的 0.8 太松）
+        paperFingerprintCount: 6,     // 试卷指纹取前 N 题（3 题在同分/同判定时容易撞车）
+        multiComboLimit: 256,         // 多选组合枚举上限：超过不再穷举，改用候选/随机保留
+        multiComboBudgetMs: 1500,     // 多选组合生成时间预算（毫秒）
+        answerCacheTtl: 30 * 60 * 1000, // 会话级答案缓存保鲜期（毫秒）
+        answerCacheMax: 200,          // 会话级答案缓存条数上限
+        parallelDualSource: true,     // 需要次源时并行请求；关掉退回串行
+        followPageMaxBytes: 512 * 1024, // 跟进页/响应体上限（按 UTF-8 字节估算截断）
+        tombPurgeEvery: 10,           // 每落盘 N 次清理一次过期墓碑
+        storageWarnBytes: 3 * 1024 * 1024, // GM 存储占用告警阈值（字节）
+        disputeMaxEntries: 100,       // 争议题记录上限
         keySalt: 'fx-legal-2026',     // API Key 落盘混淆用（不是加密，任何人都能还原）
     };
 
@@ -359,7 +372,10 @@
         #fx-panel button[disabled] { opacity: 0.45; cursor: not-allowed; }
         #fx-panel .row { display: flex; gap: 6px; margin-bottom: 7px; align-items: center; }
         #fx-panel .row:last-child { margin-bottom: 0; }
-        #fx-panel .row button { flex: 1; min-width: 0; }
+        #fx-panel .row button { flex: 1; min-width: 0; padding: 0 6px; }
+        /* 窄面板（300px）里 4 枚按钮一行放不下：文字会压到边框、挤进相邻按钮，改 2x2 等宽 */
+        #fx-panel .row.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+        #fx-panel .row.grid-2 button { flex: none; }
 
         /* ---------- 标题栏 ---------- */
         #fx-panel .panel-title {
@@ -475,10 +491,10 @@
     };
 
     const LOG_LEVELS = [
-        { k: 'error', re: /^[❌⛔🚫]/ },
-        { k: 'warn', re: /^[⚠️⚠🪟↩️⏰❔📴]/ },
-        { k: 'ok', re: /^[✅♻️📊🎯📌]/ },
-        { k: 'debug', re: /^[🔍🧪]/ },
+        { k: 'error', re: /^[❌⛔🚫]/u },
+        { k: 'warn', re: /^[⚠️⚠🪟↩️⏰❔📴]/u },
+        { k: 'ok', re: /^[✅♻️📊🎯📌]/u },
+        { k: 'debug', re: /^[🔍🧪]/u },
     ];
     /** 日志级别：显式传入优先，否则按首字符判断 */
     const logLevel = text => (LOG_LEVELS.find(l => l.re.test(String(text).trim())) || { k: 'info' }).k;
@@ -894,7 +910,7 @@
     const fpKey = stem => '#' + hash32(normStem(stem));
 
     /**
-     * 试卷指纹（纯函数，自检可断言）：取本次作答记录里前 3 道题的主键，排序后拼接。
+     * 试卷指纹（纯函数，自检可断言）：取本次作答记录里前 N 道题（默认 6，见 CONFIG.paperFingerprintCount）的主键，排序后拼接。
      * 记录没有 stem（旧会话/手工构造）时退回它的 bankKey，再没有就跳过——全部空安全。
      * 排序保证「题序不同但同卷」得到同一个值；不同卷即使分数/判定/记录数全撞也不会误去重（B1）。
      */
@@ -906,14 +922,15 @@
             const k = r.stem ? fpKey(r.stem) : (r.bankKey || '');
             if (k) keys.push(String(k));
         }
-        return [...new Set(keys)].sort().slice(0, 3).join(',');
+        const n = Math.max(1, Math.floor(+CONFIG.paperFingerprintCount) || 6);
+        return [...new Set(keys)].sort().slice(0, n).join(',');
     }
 
     /**
      * 对账幂等键（纯函数，自检可断言）：
      * 同一份成绩页被重复解析时（手动点「解析成绩」/点「查看答题卡」再触发一次），
      * 判定、分数、题号、记录数与试卷指纹都相同 → 得到同一个键，用于跳过重复写库（B1）。
-     * 键 = 页面地址 + 分数 + 总分 + 逐题判定 + 本次作答记录数 + 试卷指纹（history 前 3 题）；
+     * 键 = 页面地址 + 分数 + 总分 + 逐题判定 + 本次作答记录数 + 试卷指纹（history 前 N 题，默认 6）；
      * 任何一项变了都算新的一次对账。旧版本写入的 lastReconcileKey 不带指纹，最多多写一次，可接受。
      */
     function reconcileKey(verdicts, scoreInfo, opt) {
@@ -985,8 +1002,39 @@
         }
         return tombMem[which];
     }
+    let tombSaveCount = 0;
+
+    /** 这次墓碑落盘后要不要清理（纯函数，自检可断言，R8）：每 tombPurgeEvery 次，或表超过上限 */
+    function tombPurgeDue(count, size, every = CONFIG.tombPurgeEvery, maxEntries = 500) {
+        return (every > 0 && count > 0 && count % every === 0) || size > maxEntries;
+    }
+
+    /** 墓碑表超过上限时只保留最近的 maxEntries 条（纯函数，自检可断言，R8） */
+    function trimTombMap(map, maxEntries = 500) {
+        const src = map || {};
+        const keys = Object.keys(src);
+        if (keys.length <= maxEntries) return src;
+        const keep = keys.sort((a, b) => (+src[b] || 0) - (+src[a] || 0)).slice(0, Math.max(0, maxEntries));
+        const out = {};
+        for (const k of keep) out[k] = src[k];
+        return out;
+    }
+
     function saveTombMap(which) {
         try { GM_setValue(TOMB_KEYS[which], tombMem[which] || {}); } catch { }
+        // R8：墓碑只增不减会越积越多（每次删除都会登记一条）。每落盘 tombPurgeEvery 次
+        // 或表超过 500 条时清一次过期项；仍超上限就按时间裁掉最旧的，保证 GM 存储不无限膨胀。
+        tombSaveCount++;
+        const before = Object.keys(tombMem[which] || {}).length;
+        if (!tombPurgeDue(tombSaveCount, before)) return;
+        const purged = purgeTombstones(tombMem[which] || {}, Date.now(), TOMB_TTL);
+        const trimmed = trimTombMap(purged, 500);
+        const after = Object.keys(trimmed).length;
+        tombMem[which] = trimmed;
+        if (after !== before) {
+            try { GM_setValue(TOMB_KEYS[which], trimmed); } catch { }
+            log(`🧹 墓碑定期清理（${which}）：${before} → ${after}`);
+        }
     }
     /** 删除/淘汰时登记墓碑：其它标签页合并时「墓碑优先」 */
     function addTombstone(which, key) {
@@ -1458,10 +1506,15 @@
         if (!rec || !e) return false;
         const norm = t => String(t || '').replace(/\s+/g, '').trim();
         const texts = (rec.pickedText || []).filter(Boolean).map(norm);
-        if (e.a && e.a.length) {
+        // R12：e.a 不一定是数组（手工导入/旧数据可能把答案写成字符串 'A'、数字或 null）。
+        // 先安全归一成数组再按选项文本比对；空数组 / undefined / null 才退回旧条目的字母判等。
+        const arr = Array.isArray(e.a)
+            ? e.a.filter(Boolean)
+            : (e.a === null || e.a === undefined || e.a === '' ? [] : [e.a]);
+        if (arr.length) {
             if (!texts.length) return false;                  // 库内有文本、本次没有文本：无从比对，宁可不删
-            const bank = e.a.filter(Boolean).map(norm);
-            return sameTexts(bank, texts);
+            const bank = arr.map(norm).filter(Boolean);
+            return !!bank.length && sameTexts(bank, texts);
         }
         return !!e.l && e.l === rec.letters;                  // 旧条目只有字母：仍按字母判等
     }
@@ -1474,6 +1527,48 @@
      */
     function fuzzyUsable(type, entryStem, stem) {
         return type !== 'judge' || prefixSame(entryStem, stem);
+    }
+
+    /** 判断题题干归一（纯函数，R1）：全角转半角，再走 normStem（去题号/题型/空白/标点） */
+    const judgeStemNorm = s => normStem(String(s || '')
+        .replace(/[\uff01-\uff5e]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+        .replace(/\u3000/g, ' '));
+
+    /**
+     * 判断题专用安全复用（纯函数，自检可断言，R1）
+     * 判断题的选项永远是「正确/错误」，普通相似度分不清「属于人民」与「不属于人民」——
+     * 复用错了就是稳定答反，而且毫无提示。所以只接受两种极强证据：
+     *   ① 规范化题干（去空白/标点/全半角）完全相等；
+     *   ② 双方长度都 ≥10 且编辑距离 ≤ maxDiff（默认 2）。
+     * 并且题库里必须「唯一命中」：0 条或多条都返回 null，交回联网查询。
+     * entries 形如 [[key, e], ...]；非 judge 查询直接返回 null（非判断题不启用）。
+     */
+    function judgeStemMatch(stem, type, entries, maxDiff = CONFIG.judgeFuzzyMaxDiff) {
+        if (type !== 'judge') return null;
+        const target = judgeStemNorm(stem);
+        if (!target) return null;
+        const limit = Math.max(0, Math.floor(+maxDiff || 0));
+        const hits = [];
+        for (const item of (entries || [])) {
+            const key = Array.isArray(item) ? item[0] : (item && item.key);
+            const e = Array.isArray(item) ? item[1] : (item && item.e);
+            if (!key || !e || e.t !== 'judge') continue;
+            const norm = judgeStemNorm(e.q || key);
+            if (!norm) continue;
+            if (norm === target) { hits.push({ key, e, diff: 0, sim: 1 }); continue; }
+            if (target.length < 10 || norm.length < 10) continue;
+            if (Math.abs(target.length - norm.length) > limit) continue;
+            // 否定词数量不同 = 语义可能相反（「属于人民」vs「不属于人民」编辑距离只有 1），
+            // 编辑距离再小也不能当成同一题——否则答案会稳定答反。这类一律维持联网。
+            const negCount = s => (s.match(/[不无非未]/g) || []).length;
+            if (negCount(target) !== negCount(norm)) continue;
+            const diff = levenshtein(target, norm);
+            if (diff <= limit) {
+                hits.push({ key, e, diff, sim: 1 - diff / Math.max(target.length, norm.length) });
+            }
+        }
+        if (hits.length !== 1) return null;                        // 0 = 没命中；>1 = 有歧义，宁可联网
+        return { key: hits[0].key, e: hits[0].e, how: 'judge-fuzzy', diff: hits[0].diff, sim: hits[0].sim };
     }
 
     /**
@@ -1498,11 +1593,21 @@
         }
         // 必须达到阈值，且第二名不能也过线（否则歧义，宁可当作没查到）
         if (best && best.sim >= CONFIG.fuzzyThreshold && second < CONFIG.fuzzyThreshold) {
-            if (!fuzzyUsable(type, best.e.q || best.key, stem)) {
-                log(`⚠️ 「相似题」命中被跳过（判断题不做相似复用，相似度 ${(best.sim * 100).toFixed(0)}%），改查网络`);
-                return null;
+            if (fuzzyUsable(type, best.e.q || best.key, stem)) {
+                return { key: best.key, e: best.e, how: 'fuzzy', sim: best.sim };
             }
-            return { key: best.key, e: best.e, how: 'fuzzy', sim: best.sim };
+            // 判断题不走普通相似度：相似 ≠ 同题，语义相反的题干相似度也可能很高（R1）
+            log(`⚠️ 「相似题」命中被跳过（判断题不做相似复用，相似度 ${(best.sim * 100).toFixed(0)}%），改查判断题干规范化复用`);
+        }
+        // R1：判断题安全复用。仅当「规范化后相等」或「长度≥10 且编辑距离≤2」且唯一命中时采用；
+        // 多命中/超差维持联网，避免把「…属于人民」和「…不属于人民」当成同一题。
+        if (type === 'judge') {
+            const judgeHit = judgeStemMatch(stem, type, Object.entries(b));
+            if (judgeHit) {
+                const ansTxt = judgeHit.e.l || (Array.isArray(judgeHit.e.a) ? judgeHit.e.a.join('/') : judgeHit.e.a) || '';
+                log(`📚 判断题题干安全复用命中（${judgeHit.diff ? `差 ${judgeHit.diff} 字` : '规范化后相同'}）：${ansTxt}`);
+                return judgeHit;
+            }
         }
         return null;
     }
@@ -2239,6 +2344,7 @@
     function clearSession(reason) {
         history.length = 0;
         answered = 0;
+        clearAnswerCache();   // R5：清本场同时清会话答案缓存，避免下一场同题误用上一场结果
         sessionRestored = false;
         restoredUnsure = false;
         // 会话统计也要一起清：否则按钮显示「已答 0」而命中率还是旧数据
@@ -2476,7 +2582,7 @@
      * - 同答案的来源合并并提升置信度
      * - 出现互相冲突的答案时，只有明显更优的那个才敢用，否则宁可不答
      */
-    function mergeCandidates(cands, type, options) {
+    function mergeCandidates(cands, type, options, onDispute = null) {
         const letters = options.map(o => o.letter);
         const usable = (cands || []).filter(c =>
             c && c.letters &&
@@ -2511,13 +2617,61 @@
         // 折减是「两把尺子」的问题：比较前把百度分数除回去再算 gap；
         // 另外 AI 结构化 JSON（模型明确给了答案和把握度）conf≥0.8 时直接采信。
         if (ranked[0].srcs.length === 1 && ranked[0].srcs[0] === 'ai'
-            && ranked[0].structured === true && ranked[0].conf >= 0.8) {
+            && ranked[0].structured === true && ranked[0].conf >= CONFIG.aiDirectAcceptConf) {
             return ranked[0];
         }
         const eff = r => (r.srcs.length === 1 && r.srcs[0] === 'baidu')
             ? Math.min(1, r.conf / (CONFIG.baiduConfFactor || 1))
             : r.conf;
-        return (eff(ranked[0]) - eff(ranked[1]) >= CONFIG.crossAcceptGap) ? ranked[0] : null;
+        const gap = eff(ranked[0]) - eff(ranked[1]);
+        if (gap >= CONFIG.crossAcceptGap) return ranked[0];
+        // R2：两源都给了候选、把握度都不低，却拉不开差距——旧实现静默丢弃，事后无法复盘。
+        // 现在记一条争议（fx_disputes，上限 CONFIG.disputeMaxEntries），但返回值仍为 null：
+        // 作答行为不变（宁可不答也不赌），只是多一个可观测/可导出的证据。
+        const srcPool = new Set([...(ranked[0].srcs || []), ...(ranked[1].srcs || [])]);
+        if (typeof onDispute === 'function' && srcPool.size > 1
+            && ranked[0].conf >= 0.8 && ranked[1].conf >= 0.8) {
+            try { onDispute(ranked); } catch (e) { log(`⚠️ 争议记录失败：${e && e.message ? e.message : e}`); }
+        }
+        return null;
+    }
+
+    const DISPUTE_KEY = 'fx_disputes';
+    /** 读争议题列表（坏数据一律当空，R2） */
+    function loadDisputes() {
+        try {
+            const raw = GM_getValue(DISPUTE_KEY, []);
+            return Array.isArray(raw) ? raw.filter(x => x && typeof x === 'object') : [];
+        } catch { return []; }
+    }
+    /**
+     * 争议入列（纯函数，自检可断言，R2）：同题干 + 同候选只更新时间戳并挪到最前，
+     * 最多保留 max 条（默认 CONFIG.disputeMaxEntries=100），返回值是新数组。
+     */
+    function addDispute(list, item, now = Date.now(), max = CONFIG.disputeMaxEntries) {
+        if (!item || typeof item !== 'object') return Array.isArray(list) ? list.slice() : [];
+        const sig = x => `${(x && x.stem) || ''}|${((x && x.cands) || []).map(c => (c && c.letters) || '').join(',')}`;
+        const key = sig(item);
+        const out = (Array.isArray(list) ? list : []).filter(x => x && typeof x === 'object' && sig(x) !== key);
+        out.unshift({ ...item, ts: +now || Date.now() });
+        const limit = Math.max(1, Math.floor(+max) || 100);
+        return out.slice(0, limit);
+    }
+    /** 把一次冲突写进 GM 键（R2）：只做观测，不改变作答结果 */
+    function recordDispute(stem, type, options, ranked) {
+        const top = (ranked || []).slice(0, 2);
+        if (top.length < 2) return null;
+        const item = {
+            stem: pureStem(stem),
+            type,
+            options: (options || []).map(o => ({ letter: o.letter, text: o.text })),
+            cands: top.map(r => ({ letters: r.letters, conf: r.conf, srcs: r.srcs, why: r.why || '' })),
+            why: '两源答案冲突（差距不足 crossAcceptGap）',
+        };
+        const list = addDispute(loadDisputes(), item);
+        try { GM_setValue(DISPUTE_KEY, list); } catch { }
+        log(`⚔️ 记录争议题：${item.cands.map(c => `${c.letters}(${(c.conf * 100).toFixed(0)}%)`).join(' vs ')}（共 ${list.length} 条）`);
+        return { ...item, ts: Date.now() };
     }
 
     // ==================== 网络请求（重试 / 退避 / 限流） ====================
@@ -2529,6 +2683,55 @@
         else reqQueue.push(() => { reqActive++; r(); });
     });
     const releaseReq = () => { reqActive--; reqQueue.shift()?.(); };
+
+    /** UTF-8 字节数估算（纯函数）：ASCII 1 字节、Latin 系 2 字节、CJK 3 字节，够用来做上限判断 */
+    function utf8Bytes(text) {
+        const s = String(text || '');
+        let n = 0;
+        for (let i = 0; i < s.length; i++) {
+            const c = s.charCodeAt(i);
+            n += c <= 0x7f ? 1 : c <= 0x7ff ? 2 : 3;
+        }
+        return n;
+    }
+
+    /**
+     * 响应体截断（纯函数，自检可断言，R7）：
+     * 广告页/超大结果页动辄几 MB，整段留在内存里既拖慢正则又可能把页面拖死。
+     * 超过 CONFIG.followPageMaxBytes 时按 UTF-8 字节预算截断；正常大小的响应原样返回。
+     */
+    function truncateResponseText(text, maxBytes = CONFIG.followPageMaxBytes) {
+        const s = String(text || '');
+        const limit = +maxBytes > 0 ? Math.floor(+maxBytes) : 0;
+        if (!(limit > 0) || utf8Bytes(s) <= limit) return s;
+        let used = 0, i = 0;
+        for (; i < s.length; i++) {
+            const c = s.charCodeAt(i);
+            const w = c <= 0x7f ? 1 : c <= 0x7ff ? 2 : 3;
+            if (used + w > limit) break;
+            used += w;
+        }
+        return s.slice(0, i);
+    }
+
+    /** 各来源请求统计（R11 诊断包用）：desc → { n, ok, fail, timeout, totalMs } */
+    const reqStats = {};
+    function noteReqStat(desc, r, ms) {
+        const k = String(desc || '其他');
+        const st = reqStats[k] || (reqStats[k] = { n: 0, ok: 0, fail: 0, timeout: 0, totalMs: 0 });
+        st.n++;
+        if (r && r.ok) st.ok++; else st.fail++;
+        if (r && r.err === 'timeout') st.timeout++;
+        st.totalMs += Math.max(0, +ms || 0);
+    }
+    /** 请求统计快照（纯函数，自检可断言）：附带平均耗时（未四舍五入） */
+    function reqStatsSnapshot(stats = reqStats) {
+        const out = {};
+        for (const [k, v] of Object.entries(stats || {})) {
+            out[k] = { ...v, avgMs: v && v.n ? v.totalMs / v.n : 0 };
+        }
+        return out;
+    }
 
     /**
      * 单次请求超时（纯函数，自检可断言）：
@@ -2558,6 +2761,7 @@
             if (!timeout) return { ok: false, status: 0, text: '', err: 'budget', budgetSpent: true };   // 预算耗尽：立即返回，不重试
             await acquireReq();
             try {
+                const t0 = Date.now();
                 last = await new Promise(resolve => {
                     GM_xmlhttpRequest({
                         method: o.method || 'GET',
@@ -2565,11 +2769,13 @@
                         headers: o.headers,
                         data: o.data,
                         timeout,
-                        onload: x => resolve({ ok: x.status >= 200 && x.status < 300, status: x.status, text: x.responseText || '', err: '' }),
+                        // R7：大页面在进内存前就按字节上限截断，避免广告页/导航页把整段正文留在内存里
+                        onload: x => resolve({ ok: x.status >= 200 && x.status < 300, status: x.status, text: truncateResponseText(x.responseText || '', CONFIG.followPageMaxBytes), err: '' }),
                         onerror: () => resolve({ ok: false, status: 0, text: '', err: 'network' }),
                         ontimeout: () => resolve({ ok: false, status: 0, text: '', err: 'timeout' }),
                     });
                 });
+                noteReqStat(o.desc, last, Date.now() - t0);   // R11：按来源累计次数/成功/失败/超时/耗时
             } finally { releaseReq(); }
             if (last.ok) return last;
             const worthRetry = last.err === 'timeout' || last.err === 'network' || last.status >= 500;
@@ -2601,7 +2807,7 @@
         .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
         .replace(/\s+/g, ' ');
 
-    const SRC_NAME = { ai: 'AI', baidu: '百度' };
+    const SRC_NAME = { ai: 'AI', baidu: '百度', cache: '缓存' };
 
     /** 空白归一后的「扁平文本」+ 每个字符在原文里的下标（纯函数） */
     function flattenText(text) {
@@ -2874,6 +3080,90 @@
         return { text: content, note: '' };
     }
 
+    // ==================== 会话级答案缓存（R5） ====================
+    const answerCache = new Map();
+
+    /** 缓存键（纯函数，自检可断言）：题型 + 题干指纹 + 选项文本序列 */
+    function answerCacheKey(stem, type, options) {
+        const opts = (options || []).map(o => String((o && o.text) || '').replace(/\s+/g, '')).join('|');
+        return `${type || ''}|${fpKey(stem)}|${opts}`;
+    }
+    /** 读缓存（纯函数，可注入时间/ttl）：过期项顺手删掉；返回 null 表示未命中 */
+    function cacheLookup(map, key, now = Date.now(), ttl = CONFIG.answerCacheTtl) {
+        if (!(map instanceof Map) || !key) return null;
+        const it = map.get(key);
+        if (!it) return null;
+        const age = (+now || Date.now()) - (+it.ts || 0);
+        if (!(+ttl > 0) || age >= +ttl) { map.delete(key); return null; }
+        return it;
+    }
+    /** 写缓存（就地更新 Map）：超上限时按插入顺序淘汰最旧，返回 true */
+    function cacheStore(map, key, value, now = Date.now(), max = CONFIG.answerCacheMax) {
+        if (!(map instanceof Map) || !key) return false;
+        map.delete(key);
+        map.set(key, { ...(value || {}), ts: +now || Date.now() });
+        const limit = Math.max(1, Math.floor(+max) || 200);
+        while (map.size > limit) map.delete(map.keys().next().value);
+        return true;
+    }
+    /** 本次查询是否绕过缓存（纯函数，自检可断言）：强制二源 / forceCrossCheck / 显式 noCache */
+    function answerCacheBypassed(opts) {
+        const o = opts || {};
+        return !!(o.forceTwoSources || o.forceCrossCheck || o.noCache || CONFIG.forceCrossCheck);
+    }
+    function clearAnswerCache() {
+        answerCache.clear();
+    }
+
+    /**
+     * 双源并行策略（纯函数，自检可断言，R6）
+     * 'parallel'：能提前确定「一定需要次源」（强制二源 / 多选题）且并行开关打开，
+     *             两源同时发起、共享同一个 deadline，再合并结果；
+     * 'serial'  ：其余情况仍走 v2.0.6 的串行回退——主源把握足够就不打扰备源，省一次请求。
+     * 并行关闭时即使强制二源也走串行（两个来源都会查，但不是并发）。
+     */
+    function dualSourcePlan(type, forceTwoSources, opts = {}) {
+        const parallel = opts.parallel === undefined ? CONFIG.parallelDualSource : !!opts.parallel;
+        const need = !!(forceTwoSources || type === 'multi');
+        if (!need) return 'serial';
+        return parallel ? 'parallel' : 'serial';
+    }
+
+    /**
+     * 多源返回合并（纯函数，自检可断言，R6）
+     * responses: [{src:'ai'|'baidu', r:{text,note,budgetSpent}} | {src, error}]
+     * 单源失败/超时只记一条 note，不影响其它源；返回 { cands, notes, budgetSpent }。
+     * 串行与并行两条路径共用这一份合并逻辑，保证行为一致。
+     */
+    function combineSourceResults(responses, type, options) {
+        const cands = [], notes = [];
+        let budgetSpent = false;
+        for (const item of (responses || [])) {
+            if (!item || !item.src) continue;
+            const src = item.src, who = SRC_NAME[src] || src;
+            if (item.error || !item.r) {
+                const why = item.error ? `（${String(item.error.message || item.error).slice(0, 60)}）` : '';
+                notes.push(`${who}：请求异常${why}`);
+                continue;
+            }
+            const r = item.r;
+            if (r.budgetSpent) budgetSpent = true;
+            if (!r.text) {
+                notes.push(`${who}：${r.budgetSpent ? '本题网络预算已用完' : (r.note || '未搜到相关内容')}`);
+                continue;
+            }
+            const c = src === 'ai' ? extractAIAnswer(r.text, options, type) : extractAnswer(r.text, options, type);
+            if (!c) { notes.push(`${who}：有返回但解析不出答案`); continue; }
+            if (src === 'baidu') {
+                c.conf = Math.max(0.3, Math.round(c.conf * CONFIG.baiduConfFactor * 100) / 100);
+                c.why = `${c.why}·已按百度可信度折减`;
+            }
+            cands.push({ ...c, src });
+            notes.push(`${who}：${c.letters}（${c.why}，把握 ${(c.conf * 100).toFixed(0)}%）`);
+        }
+        return { cands, notes, budgetSpent };
+    }
+
     /**
      * 多源查询链
      * 1. 按面板选择的模式决定主源，另一源作为备源
@@ -2887,57 +3177,85 @@
         const forceTwoSources = !!opts.forceTwoSources;   // 强制两个来源都查（冲突题交叉验证用）
         const notes = [];
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-            return { cand: null, notes: ['当前离线，已跳过联网查询'], budget: false };
+            return { cand: null, notes: ['当前离线，已跳过联网查询'], budget: false, dispute: null };
+        }
+        // R5：会话级答案缓存。同一道题（题型+题干指纹+选项文本都相同）本场已查过就直接复用，
+        // 不再花钱联网；强制二源 / forceCrossCheck / 显式 noCache 时绕过（冲突题必须查新鲜的）。
+        const cacheKey = answerCacheKey(stem, type, options);
+        if (!answerCacheBypassed(opts)) {
+            const hit = cacheLookup(answerCache, cacheKey);
+            if (hit) {
+                log(`⚡ 会话缓存命中：${hit.letters}（${(hit.conf * 100).toFixed(0)}%），本题不再联网`);
+                return {
+                    cand: { letters: hit.letters, conf: hit.conf, srcs: ['cache'], why: hit.why || '会话缓存' },
+                    answer: hit.letters, conf: hit.conf, source: 'cache', cached: true,
+                    notes: ['⚡ 会话缓存命中（本场同题已查过）'], budget: false, dispute: null,
+                };
+            }
         }
         const budgetMs = Math.max(1000, +CONFIG.queryBudgetMs || 20000);
         const deadline = Date.now() + budgetMs;
         const order = CONFIG.answerMode === 'ai' ? ['ai', 'baidu'] : ['baidu', 'ai'];
         const cands = [];
-        let needSecond = true, budgetSpent = false;
-        for (const src of order) {
-            if (!needSecond) {
-                notes.push(`主源${SRC_NAME[order[0]]}把握 ${(cands[0].conf * 100).toFixed(0)}%，跳过${SRC_NAME[src]}交叉验证`);
-                break;
-            }
-            if (!requestTimeout(CONFIG.baiduTimeout, deadline, Date.now())) {   // 预算已用完：不再起新请求
-                budgetSpent = true;
-                notes.push(`⏱ 本题网络预算（${Math.round(budgetMs / 1000)} 秒）已用完，先按已获得的结果作答`);
-                break;
-            }
-            const r = src === 'ai'
-                ? await queryAI(stem, options, type, { deadline })
-                : await queryBaidu(stem, { deadline });
-            if (r.budgetSpent) budgetSpent = true;
-            if (!r.text) {
-                notes.push(`${SRC_NAME[src]}：${r.budgetSpent ? '本题网络预算已用完' : (r.note || '未搜到相关内容')}`);
-                if (r.budgetSpent) break;      // 预算耗尽：不再试备源
-                continue;
-            }
-            const c = src === 'ai' ? extractAIAnswer(r.text, options, type) : extractAnswer(r.text, options, type);
-            if (!c) {
-                notes.push(`${SRC_NAME[src]}：有返回但解析不出答案`);
-                if (Date.now() >= deadline) { budgetSpent = true; break; }
-                continue;
-            }
-            if (src === 'baidu') {
-                // 百度结果页回显容易虚高，统一打折；低了自然会追加第二源交叉验证
-                c.conf = Math.max(0.3, Math.round(c.conf * CONFIG.baiduConfFactor * 100) / 100);
-                c.why = `${c.why}·已按百度可信度折减`;
-            }
-            cands.push({ ...c, src });
-            notes.push(`${SRC_NAME[src]}：${c.letters}（${c.why}，把握 ${(c.conf * 100).toFixed(0)}%）`);
-            // 主源把握足够、不是多选题、也没开强制二源时，不再打扰备源
-            needSecond = forceTwoSources || c.conf < CONFIG.crossCheckBelow || type === 'multi';
-            if (Date.now() >= deadline) {
-                budgetSpent = true;
-                notes.push(`⏱ 本题网络预算（${Math.round(budgetMs / 1000)} 秒）已用完，先按已获得的结果作答`);
-                break;
+        let budgetSpent = false, dispute = null;
+        const onDispute = ranked => {
+            dispute = recordDispute(stem, type, options, ranked);
+        };
+        const runSource = src => (src === 'ai'
+            ? queryAI(stem, options, type, { deadline })
+            : queryBaidu(stem, { deadline }));
+        const absorb = responses => {
+            const got = combineSourceResults(responses, type, options);
+            got.notes.forEach(n => notes.push(n));
+            got.cands.forEach(c => cands.push(c));
+            if (got.budgetSpent) budgetSpent = true;
+            return got;
+        };
+
+        const sourcePlan = dualSourcePlan(type, forceTwoSources);
+        if (sourcePlan === 'parallel') {
+            // R6：能提前确定需要次源的场景（强制二源 / 多选），两源并行、共享同一个 deadline。
+            // Promise.allSettled 保证单源失败（网络/超时/解析异常）不会影响另一源参与合并。
+            const settled = await Promise.allSettled(order.map(src => runSource(src)));
+            absorb(settled.map((x, i) => x.status === 'fulfilled'
+                ? { src: order[i], r: x.value }
+                : { src: order[i], error: x.reason }));
+        } else {
+            // 串行回退（保留 v2.0.6 行为）：主源把握足够就不打扰备源；预算耗尽立即按已有结果收尾（A6）
+            let needSecond = true;
+            for (const src of order) {
+                if (!needSecond) {
+                    notes.push(`主源${SRC_NAME[order[0]]}把握 ${(cands[0].conf * 100).toFixed(0)}%，跳过${SRC_NAME[src]}交叉验证`);
+                    break;
+                }
+                if (!requestTimeout(CONFIG.baiduTimeout, deadline, Date.now())) {
+                    budgetSpent = true;
+                    notes.push(`⏱ 本题网络预算（${Math.round(budgetMs / 1000)} 秒）已用完，先按已获得的结果作答`);
+                    break;
+                }
+                let r = null;
+                try { r = await runSource(src); }
+                catch (err) { r = { text: null, note: `请求异常：${err && err.message ? err.message : err}` }; }
+                const got = absorb([{ src, r }]);
+                const c = got.cands[got.cands.length - 1] || null;
+                if (!c) {
+                    if (budgetSpent) break;
+                    if (Date.now() >= deadline) { budgetSpent = true; break; }
+                    continue;
+                }
+                needSecond = forceTwoSources || c.conf < CONFIG.crossCheckBelow || type === 'multi';
+                if (Date.now() >= deadline) {
+                    budgetSpent = true;
+                    notes.push(`⏱ 本题网络预算（${Math.round(budgetMs / 1000)} 秒）已用完，先按已获得的结果作答`);
+                    break;
+                }
             }
         }
-        const merged = mergeCandidates(cands, type, options);
-        return { cand: merged, notes, budget: budgetSpent };
+        const merged = mergeCandidates(cands, type, options, onDispute);
+        // R5：只缓存两源合并后的最终结果，避免把中间候选当成定论
+        if (merged) cacheStore(answerCache, cacheKey, { letters: merged.letters, conf: merged.conf, why: merged.why });
+        return { cand: merged, notes, budget: budgetSpent, dispute };
     }
-
 
     // ==================== 答题核心 ====================
     let running = false, answered = 0;
@@ -3218,15 +3536,77 @@
     /**
      * 多选题的组合顺序：全选 → 少一个 → 少两个 ……
      * 选项数 3~6 个都适用，不再假设固定 4 个
+     * 注意：这里按 CONFIG.multiMaxTries 截断；「组合总数是否多到不能穷举」由 multiComboPlan 判断。
      */
     function multiCombos(options) {
-        const all = options.map(o => o.letter);
-        const minK = Math.min(CONFIG.multiMinChoices, all.length);
-        const out = [];
-        for (let k = all.length; k >= minK; k--) {
-            combosOf(all, k).forEach(c => { if (out.length < CONFIG.multiMaxTries) out.push(c); });
+        return multiComboPlan(options).combos;
+    }
+
+    /** 组合数 C(n,k)（纯函数，自检可断言） */
+    function binomial(n, k) {
+        const N = Math.max(0, Math.floor(+n) || 0);
+        let K = Math.max(0, Math.floor(+k) || 0);
+        if (K > N) return 0;
+        K = Math.min(K, N - K);
+        let r = 1;
+        for (let i = 1; i <= K; i++) r = r * (N - K + i) / i;
+        return Math.round(r);
+    }
+
+    /**
+     * 多选组合总数（纯函数，自检可断言，R4）
+     * 只累加到 cap+1：选项数很大时也不做无意义的精确计算。
+     */
+    function multiComboCount(n, minK, cap = CONFIG.multiComboLimit) {
+        const N = Math.max(0, Math.floor(+n) || 0);
+        const lo = Math.max(1, Math.floor(+minK) || 1);
+        const limit = Math.max(1, Math.floor(+cap) || 1);
+        let total = 0;
+        for (let k = N; k >= lo; k--) {
+            total += binomial(N, k);
+            if (total > limit) return limit + 1;    // 已确定超限，不必再算
         }
-        return out;
+        return total;
+    }
+
+    /**
+     * 多选组合计划（纯函数，自检可断言，R4）
+     * 正常题（组合总数 ≤ CONFIG.multiComboLimit）：与旧版一样按「全选→少一个…」生成，
+     * 最多 CONFIG.multiMaxTries 个，返回 { combos, exhausted:false }。
+     * 组合总数超限（选项一多就是组合爆炸：10 个选项 1013 种）或生成预算
+     * （CONFIG.multiComboBudgetMs）耗尽：exhausted:true，调用方不再穷举，
+     * 改走「可信候选优先，否则随机保留」的降级策略。
+     * opts 可注入 { limit, budgetMs, now } 便于自检；now 是返回毫秒的函数。
+     */
+    function multiComboPlan(options, opts = {}) {
+        const all = (options || []).map(o => o.letter);
+        const n = all.length;
+        const minK = Math.min(CONFIG.multiMinChoices, n);
+        const limit = Math.max(1, Math.floor(+(opts.limit ?? CONFIG.multiComboLimit)) || 256);
+        const budget = Math.max(0, +(opts.budgetMs ?? CONFIG.multiComboBudgetMs) || 0);
+        const maxOut = Math.max(1, Math.floor(+CONFIG.multiMaxTries) || 6);
+        const clock = typeof opts.now === 'function' ? opts.now : Date.now;
+        const total = multiComboCount(n, minK, limit);
+        if (total > limit) {
+            return { combos: [], exhausted: true, reason: 'over-limit', total, elapsedMs: 0 };
+        }
+        const t0 = +clock() || 0;
+        const out = [];
+        let timedOut = false;
+        for (let k = n; k >= minK && out.length < maxOut && !timedOut; k--) {
+            for (const c of combosOf(all, k)) {
+                if (out.length >= maxOut) break;
+                if (budget > 0 && (+clock() || 0) - t0 > budget) { timedOut = true; break; }
+                out.push(c);
+            }
+        }
+        return {
+            combos: out,
+            exhausted: timedOut,
+            reason: timedOut ? 'timeout' : '',
+            total,
+            elapsedMs: Math.max(0, (+clock() || 0) - t0),
+        };
     }
 
     /** 组合的文本签名：组内选项文本排序后以 + 连接，选项乱序不影响比较 */
@@ -3276,7 +3656,26 @@
                 }
             }
             // 没有可靠候选（或候选组合已失败过）→ 走组合序列
-            const seq = multiCombos(options);
+            // R4：选项很多时组合数是组合爆炸（10 个选项就有 1013 种），不再穷举。
+            // 超限/生成超时：可信候选分支上面已经处理过，这里退化为「随机保留 minCand 个选项」，
+            // 保证不抛错、不把页面点满；正常小题仍走下面的组合序列。
+            const plan = multiComboPlan(options);
+            if (plan.exhausted) {
+                const letters = kept.map(o => o.letter);
+                const size = Math.max(2, Math.min(CONFIG.multiMinChoices, letters.length));
+                const bag = [...letters];
+                const pick = [];
+                while (pick.length < size && bag.length) {
+                    const i = Math.floor(Math.random() * bag.length);
+                    pick.push(bag.splice(i, 1)[0]);
+                }
+                return {
+                    letters: pick.length >= 2 ? pick.sort().join('') : allLetters,
+                    why: `组合过多（${plan.reason || '超限'}），随机保留 ${pick.length} 项`,
+                    strategy: 'random-kept',
+                };
+            }
+            const seq = plan.combos;
             const notTried = c => !triedCombos.includes(comboKey(options, c));
             const noWrong = c => c.split('').every(l => kept.some(o => o.letter === l));
             let usable = seq.filter(c => notTried(c) && noWrong(c));
@@ -3344,7 +3743,10 @@
             hitE.e.hit++; hitE.e.us = TS(); dirty = true;
             if (valid) {
                 session.hit++;
-                const howTxt = hitE.how === 'exact' ? '精确' : hitE.how === 'fuzzy' ? `相似 ${(hitE.sim * 100).toFixed(0)}%` : '旧记录';
+                const howTxt = hitE.how === 'exact' ? '精确'
+                    : hitE.how === 'fuzzy' ? `相似 ${(hitE.sim * 100).toFixed(0)}%`
+                    : hitE.how === 'judge-fuzzy' ? (hitE.diff ? `判断题干差 ${hitE.diff} 字` : '判断题干规范相同')
+                    : '旧记录';
                 const byTxt = isUserEntry(hitE.e) ? '用户手改' : '脚本';
                 log(`📚 题库命中（${howTxt}·${byTxt}）：${conv.letters}`);
                 dbg(`命中来源 ${conv.how || howTxt} · 词条 t=${hitE.e.t} · by=${hitE.e.by || '脚本'} · 转换字母 ${conv.letters}`);
@@ -5121,10 +5523,11 @@
                 { historyLen: 3, history: [{ stem: '丙题题干' }, { stem: '丁题题干' }] });
             return base !== other;
         });
-        t('对账幂等键：试卷指纹取排序后前 3 题（与题序无关）', () => {
-            const h = [{ stem: '题一' }, { stem: '题二' }, { stem: '题三' }, { stem: '题四' }];
+        t('对账幂等键：试卷指纹取排序后前 6 题（与题序无关，R3）', () => {
+            const h = [{ stem: '题一' }, { stem: '题二' }, { stem: '题三' }, { stem: '题四' },
+                { stem: '题五' }, { stem: '题六' }, { stem: '题七' }];
             return paperFingerprint(h) === paperFingerprint([...h].reverse())
-                && paperFingerprint(h).split(',').length === 3;
+                && paperFingerprint(h).split(',').length === CONFIG.paperFingerprintCount;
         });
         t('对账幂等键：history 缺 stem 用 bankKey 兜底、空值不抛错', () => {
             const k = reconcileKey(null, null, { historyLen: 2, history: [null, {}, { bankKey: '#abc' }, { stem: '' }] });
@@ -5236,6 +5639,255 @@
             return Object.keys(kept).length === 1 && ('fresh' in kept) && !('old' in kept);
         });
 
+        // ---- v2.0.7：R1 判断题安全复用 / R2 直采与争议 / R3 指纹 / R4 组合上限 /
+        //      R5 会话缓存 / R6 双源并行 / R7 响应截断 / R8 墓碑清理 / R9 存储监控 /
+        //      R10 争议导出 / R11 诊断包 / R12 脏数据健壮性 ----
+
+        // R1
+        t('判断题复用：规范化后相等（全角标点/空白不影响）命中且方式为 judge-fuzzy（R1）', () => {
+            const e = { t: 'judge', q: '中华人民共和国的一切权力属于人民。', a: ['正确'], l: 'A' };
+            const hit = judgeStemMatch('中华人民共和国的一切权力属于人民', 'judge', [['k1', e]], 2);
+            return !!hit && hit.key === 'k1' && hit.how === 'judge-fuzzy' && hit.diff === 0;
+        });
+        t('判断题复用：长度≥10 时编辑距离 1 也能命中（R1）', () => {
+            const e = { t: 'judge', q: '甲乙丙丁戊己庚辛壬癸子丑寅卯辰', a: ['正确'], l: 'A' };
+            const hit = judgeStemMatch('甲乙丙丁戊己庚辛壬癸子丑寅卯巳', 'judge', [['k2', e]], 2);
+            return !!hit && hit.key === 'k2' && hit.diff === 1;
+        });
+        t('判断题复用：编辑距离 3 不命中，维持联网（R1）', () => {
+            const e = { t: 'judge', q: '甲乙丙丁戊己庚辛壬癸子丑寅卯辰', a: ['正确'], l: 'A' };
+            return judgeStemMatch('甲乙丙丁戊己庚辛壬癸子丑午未申', 'judge', [['k3', e]], 2) === null;
+        });
+        t('判断题复用：两条例目都近似（多命中）时不采用（R1）', () => {
+            const mk = suf => ({ t: 'judge', q: '甲乙丙丁戊己庚辛壬癸子丑寅' + suf, a: ['正确'], l: 'A' });
+            return judgeStemMatch('甲乙丙丁戊己庚辛壬癸子丑寅卯', 'judge', [['a', mk('卯')], ['b', mk('辰')]], 2) === null;
+        });
+        t('判断题复用：只差一个「不」字的反义题干不采用（R1）', () => {
+            const e = { t: 'judge', q: '中华人民共和国的一切权力属于人民', a: ['正确'], l: 'A' };
+            return judgeStemMatch('中华人民共和国的一切权力不属于人民', 'judge', [['k', e]], 2) === null;
+        });
+        t('判断题复用：非判断题调用、或库内条目不是判断题，一律不启用（R1）', () => {
+            const e = { t: 'judge', q: '甲乙丙丁戊己庚辛壬癸子丑寅卯', a: ['正确'], l: 'A' };
+            const s = { t: 'single', q: '甲乙丙丁戊己庚辛壬癸子丑寅卯', a: ['A'], l: 'A' };
+            return judgeStemMatch(e.q, 'single', [['k', e]], 2) === null
+                && judgeStemMatch(e.q, 'judge', [['k', s]], 2) === null;
+        });
+
+        // R2
+        t('直采阈值：AI 结构化把握 0.85 不再直采，冲突且差距不足时返回 null（R2）', () => {
+            const cands = [
+                { src: 'ai', letters: 'A', conf: 0.85, structured: true, why: 'a' },
+                { src: 'ai', letters: 'B', conf: 0.6, structured: true, why: 'b' },
+            ];
+            return mergeCandidates(cands, 'single', sOpts) === null;
+        });
+        t('直采阈值：AI 结构化把握 0.95 且明显领先时仍直采（R2）', () => {
+            const cands = [
+                { src: 'ai', letters: 'A', conf: 0.95, structured: true, why: 'a' },
+                { src: 'ai', letters: 'B', conf: 0.5, structured: true, why: 'b' },
+            ];
+            const m = mergeCandidates(cands, 'single', sOpts);
+            return !!m && m.letters === 'A';
+        });
+        t('争议观测：两源都≥0.8 但差距不足时仍返回 null，并回调记录争议（R2）', () => {
+            const cands = [
+                { src: 'ai', letters: 'A', conf: 0.85, structured: true, why: 'ai-a' },
+                { src: 'baidu', letters: 'B', conf: 0.85, why: 'bd-b' },
+            ];
+            let got = null;
+            const m = mergeCandidates(cands, 'single', sOpts, ranked => { got = ranked; });
+            return m === null && Array.isArray(got) && got.length === 2;
+        });
+        t('争议记录：同题干+同候选只更新时间戳，超上限裁掉最旧（R2）', () => {
+            const a = addDispute([], { stem: '题一', cands: [{ letters: 'A' }, { letters: 'B' }] }, 100);
+            const b = addDispute(a, { stem: '题一', cands: [{ letters: 'A' }, { letters: 'B' }] }, 200);
+            const c = addDispute(b, { stem: '题二', cands: [{ letters: 'C' }] }, 300, 1);
+            return a.length === 1 && b.length === 1 && b[0].ts === 200 && c.length === 1 && c[0].stem === '题二';
+        });
+
+        // R3
+        t('试卷指纹：前 3 题相同、后 3 题不同 → 指纹不同（R3）', () => {
+            const head = [{ stem: '同题一' }, { stem: '同题二' }, { stem: '同题三' }];
+            const a = [...head, { stem: '甲一' }, { stem: '甲二' }, { stem: '甲三' }];
+            const b = [...head, { stem: '乙一' }, { stem: '乙二' }, { stem: '乙三' }];
+            return paperFingerprint(a).split(',').length === 6 && paperFingerprint(a) !== paperFingerprint(b);
+        });
+
+        // R4
+        t('组合上限：10 个选项不再穷举，exhausted=over-limit（R4）', () => {
+            const opts10 = 'ABCDEFGHIJ'.split('').map(l => ({ letter: l, text: '选项' + l }));
+            const plan = multiComboPlan(opts10);
+            return plan.exhausted === true && plan.reason === 'over-limit'
+                && plan.combos.length === 0 && plan.total > CONFIG.multiComboLimit;
+        });
+        t('组合上限：正常 4 选项仍按全选优先生成 6 个组合（R4）', () => {
+            const plan = multiComboPlan(sOpts);
+            return !plan.exhausted && plan.combos.length === CONFIG.multiMaxTries && plan.combos[0] === 'ABCD';
+        });
+        t('组合上限：生成预算耗尽时置 timeout，不抛错（R4）', () => {
+            let tick = 0;
+            const six = 'ABCDEF'.split('').map(l => ({ letter: l, text: '选项' + l }));
+            const plan = multiComboPlan(six, { budgetMs: 15, now: () => { tick += 10; return tick; } });
+            return plan.exhausted === true && plan.reason === 'timeout';
+        });
+        t('组合上限：10 选项无候选时降级为随机保留，字母都在选项里（R4）', () => {
+            const opts10 = 'ABCDEFGHIJ'.split('').map(l => ({ letter: l, text: '选项' + l }));
+            const plan = chooseAnswer({ type: 'multi', options: opts10 });
+            return plan.strategy === 'random-kept'
+                && plan.letters.length >= Math.max(2, CONFIG.multiMinChoices)
+                && plan.letters.split('').every(l => opts10.some(o => o.letter === l));
+        });
+        t('组合上限：10 选项有可信候选时直接用候选（R4）', () => {
+            const opts10 = 'ABCDEFGHIJ'.split('').map(l => ({ letter: l, text: '选项' + l }));
+            const plan = chooseAnswer({ type: 'multi', options: opts10, cand: 'ABCD', candConf: 0.9 });
+            return plan.strategy === 'cand' && plan.letters === 'ABCD';
+        });
+
+        // R5
+        t('会话缓存：键由题型+题干指纹+选项文本组成，题型/选项变化即不命中（R5）', () => {
+            const a = answerCacheKey('同一道题', 'single', sOpts);
+            const b = answerCacheKey(' 同一道题 ', 'single', sOpts);
+            const c = answerCacheKey('同一道题', 'multi', sOpts);
+            const d = answerCacheKey('同一道题', 'single', [{ letter: 'A', text: '别的选项' }]);
+            return a === b && a !== c && a !== d;
+        });
+        t('会话缓存：写入后可命中，超过 TTL 失效并删除（R5）', () => {
+            const m = new Map();
+            cacheStore(m, 'k', { letters: 'A', conf: 0.9 }, 1000, 10);
+            const hit = cacheLookup(m, 'k', 1500, 1000);
+            const expired = cacheLookup(m, 'k', 2000, 1000);
+            return !!hit && hit.letters === 'A' && expired === null && !m.has('k');
+        });
+        t('会话缓存：超过 answerCacheMax 时淘汰最旧（R5）', () => {
+            const m = new Map();
+            cacheStore(m, 'a', { letters: 'A' }, 1, 2);
+            cacheStore(m, 'b', { letters: 'B' }, 2, 2);
+            cacheStore(m, 'c', { letters: 'C' }, 3, 2);
+            return m.size === 2 && !m.has('a') && m.has('c');
+        });
+        t('会话缓存：强制二源 / forceCrossCheck / noCache 均绕过缓存（R5）', () => {
+            // 注意：空参数的结果跟随全局 forceCrossCheck 开关，面板冒烟会把它切到「强制」，
+            // 所以这里按当前配置值断言，不能写死 false。
+            return answerCacheBypassed({ forceTwoSources: true })
+                && answerCacheBypassed({ forceCrossCheck: true })
+                && answerCacheBypassed({ noCache: true })
+                && answerCacheBypassed({}) === !!CONFIG.forceCrossCheck;
+        });
+
+        // R6
+        t('双源并行：多选/强制二源走并行，单选默认串行（R6）', () => {
+            return dualSourcePlan('multi', false) === 'parallel'
+                && dualSourcePlan('single', true) === 'parallel'
+                && dualSourcePlan('single', false) === 'serial'
+                && dualSourcePlan('multi', false, { parallel: false }) === 'serial';
+        });
+        t('双源并行：两源结果都并入候选，一方失败不影响另一方（R6）', () => {
+            const both = combineSourceResults([
+                { src: 'baidu', r: { text: '答案是A', note: '' } },
+                { src: 'ai', r: { text: '{"answer":"A","confidence":0.9}', note: '' } },
+            ], 'single', sOpts);
+            const one = combineSourceResults([
+                { src: 'baidu', r: { text: '答案是A', note: '' } },
+                { src: 'ai', error: new Error('boom') },
+            ], 'single', sOpts);
+            return both.cands.length === 2 && one.cands.length === 1 && one.cands[0].src === 'baidu'
+                && one.notes.some(x => x.includes('AI') && x.includes('请求异常'));
+        });
+        t('双源并行：一方预算耗尽时仍返回另一方结果并置 budgetSpent（R6）', () => {
+            const got = combineSourceResults([
+                { src: 'baidu', r: { text: null, note: '', budgetSpent: true } },
+                { src: 'ai', r: { text: '{"answer":"B","confidence":0.9}', note: '' } },
+            ], 'single', sOpts);
+            return got.budgetSpent === true && got.cands.length === 1 && got.cands[0].src === 'ai';
+        });
+
+        // R7
+        t('响应截断：UTF-8 字节估算与超长截断（R7）', () => {
+            return utf8Bytes('abc') === 3 && utf8Bytes('中') === 3 && utf8Bytes('a中') === 4
+                && truncateResponseText('abcdef', 3) === 'abc'
+                && truncateResponseText('中中', 4) === '中'
+                && truncateResponseText('短文本', 1024) === '短文本'
+                && CONFIG.followPageMaxBytes === 512 * 1024;
+        });
+        t('响应截断：未超限的响应原样返回，不被改写（R7）', () => {
+            const s = 'x'.repeat(100);
+            return truncateResponseText(s) === s && truncateResponseText(s, 0) === s;
+        });
+
+        // R8
+        t('墓碑清理：每 10 次落盘触发一次，超过 500 条立即触发（R8）', () => {
+            const trimmed = trimTombMap({ a: 1, b: 3, c: 2 }, 2);
+            return tombPurgeDue(10, 0) && tombPurgeDue(20, 3) && !tombPurgeDue(9, 0)
+                && tombPurgeDue(1, 501) && ('b' in trimmed) && ('c' in trimmed) && !('a' in trimmed);
+        });
+
+        // R9
+        t('存储监控：按已知键汇总 JSON 字节数，缺键记 0（R9）', () => {
+            const fake = { questionBank: { a: 1 }, wrongBank: 'xy' };
+            const fp = storageFootprint(k => fake[k]);
+            return fp.byKey.questionBank === utf8Bytes('{"a":1}') && fp.byKey.wrongBank === 2
+                && fp.byKey.pendingSession === 0 && fp.totalBytes === utf8Bytes('{"a":1}') + 2;
+        });
+        t('存储监控：超过 storageWarnBytes 判定为超限（R9）', () => {
+            return storageOverLimit(CONFIG.storageWarnBytes + 1)
+                && !storageOverLimit(100) && storageOverLimit(5, 4);
+        });
+
+        // R10
+        t('争议导出：题库 bad>0 / disputed、错题与 fx_disputes 都进导出结构（R10）', () => {
+            const bank = {
+                k1: { t: 'single', q: '争议题', a: ['X'], bad: 2 },
+                k2: { t: 'single', q: '干净题', a: ['Y'], bad: 0 },
+                k3: { t: 'judge', q: '争议判定', a: ['正确'], disputed: true },
+            };
+            const wrong = { w1: { q: '错题', bad: 1 }, w2: { q: '干净错题', bad: 0 } };
+            const data = buildDisputesExport(bank, wrong, [{ stem: '冲突题', cands: [] }], 1710000000000);
+            return data.bank.length === 2 && data.wrong.length === 1 && data.disputes.length === 1
+                && /^fx-disputes-\d{8}\.json$/.test(data.file) && JSON.stringify(data).length > 10;
+        });
+
+        // R11
+        t('诊断包：结构完整，缺省字段/空日志也不抛错（R11）', () => {
+            const d = buildDiagnostics({
+                ua: 'UA', url: 'https://gs.faxuanyun.com/exam',
+                sel: { box: true, stem: false },
+                requestStats: { '百度': { n: 2, ok: 1, fail: 1, timeout: 0, totalMs: 100, avgMs: 50 } },
+                storage: { totalBytes: 123, byKey: {} },
+                counts: { bank: 3 }, tombstones: { bank: 1 }, logs: ['[10:00:00] 日志一'],
+            }, 1710000000000);
+            const empty = buildDiagnostics(null, 1710000000000);
+            const s = JSON.stringify(d);
+            return d.version === VERSION && /^fx-diagnostics-\d{8}-\d{6}\.json$/.test(d.file)
+                && d.sel.box === true && d.sel.stem === false
+                && d.config.queryBudgetMs === CONFIG.queryBudgetMs
+                && d.logs.length === 1 && d.requestStats['百度'].avgMs === 50
+                && !s.includes('undefined') && JSON.stringify(empty).length > 0;
+        });
+        t('诊断包：最近日志只保留最后 300 条（R11）', () => {
+            const logs = Array.from({ length: 305 }, (_, i) => 'L' + i);
+            const d = buildDiagnostics({ logs }, 1710000000000);
+            return d.logs.length === 300 && d.logs[0] === 'L5' && d.logs[299] === 'L304';
+        });
+
+        // R12
+        t('脏数据：e.a 为非数组字符串/undefined/null 时判定不抛错（R12）', () => {
+            const rec = { letters: 'A', pickedText: [] };
+            const s1 = bankAnswerIsWrongPick(rec, { a: 'A' });
+            const s2 = bankAnswerIsWrongPick(rec, { a: undefined, l: 'A' });
+            const s3 = bankAnswerIsWrongPick(rec, { a: null, l: 'B' });
+            const s4 = bankAnswerIsWrongPick({ letters: 'A', pickedText: ['正确'] }, { a: '正确' });
+            return s1 === false && s2 === true && s3 === false && s4 === true;
+        });
+
+        // 日志级别：字符类必须带 u 标志，否则 emoji 代理对高位会互相误判
+        // （历史 bug：🕒 等 D83D 前缀 emoji 全被判成 error，正常日志显示成红色错误）
+        t('日志级别：🕒 时钟 emoji 是普通信息，不误判为错误', () => logLevel('🕒 成绩解析/入库完成后 15 秒自动关闭本页') === 'info');
+        t('日志级别：⏳/🖊️ 等普通 emoji 不误判为错误', () => logLevel('⏳ 等待考试页面就绪…') === 'info' && logLevel('🖊️ 手动对账') === 'info');
+        t('日志级别：❌ 判为错误', () => logLevel('❌ 出错了') === 'error' && logLevel('⛔ 禁止') === 'error');
+        t('日志级别：⚠️/⏰ 判为警告', () => logLevel('⚠️ 注意') === 'warn' && logLevel('⚠ 注意') === 'warn' && logLevel('⏰ 提醒') === 'warn');
+        t('日志级别：✅/📊/🎯 判为成功', () => logLevel('✅ 成功') === 'ok' && logLevel('📊 统计') === 'ok' && logLevel('🎯 目标') === 'ok');
+        t('日志级别：🔍/🧪 判为调试', () => logLevel('🔍 调试') === 'debug' && logLevel('🧪 测试') === 'debug');
+
         return cases;
     }
 
@@ -5271,6 +5923,11 @@
             connectRoot, validateApi, cellNumberText, lockIsStale, lightLooksLikeResult,
             parseManualVerdicts, tabClaimConflict, planResultActions,
             paperFingerprint, requestTimeout, trailingThrottle,
+            judgeStemMatch, judgeStemNorm, tombPurgeDue, trimTombMap, addDispute, loadDisputes,
+            combineSourceResults, dualSourcePlan, answerCacheKey, cacheLookup, cacheStore, answerCacheBypassed,
+            utf8Bytes, truncateResponseText, noteReqStat, reqStatsSnapshot,
+            multiComboPlan, multiComboCount, binomial,
+            storageFootprint, storageOverLimit, buildDisputesExport, buildDiagnostics,
             purgeTombstones, filterTombstoned, addTombKey, clearTombKey,
             dayStamp, timeStamp, bankFileNames, logFileName, parseBankPayload,
             selfTestCases, runSelfTest,
@@ -5280,6 +5937,141 @@
         // 这个全局变量置 true，再通过 __FX_TEST__ 清空/改写答案库——那道闸门等于没有。
         // 自检用到的纯函数都已在上面；需要调试写库请在油猴控制台里直接调用源码函数。
     } catch { }
+
+    // ==================== 存储占用 / 导出（v2.0.7） ====================
+    /** GM 里需要统计体积的已知键（R9） */
+    const STORAGE_KEYS = [
+        'questionBank', 'wrongBank', 'pendingSession', 'fx_bank_tombs', 'fx_wrong_tombs',
+        'fx_disputes', 'aiKey', 'bankSchema', 'lastReconcileKey',
+    ];
+
+    /**
+     * GM 存储占用统计（纯函数，自检可断言，R9）
+     * read 可注入（默认 GM_getValue）：字符串按原样、对象按 JSON 序列化，再按 UTF-8 估算字节数。
+     * 返回 { totalBytes, byKey }；缺键/坏数据记 0 字节，不抛错。
+     */
+    function storageFootprint(read) {
+        const rd = typeof read === 'function' ? read : (k => GM_getValue(k, null));
+        const byKey = {};
+        let totalBytes = 0;
+        for (const k of STORAGE_KEYS) {
+            let v = null;
+            try { v = rd(k); } catch { v = null; }
+            let raw = '';
+            if (v !== null && v !== undefined) {
+                if (typeof v === 'string') raw = v;
+                else { try { raw = JSON.stringify(v) || ''; } catch { raw = ''; } }
+            }
+            const n = raw ? utf8Bytes(raw) : 0;
+            byKey[k] = n;
+            totalBytes += n;
+        }
+        return { totalBytes, byKey };
+    }
+
+    /** 存储是否超过告警阈值（纯函数，自检可断言，R9） */
+    function storageOverLimit(bytes, limit = CONFIG.storageWarnBytes) {
+        return (+bytes || 0) > (+limit || 0);
+    }
+
+    // 10 秒缓存：updateStats 会随答题频繁调用，不能每次都把整个题库重新序列化一遍
+    let storageFpCache = { ts: 0, fp: null };
+    let storageWarned = false;
+    function currentStorageFootprint() {
+        const now = Date.now();
+        if (storageFpCache.fp && now - storageFpCache.ts < 10000) return storageFpCache.fp;
+        let fp;
+        try { fp = storageFootprint(); } catch { fp = { totalBytes: 0, byKey: {} }; }
+        storageFpCache = { ts: now, fp };
+        return fp;
+    }
+    /** 超过阈值时每次会话只提醒一次（R9），面板更新时调用 */
+    function storageWarnOnce(fp) {
+        if (storageWarned || !fp) return;
+        if (!storageOverLimit(fp.totalBytes)) return;
+        storageWarned = true;
+        const kb = (fp.totalBytes / 1024).toFixed(1);
+        const mb = (CONFIG.storageWarnBytes / 1024 / 1024).toFixed(1);
+        log(`💾 存储占用 ${kb} KB，已超过告警阈值 ${mb} MB：建议先导出备份，再清理题库/错题`);
+        notify(`存储占用 ${kb} KB，超过 ${mb} MB，建议导出备份后清理`, 'warn');
+    }
+
+    /**
+     * 争议题导出结构（纯函数，自检可断言，R10）
+     * 题库/错题里 bad>0 或 disputed 的条目 + fx_disputes 冲突记录。
+     * 返回 { file, generatedAt, version, bank, wrong, disputes }。
+     */
+    function buildDisputesExport(bank, wrong, disputes, now = Date.now()) {
+        const t = new Date(+now || Date.now());
+        const keep = map => Object.entries(map || {})
+            .filter(([, e]) => e && ((+e.bad || 0) > 0 || e.disputed))
+            .map(([key, e]) => ({
+                key,
+                type: e.t || '',
+                stem: e.q || '',
+                answer: Array.isArray(e.a) ? e.a : (e.a == null ? [] : [e.a]),
+                letters: e.l || '',
+                bad: +e.bad || 0,
+                disputed: !!e.disputed,
+                src: e.src || '',
+                by: e.by || '',
+                hit: +e.hit || 0,
+            }));
+        return {
+            file: `fx-disputes-${dayStamp(t)}.json`,
+            generatedAt: t.toISOString(),
+            version: VERSION,
+            bank: keep(bank),
+            wrong: keep(wrong),
+            disputes: Array.isArray(disputes) ? disputes.slice(0, CONFIG.disputeMaxEntries) : [],
+        };
+    }
+
+    /**
+     * 诊断包结构（纯函数，自检可断言，R11）
+     * 版本/UA/URL/SEL 命中/CONFIG 快照/各来源请求统计/存储占用/墓碑与题库计数/最近日志。
+     * 所有字段都做空值兜底，JSON.stringify 不会因为 undefined 抛错。
+     */
+    function buildDiagnostics(input, now = Date.now()) {
+        const i = input || {};
+        const cfg = {};
+        for (const [k, v] of Object.entries(CONFIG)) {
+            if (typeof v === 'function') continue;
+            cfg[k] = v;
+        }
+        const sel = {};
+        for (const [k, v] of Object.entries(i.sel || {})) sel[k] = !!v;
+        const lines = Array.isArray(i.logs) ? i.logs.slice(-300) : [];
+        const t = new Date(+now || Date.now());
+        return {
+            file: `fx-diagnostics-${timeStamp(t)}.json`,
+            generatedAt: t.toISOString(),
+            version: VERSION,
+            ua: String(i.ua || ''),
+            url: String(i.url || ''),
+            sel,
+            config: cfg,
+            requestStats: i.requestStats && typeof i.requestStats === 'object' ? i.requestStats : {},
+            storage: i.storage && typeof i.storage === 'object' ? i.storage : { totalBytes: 0, byKey: {} },
+            counts: i.counts && typeof i.counts === 'object' ? i.counts : {},
+            tombstones: i.tombstones && typeof i.tombstones === 'object' ? i.tombstones : {},
+            logs: lines.map(x => String(x)),
+        };
+    }
+
+    /** SEL 各选择器当前是否命中（R11）：分组选择器逐个试，取第一个能命中的 */
+    function selHitReport(doc) {
+        const d = doc || (typeof document !== 'undefined' ? document : null);
+        const out = {};
+        if (!d) return out;
+        for (const [k, v] of Object.entries(SEL)) {
+            const list = Array.isArray(v) ? v : [v];
+            out[k] = list.some(one => {
+                try { return !!one && !!d.querySelector(String(one)); } catch { return false; }
+            });
+        }
+        return out;
+    }
 
     // ==================== 面板 ====================
     // 位置可拖拽并记住；样式与 DOM 全部关在 Shadow DOM 里
@@ -5528,7 +6320,7 @@
                         <button class="mode-btn ${CONFIG.answerMode === 'ai' ? 'active' : ''}" data-mode="ai" aria-pressed="${CONFIG.answerMode === 'ai' ? 'true' : 'false'}">AI智能</button>
                         <button class="mode-btn ${CONFIG.answerMode === 'baidu' ? 'active' : ''}" data-mode="baidu" aria-pressed="${CONFIG.answerMode === 'baidu' ? 'true' : 'false'}">百度搜索</button>
                     </div>
-                    <div class="row">
+                    <div class="row grid-2">
                         <button id="fx-speed">节奏：${SPEED_NAME[CONFIG.speed] || '标准'}</button>
                         <button id="fx-submit" class="${CONFIG.autoSubmit ? 'active' : ''}" aria-pressed="${CONFIG.autoSubmit ? 'true' : 'false'}">交卷：${CONFIG.autoSubmit ? '自动' : '手动'}</button>
                         <button id="fx-debug" class="${CONFIG.debug ? 'active' : ''}" aria-pressed="${CONFIG.debug ? 'true' : 'false'}">调试：${CONFIG.debug ? '开' : '关'}</button>
@@ -5553,10 +6345,11 @@
                     </div>
                 `)}
                 ${groupHtml('bank', `
-                    <div class="row">
+                    <div class="row grid-2">
                         <button id="fx-export">导出答案库</button>
                         <button id="fx-import">导入答案库</button>
                         <button id="fx-reparse">解析成绩</button>
+                        <button id="fx-disputes-export">导出争议题</button>
                     </div>
                     <div class="row">
                         <button id="fx-autoclose" aria-pressed="${CONFIG.autoCloseSec ? 'true' : 'false'}">关闭页：${CONFIG.autoCloseSec ? CONFIG.autoCloseSec + ' 秒' : '不关'}</button>
@@ -5572,6 +6365,7 @@
                     </div>
                     <div class="row">
                         <button id="fx-selftest">自检</button>
+                        <button id="fx-diag-export">导出诊断包</button>
                     </div>
                 `)}
                 <div class="bar"><div class="fill" id="fx-fill"></div></div>
@@ -5864,6 +6658,42 @@
         });
         $('fx-log-copy').onclick = safe('复制日志', () => copyLog());
         $('fx-log-export').onclick = safe('导出日志', () => exportLog());
+        // R10：导出争议题——题库/错题里被标记过错误或争议的条目 + fx_disputes 冲突记录
+        $('fx-disputes-export').onclick = safe('导出争议题', () => {
+            const data = buildDisputesExport(ensureBank(), ensureWrong(), loadDisputes());
+            const total = data.bank.length + data.wrong.length + data.disputes.length;
+            if (!total) {
+                notify('暂无可导出的争议题（题库里 bad=0，也没有两源冲突记录）', 'info');
+                log('ℹ️ 导出争议题：没有数据');
+                return;
+            }
+            downloadFile(data.file, JSON.stringify(data, null, 2), 'application/json;charset=utf-8;');
+            log(`✅ 已导出争议题：题库 ${data.bank.length} / 错题 ${data.wrong.length} / 冲突记录 ${data.disputes.length} → ${data.file}`);
+        });
+        // R11：导出诊断包——版本/环境/选择器命中/CONFIG/请求统计/存储/计数/最近日志
+        $('fx-diag-export').onclick = safe('导出诊断包', () => {
+            const tb = tombMap('bank'), tw = tombMap('wrong');
+            const data = buildDiagnostics({
+                ua: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+                url: typeof location !== 'undefined' ? String(location.href || '') : '',
+                sel: selHitReport(),
+                requestStats: reqStatsSnapshot(),
+                storage: currentStorageFootprint(),
+                counts: {
+                    bank: Object.keys(ensureBank()).length,
+                    wrong: Object.keys(ensureWrong()).length,
+                    tombs: Object.keys(tb).length + Object.keys(tw).length,
+                    disputes: loadDisputes().length,
+                    history: history.length,
+                    answered: session.ans,
+                    totalQ,
+                },
+                tombstones: { bank: Object.keys(tb).length, wrong: Object.keys(tw).length },
+                logs: logLines.slice(-300),
+            });
+            downloadFile(data.file, JSON.stringify(data, null, 2), 'application/json;charset=utf-8;');
+            log(`✅ 已导出诊断包：${data.file}（日志 ${data.logs.length} 条 / 请求来源 ${Object.keys(data.requestStats).length} 个）`);
+        });
 
         // 快捷键：Alt + 字母，不干扰页面里正常打字
         document.addEventListener('keydown', e => {
@@ -6095,7 +6925,16 @@
         const bits = [];
         if (userN) bits.push(`手改 ${userN}`);
         if (letterOnly) bits.push(`纯字母 ${letterOnly}`);
-        el.textContent = `📊 题库 ${n} 题${bits.length ? `（${bits.join(' · ')}）` : ''}${session.ans ? ` · 命中 ${session.hit}/${session.ans}（${rate}%）` : ''}`;
+        // R9：存储占用 + 题库/错题/墓碑计数（10 秒缓存，避免每次刷新都序列化整个题库）
+        const fp = currentStorageFootprint();
+        storageWarnOnce(fp);
+        const wrongN = Object.keys(ensureWrong()).length;
+        const tombN = Object.keys(tombMap('bank')).length + Object.keys(tombMap('wrong')).length;
+        const disputeN = loadDisputes().length;
+        const kb = (fp.totalBytes / 1024).toFixed(fp.totalBytes >= 102400 ? 0 : 1);
+        const storageTxt = ` · 💾 ${kb} KB（题库 ${n} / 错题 ${wrongN} / 墓碑 ${tombN}）`;
+        const disputeTxt = disputeN ? ` · ⚔️ 争议 ${disputeN}` : '';
+        el.textContent = `📊 题库 ${n} 题${bits.length ? `（${bits.join(' · ')}）` : ''}${session.ans ? ` · 命中 ${session.hit}/${session.ans}（${rate}%）` : ''}${storageTxt}${disputeTxt}`;
         if (!el2) return;
         const mode = CONFIG.answerMode === 'ai' ? 'AI智能' : '百度搜索';
         const run = running ? (paused ? '⏸️ 已暂停' : '▶️ 进行中') : '⏹️ 已停止';

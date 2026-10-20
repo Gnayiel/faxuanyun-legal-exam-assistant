@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 无依赖自检：校验用户脚本的元数据块，并在 Node 里跑脚本自带的 97 项断言。
+ * 无依赖自检：校验用户脚本的元数据块，并在 Node 里跑脚本自带的内置断言。
  *
  *   node tools/selftest.mjs [用户脚本路径]
  *
@@ -161,8 +161,9 @@ for (const f of res.fails) console.log(`      失败：${f}`);
 // 断言总数会变，文档里写死的数字也会过期。这些数字是 README 徽章、脚本
 // @description / 文件结构注释的一部分，改自检却忘了同步它们，读者看到的就是错的。
 console.log('\n[4/4] 校验文档里的断言数');
-const repoRoot = join(HERE, '..');
-const readDoc = p => { try { return readFileSync(join(repoRoot, p), 'utf8'); } catch { return ''; } };
+// 从任意工作目录调用都要能定位仓库：一律以脚本自身位置为基准（不读 process.cwd()）。
+const ROOT = resolve(HERE, '..');
+const readDoc = p => { try { return readFileSync(join(ROOT, p), 'utf8'); } catch { return ''; } };
 const n = res.total;
 const docs = [
     ['README.md', `self--test-${n}%20passing`, 'README 自检徽章'],
@@ -193,6 +194,31 @@ for (const [file, needle, label] of [
     ['CHANGELOG.md', `**${m} 项断言全部通过**`, 'CHANGELOG 验证方式'],
 ]) {
     ok(`${label}写着 ${m}`, readDoc(file).includes(needle), `缺「${needle}」`);
+}
+
+// page-smoke 的断言数写在 tools/page-smoke.mjs 的 EXPECTED_ASSERTIONS 常量里：浏览器冒烟
+// 在 Node 侧跑不起来，但可以读常量、再核对 CASES 的 expectCount 之和。改了 fixture / 驱动
+// 却忘了同步 README / CHANGELOG 时，这里和 page-smoke 自己的运行时计数都会红。
+const pageSrc = readDoc('tools/page-smoke.mjs');
+const pageConst = pageSrc.match(/const EXPECTED_ASSERTIONS = (\d+);/);
+if (!pageConst) {
+    ok('page-smoke 源码里声明了 EXPECTED_ASSERTIONS 常量', false,
+        '缺「const EXPECTED_ASSERTIONS = <断言总数>;」');
+} else {
+    const PAGE_N = +pageConst[1];
+    ok(`数得出 page-smoke 的断言数（${PAGE_N} 项）`, PAGE_N > 0, 'EXPECTED_ASSERTIONS 必须是正整数');
+    const declared = [...pageSrc.matchAll(/expectCount:\s*(\d+)/g)].map(x => +x[1]);
+    ok('page-smoke 各用例的 expectCount 之和与 EXPECTED_ASSERTIONS 一致',
+        declared.length > 0 && declared.reduce((a, b) => a + b, 0) === PAGE_N,
+        `EXPECTED_ASSERTIONS=${PAGE_N}，expectCount 合计=${declared.reduce((a, b) => a + b, 0)}（${declared.length} 个用例）`);
+    for (const [file, needle, label] of [
+        ['README.md', `page--smoke-${PAGE_N}%20passing`, 'README 冒烟徽章'],
+        ['README.md', `${PAGE_N} 项断言`, 'README 开发与自检'],
+        ['README.md', `（${PAGE_N} 项）`, 'README 目录结构'],
+        ['CHANGELOG.md', `**${PAGE_N} 项断言全部通过**`, 'CHANGELOG 验证方式'],
+    ]) {
+        ok(`${label}写着 ${PAGE_N}`, readDoc(file).includes(needle), `缺「${needle}」`);
+    }
 }
 
 console.log(failed === 0

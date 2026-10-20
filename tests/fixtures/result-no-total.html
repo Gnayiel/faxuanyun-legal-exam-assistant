@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>学法考试（脱敏样例）· 成绩页（无总分）</title></head>
+<body>
+<!--
+  脱敏成绩页：有分数与正确率、有答题卡，但没有「总分 / 满分」。
+  覆盖：分数能解析但总分缺失时，正确率行不出现「 / 总分」，且答题卡照常对账。
+  判定预期：1✅ 2✅ 3✅ 4✅ 5❌ → 答对 4 / 答错 1，分数 80，正确率 80%。
+-->
+<div class="result-head">
+  <h1>考试结果</h1>
+  <p class="score">您的分数：80 分</p>
+  <p class="rate">正确率 80%</p>
+</div>
+
+<div class="legend">
+  <span class="legend-item" style="background-color:#52c41a">正确</span>
+  <span class="legend-item" style="background-color:#ff4d4f">错误</span>
+  <span class="legend-item" style="background-color:#bfbfbf">未答</span>
+</div>
+
+<div class="layui-layer" id="card-popup">
+  <div class="layui-layer-title">答题卡</div>
+  <ul class="answer-card">
+    <li class="correct">1</li>
+    <li class="correct">2</li>
+    <li style="background-color:#52c41a">3</li>
+    <li class="correct">4</li>
+    <li class="wrong">5</li>
+  </ul>
+</div>
+
+<script>
+/* 脱敏成绩页没有额外交互；「解析成绩」由用户脚本面板的 #fx-reparse 触发 */
+window.__resultPage = true;
+</script>
+</body>
+</html>

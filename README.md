@@ -4,9 +4,9 @@
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
-[![self-test](https://img.shields.io/badge/self--test-181%20passing-success)](#开发与自检)
-[![panel--smoke](https://img.shields.io/badge/panel--smoke-40%20passing-success)](#开发与自检)
-[![page--smoke](https://img.shields.io/badge/page--smoke-72%20passing-success)](#开发与自检)
+[![self-test](https://img.shields.io/badge/self--test-181%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
+[![panel--smoke](https://img.shields.io/badge/panel--smoke-40%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
+[![page--smoke](https://img.shields.io/badge/page--smoke-72%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-4.0%2B-black)](https://www.tampermonkey.net/)
 
 <p align="center">
@@ -40,9 +40,7 @@
 - [导入 / 导出](#导入--导出)
 - [数据与隐私](#数据与隐私)
 - [常见问题](#常见问题)
-- [开发与自检](#开发与自检)
 - [已知限制](#已知限制)
-- [目录结构](#目录结构)
 - [贡献](#贡献)
 - [许可](#许可)
 - [更新记录](#更新记录)
@@ -142,28 +140,6 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
   同一脚本的新版本会覆盖旧版本，效果与自动更新一致，数据同样不丢。
   GitHub 被拦截时也可以直接让维护者把该版本发给你（与本仓库文件一致、可对 SHA256），拖进浏览器安装即可。
 
-### 维护者：每次发版的固定动作
-
-自动更新要生效，只取决于三件事：**仓库公开**、**`@version` 递增**、**文件路径不变**。
-
-1. 把脚本头部的 `@version` 改成**严格大于**上一版的值（`x.y.z`，如 `2.0.0 → 2.0.1`）。
-   油猴比较的是版本号而不是文件内容：**内容改了但版本号没改，用户永远收不到这次更新**。
-2. 把改动写进 [`CHANGELOG.md`](CHANGELOG.md)，同步 README 里的版本徽章与写死的断言数
-   （断言数忘了同步，`node tools/selftest.mjs` 会直接报错）。
-3. 提交并 `git push` 到 `main`。更新检查只认 `@updateURL` 指向的 `main` 分支原始文件，
-   **自动更新不依赖 GitHub Release**；但推送 `v*` tag 会触发 `release.yml` 自动建 Release、
-   上传该版本的 `.user.js` 与 `.sha256`——Release 是给国内下载与版本留档用的，可选但推荐。
-4. 发布后自查：浏览器打开
-   `https://raw.githubusercontent.com/GNAYIEL/faxuanyun-legal-exam-assistant/main/faxuanyun-legal-exam-assistant.user.js`，
-   确认看到新的 `@version`；或留一个旧版装着，点油猴「检查更新」看是否升到新版。
-   如果看到的还是旧版，等几分钟——`raw.githubusercontent.com` 走 CDN 缓存，不会立刻生效。
-
-> **不要动** `.user.js` 文件名、`@name`、`@namespace`、`@downloadURL`、`@updateURL`：
-> 文件名或 URL 变了，老用户就找不到更新源；`@name` / `@namespace` 变了，油猴会当成另一个脚本。
-> 只改 README / CHANGELOG / `data/` 的提交不必递增 `@version`。
-
-仓库必须是**公开**仓库：私有仓库的 `raw.githubusercontent.com` 匿名取不到，用户端的更新检查会 404。
-
 ## 使用
 
 ### 面板
@@ -209,8 +185,7 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
 - 内置 `@connect` 白名单：`www.baidu.com`、`api.deepseek.com`、`api.openai.com`、
   `dashscope.aliyuncs.com`、`open.bigmodel.cn`、`api.moonshot.cn`、`api.siliconflow.cn`、
   `ark.cn-beijing.volces.com`
-- 用其它服务时，需要在脚本头部补一行 `// @connect 你的域名`；保存设置时脚本会检测并提示你要补哪一行、
-  （`tools/selftest.mjs` 也会校验这份白名单与脚本里的 `CONNECT_HOSTS` 常量一一对应）
+- 用其它服务时，需要在脚本头部补一行 `// @connect 你的域名`；保存设置时脚本会检测并提示你要补哪一行。
 
 ## 答案优先级
 
@@ -277,77 +252,8 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
   用 `Alt + E` 导出日志反馈——日志里会写明扫描了多少元素、图例拿到了什么颜色、页面上有哪些入口。
   实在识别不出来时，用面板「题库与本场 → 手动对账」按 `1-8=对, 9=错, 10=未答` 手填，脚本会走同一套入库流程。
   另外 v2.0.2 起，交卷后退回「选择考试」列表页不会再被误判成成绩页空转解析（旧版会红字提示「确认停在结果页」）。
-- **页面改版了？** 优先只改脚本里的「站点适配层」`SEL` / `BTN` 两组选择器，其余逻辑不用动。
-  脚本顶部的「文件结构」注释列出了 13 个章节的位置。
 - **从 v1.x 升级后题库是空的？** 这是预期行为（`@namespace` 变了），按
   [升级到 v2.0.0](#升级到-v200) 用 `.json` 导入一次即可。
-
-## 开发与自检
-
-单文件、纯前端、**无构建步骤**，改完直接安装即可。验证命令都不需要安装依赖：
-
-```bash
-node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 181 项断言，不联网
-node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致（--fix 可自动改）
-node tools/check-workflows.mjs               # GitHub Actions 配置静态检查（action 必须 pin SHA 等）
-node tools/merge-bank.mjs data/*.json -o /tmp/merged.json   # 题库合并工具冒烟（幂等）
-node tools/panel-smoke.mjs --require-browser # 用真实 Chromium 内核（Edge / Chrome）建面板，40 项断言
-node tools/page-smoke.mjs --require-browser  # 用真实 Chromium 加载页面 fixture 走答题链路，72 项断言
-node tools/release.mjs --dry-run             # 本地发版助手：版本/CHANGELOG 校验 + 跑测试 + 打 tag 预演
-```
-
-- `tools/selftest.mjs` 在最小 DOM / 油猴打桩下加载脚本，跑的就是面板「自检」按钮调用的同一批用例；
-  它还会校验 `@-metadata` 是否完整、`@downloadURL` / `@updateURL` 是否是本仓库 `main` 分支的完整 https 直链且两者一致（只校验字符串，不联网）、脚本体积是否超出 512 KB 预算、
-  脚本里的 `CONNECT_HOSTS` 常量和头部 `@connect` 白名单是否一一对应、
-  README 徽章 / 脚本文案里写明的断言数是否与真实用例数一致，以及 **README 版本徽章是否与 `@version` 一致**（数字和版本写死都会过期）。
-- `tools/panel-smoke.mjs` 找不到浏览器时默认**跳过**（退出码 0）；
-  加 `--require-browser`（或设 `FX_REQUIRE_BROWSER=1`）则直接失败，CI 用的就是强制模式，
-  避免「没装浏览器 → 静默跳过 → 假绿」。也可以用 `FX_BROWSER=/path/to/chrome` 指定浏览器（`tools/browser.mjs` 统一探测，支持 PATH 与 Windows 常见路径）。
-- `tools/page-smoke.mjs` 把脚本装进 `tests/fixtures/` 下的脱敏考试页 / 成绩页 fixture，在真实 Chromium 内核里
-  走一遍「识题 → 作答 → 交卷 → 对账」链路，共 72 项断言；同样支持 `--require-browser` 强制模式（CI 必跑），
-  `FX_PAGE_SMOKE_DUMP=1` 可导出页面快照辅助排查。
-- `tools/check-data.mjs` 校验 `data/` 下最新的题库快照：JSON / CSV 成对、条数与题型分布自洽、
-  且与 README / `data/README.md` 里写死的数字一致——改快照或改文档时能第一时间发现数字漂移；
-  加 `--fix` 会按实测值直接改写文档里写错的数字。
-- `tools/merge-bank.mjs` 是题库合并工具：把多台电脑 / 多份导出的 `.json`、`.csv` 合成一份可直接导入的 `.json`
-  （规则见 [导入 / 导出](#导入--导出)）；加 `--emit-snapshot` 会按仓库约定在 `data/` 下生成成对的 JSON + CSV 快照。
-- `tools/check-workflows.mjs` 对 `.github/workflows/*.yml` 做静态检查：第三方 action 必须 pin 到 40 位 commit SHA、
-  必须声明 `permissions` 与 `timeout-minutes`、禁止 `pull_request_target` 检出 PR 代码、引用的本地脚本必须存在、
-  发版必须由 tag 触发。
-- `tools/release.mjs` 是本地发版助手：校验 `@version` 与 CHANGELOG 章节一致 → 跑自检 / 数据 / 工作流检查 → 打本地 tag，
-  然后按提示推送 `main` 与这一版的 `vX.Y.Z` tag（不要一次推所有 tag），由 `release.yml` 校验 tag 与 `@version` 一致、CHANGELOG 章节非空后自动建 Release，并在发布后回读附件复算 SHA256。
-- 面板里**「自检」（`Alt + T`）**是同一批断言，失败项会逐条写进日志。
-- CI：`.github/workflows/selftest.yml` 在 push 到 `main`、以及每个 PR 上跑上面的检查（含面板冒烟与页面适配冒烟，也可手动触发）；
-  推送 `v*` tag 时 `.github/workflows/release.yml` 自动跑同样的门禁（另加 `merge-bank` 与两种浏览器冒烟）并创建 Release、上传 `.user.js` 与同名 `.sha256`（发布前校验 tag 与 `@version` 一致、CHANGELOG 章节非空；发布后回读 Release 校验附件数与 SHA256，再核对远端 `@updateURL` 的 `@version` 与 latest tag）。
-  环境固定为 `ubuntu-24.04` + Node 22，第三方 action 全部固定到 commit SHA，由 Dependabot 每周开 PR 升级。
-
-改动前请留意两点：
-
-1. 脚本只有一个版本号来源，就是头部的 `@version`（运行时读 `GM_info`），**不要在代码里另写一份版本常量**。
-2. 改文件名或导出前缀时，`tools/` 里的默认脚本路径与文件名断言要同步改，否则 CI 会红。
-
-### 真机已确认的点
-
-题目容器 `#timucontent`、题干 `h2`、选项 `input[name="option"]`（`value` 就是 A/B/C/D）
-都是第一候选命中；考试页**没有 iframe**；弹窗是 `position: fixed`（可见性判断已用
-`getClientRects()` 兜底）；`body.innerText` 只有 264 字符、耗时 < 1ms。
-
-v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后残留会话清理、关闭页倒计时与取消、
-百度 / AI 查询链路（`GM_xmlhttpRequest` 跨域 + `@connect` 白名单）、题库跨页持久化与跨电脑导入合并。
-仍有几项只能真机完整走一遍（油猴「自动更新」跨版本升级链路、bfcache 返回、自动关闭、多标签页同场双开、百度 / AI 真实收益），逐项清单见下面「真机回归清单」。
-
-### 真机回归清单（维护者）
-
-以下项目本机无法自动覆盖，发版前建议在真机（油猴 + 真实考试页面）逐项过一遍；报 bug 时用面板「导出诊断包」回传：
-
-- [ ] **自动更新跨版本**：装上一版 → 发布新版 → 油猴「检查更新」能拉到 `@updateURL` 的新 `@version` 并升级
-- [ ] **bfcache 返回**：成绩页对账后前进 / 后退返回考试页，脚本能重新探测（`pageshow.persisted`），不残留旧状态
-- [ ] **自动关闭**：成绩页对账完成后自动关闭本页；被浏览器拒绝时只在日志 / 通知提示，不反复重试
-- [ ] **多标签页同场双开（可选，单标签页考试可跳过）**：两个标签页同时答同一场，脚本能提示分叉；先后落盘不互相覆盖、被删条目不会复活
-- [ ] **百度 / AI 真实收益**：真实站点的回显剔除率、跟进页命中率、单题耗时（默认 20 秒预算内）
-- [ ] **答题卡 / 判断题 / 多选**：真实页面上的三色判定、判断题复用、多选组合策略与旧版一致或更好
-- [ ] **日志级别颜色**：`❌ / ⚠️ / ✅ / 🕒` 等前缀按级别着色，普通信息不会被标成红色错误
-- [ ] **诊断包**：导出 JSON 可读、字段完整、**不含 API Key**；争议题导出结构与面板提示正常
 
 ## 已知限制
 
@@ -369,63 +275,15 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
   不会自动挑一个写进题库。
 - **多标签页**：落盘有 3 秒短锁 + 读盘合并 + 墓碑（删除记录的墓碑持久 7 天，每 10 次落盘或超过 500 条时清理过期项，旧标签页不会把已删条目写回），
   先后落盘不会互相覆盖；但同一场考试同时在两个标签页作答仍会产生分叉记录（脚本会检测到并提醒，建议只留一个标签页）。
-- **页面适配冒烟用脱敏 fixture**：`tests/fixtures/` 按脚本真实选择器构造，能拦住逻辑回归，但不等于真机回归；
-  站点整体改版（外层容器、按钮文案）时仍需更新 fixture 并补真机验证。
 - **自动关闭本页受浏览器限制**：脚本只能关闭「自己打开的」标签页；考试页是你自己点开时，
   `window.close()` 可能被浏览器拒绝。被拒绝时脚本不会反复重试，也不会擅自跳走页面，
   只在日志与通知里提示手动关闭。
 
-## 目录结构
-
-```
-.
-├── faxuanyun-legal-exam-assistant.user.js   # 用户脚本本体（.user.js 后缀是油猴识别安装所必需，勿改）
-├── README.md
-├── CHANGELOG.md                  # 版本更新记录
-├── CONTRIBUTING.md               # 贡献与发版流程
-├── SECURITY.md                   # 安全问题报告方式
-├── CODE_OF_CONDUCT.md            # 行为准则
-├── LICENSE                       # MIT
-├── .gitignore
-├── .gitattributes
-├── .github/
-│   ├── dependabot.yml            # 自动升级 GitHub Actions
-│   ├── ISSUE_TEMPLATE/           # issue 模板（bug 报告 + 安全引导）
-│   ├── pull_request_template.md  # PR 自查清单
-│   └── workflows/
-│       ├── selftest.yml          # CI：元数据校验 + 内置自检 + 数据/工作流检查 + 面板冒烟 + 页面适配冒烟
-│       ├── release.yml           # 推送 v* tag 时自动建 Release、上传 .user.js + .sha256，并做更新链校验
-│       ├── auto-merge.yml        # Dependabot 依赖升级 PR：自检全绿后自动合并
-│       └── backfill-sha256.yml   # 推送 main 时给缺少 .sha256 的旧 Release 自动补齐校验文件
-├── docs/                         # README 顶部预览图与 GitHub 社交预览图（panel.png、social-preview-*.webp）
-├── data/
-│   ├── README.md                 # 题库快照的命名规范与提交规则
-│   ├── faxuanyun-legal-exam-bank-20261020.csv    # 随仓库分发的 299 题快照（6 列）
-│   └── faxuanyun-legal-exam-bank-20261020.json   # 同上，字段完整版
-├── tests/
-│   └── fixtures/                 # 页面适配冒烟的 6 个脱敏 fixture（单选/多选/判断/答题卡/成绩/无总题数）
-└── tools/
-    ├── selftest.mjs              # 无依赖自检（元数据 + 181 项断言）
-    ├── check-data.mjs            # 题库快照与文档数字一致性校验（--fix 可自动修）
-    ├── merge-bank.mjs            # 多份题库导出合并（--emit-snapshot 生成 data/ 快照）
-    ├── check-workflows.mjs       # GitHub Actions 配置静态检查
-    ├── release.mjs               # 本地发版助手（校验 → 测试 → 打 tag）
-    ├── browser.mjs               # 浏览器探测与 headless 启动（两种冒烟共用）
-    ├── panel-smoke.mjs           # 真实浏览器面板冒烟测试（40 项），CI 用强制模式
-    └── page-smoke.mjs            # 真实浏览器页面适配冒烟：6 个 fixture（72 项），CI 必跑
-```
-
-从面板「导出答案库」拿到的文件按日期命名，可以直接放进 `data/` 归档；
-这类带日期的快照默认被 `.gitignore` 排除，不会误提交——
-只有 `data/` 下随仓库分发的那一份按命名规则通配放行（仓库只保留一份，`check-data` 会拦第二份），规则见 [`data/README.md`](data/README.md)。
-
 ## 贡献
 
-- 报 bug / 提需求请用 [issue 模板](.github/ISSUE_TEMPLATE/bug_report.yml)，附上浏览器与油猴版本、脚本 `@version`、面板日志（`Alt + E` 导出）
-- 提交代码前请本地跑通上面几条测试命令；完整约定、代码风格、发版流程见 [CONTRIBUTING.md](CONTRIBUTING.md)
-- 平台改版导致选择器失配时，改动范围应限制在「站点适配层」，不要在业务逻辑里散落新的选择器
-- 版本号只在 `@version` 里改，同时把改动写进 [`CHANGELOG.md`](CHANGELOG.md)
+- 报 bug / 提需求请用 [issue 模板](.github/ISSUE_TEMPLATE/bug_report.yml)，附浏览器与油猴版本、脚本 `@version` 与面板日志（`Alt + E` 导出）
 - 安全问题（含泄露的 API Key）请按 [SECURITY.md](SECURITY.md) 私下报告，**不要**公开贴；参与讨论请遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- 想改代码、跑测试或发版，见 [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## 许可
 
@@ -433,28 +291,11 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 
 ## 更新记录
 
-当前版本 **v2.0.11**（2026-10-21）：CodeQL 收尾——HTML 转纯文本改用 DOMParser，测试里的两处 URL/文本断言去掉误报
+当前版本 **v2.0.11**（2026-10-21）：CodeQL 收尾——HTML 转纯文本改用 DOMParser，自检里的两处 URL / 文本断言去掉误报
 
-- 修复：`stripHtml` 不再用正则剥标签，改用 `DOMParser` 惰性解析（实体、script/style、注释、畸形标签都由解析器处理）；无 DOM 宿主回退到单遍实体解码
+- 修复：`stripHtml` 不再用正则剥标签，改用 `DOMParser` 惰性解析（实体、`script/style`、注释、畸形标签都由解析器处理）；无 DOM 宿主回退到单遍实体解码
 - 修复：`tools/selftest.mjs` 的 `downloadURL/updateURL` 断言改用 URL pathname 比较，标题 slug 不再做伪消毒
 
 v2.0.10（2026-10-21）：修掉 CodeQL 首扫报出的正则回溯与实体二次解码两处真实缺陷，README 预览图转 WebP
-
-- 修复：答案解析的关键词正则把 `[\s]*` 嵌在重复组里，遇到超长空白会灾难性回溯（整页卡死）→ 改为单层字符类，匹配线性化
-- 修复：`stripHtml` 先解 `&amp;` 再解 `&lt;`，`&amp;lt;` 会被二次解码成 `<` → 改为单遍实体映射；两个冒烟脚本的 DOM 反解同理
-- 变更：README 预览图 PNG（1.35 MB）→ WebP Q82（117 KB）；CI 小加固（checkout 不持久化 token、dependabot 补 label 与 PR 上限）
-- 测试：内置自检 **179 → 181 项**（新增正则回溯与实体解码断言）
-
-v2.0.9（2026-10-20）：判断题安全复用补上「量化词」闸门、导入题库后同步清会话缓存，并清理了仓库外会话日志里的明文访问凭据
-
-- 新增：判断题「量化词一致性」闸门——题干里所有/全部/任何/部分/个别/有些/一律/全都数量不一致时，即使编辑距离 ≤ 2 也不复用（「所有权/所有制/所有者」不算量化词）；内置自检 179 → 179 项
-- 修复：导入题库后清空会话答案缓存，避免同一场继续命中导入前的旧答案
-- 安全：清理仓库外会话日志中的明文 GitHub 令牌（建议同步去 GitHub 撤销该 token）
-- 修复：交卷对账删除题库错答案后同步失效本题会话缓存（同一场重放不再命中旧缓存）；大响应截断只作用于百度跟进页，AI 主响应不截断；争议题导出移除从未写入的 `disputed` 字段；page-smoke 负例不再打印「通过」摘要行
-- 文档：README 补「GitHub 被拦截时的手动更新兜底」；真机回归清单标注多标签页同场双开为可选
-
-v2.0.8（2026-10-20）：判断题安全复用新增模态词一致性闸门、对账删除后缓存同步失效、AI 主响应不再受跟进页上限影响
-
-v2.0.7（2026-10-20）：判断题安全相似复用、答案会话缓存、双源并行、多选组合上限、争议题与诊断包导出、墓碑定期清理与存储占用监控；页面适配冒烟扩到 6 个 fixture 并结构化断言
 
 完整清单见 [CHANGELOG.md](CHANGELOG.md)。

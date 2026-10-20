@@ -191,8 +191,8 @@ const readDoc = p => { try { return readFileSync(join(ROOT, p), 'utf8'); } catch
 const n = res.total;
 const docs = [
     ['README.md', `self--test-${n}%20passing`, 'README 自检徽章'],
-    ['README.md', `内置的 ${n} 项断言`, 'README 开发与自检'],
-    ['README.md', `${n} 项断言`, 'README 目录结构'],
+    ['CONTRIBUTING.md', `内置的 ${n} 项断言`, 'CONTRIBUTING 质量门禁'],
+    ['CONTRIBUTING.md', `${n} 项断言`, 'CONTRIBUTING 目录结构'],
     [SCRIPT.replace(/^.*[\\/]/, ''), `含 ${n} 项内置自检`, '脚本 @description'],
     [SCRIPT.replace(/^.*[\\/]/, ''), `${n} 项纯函数断言`, '脚本文件结构注释'],
 ];
@@ -213,8 +213,8 @@ const m = (readDoc('tools/panel-smoke.mjs').match(/^\s+ok\(/gm) || []).length;
 ok(`数得出 panel-smoke 的断言数（${m} 项）`, m > 0, '一个 ok(...) 都没数到，检查 tools/panel-smoke.mjs 是否还在');
 for (const [file, needle, label] of [
     ['README.md', `panel--smoke-${m}%20passing`, 'README 冒烟徽章'],
-    ['README.md', `${m} 项断言`, 'README 开发与自检'],
-    ['README.md', `（${m} 项）`, 'README 目录结构'],
+    ['CONTRIBUTING.md', `${m} 项断言`, 'CONTRIBUTING 质量门禁'],
+    ['CONTRIBUTING.md', `（${m} 项）`, 'CONTRIBUTING 目录结构'],
     ['CHANGELOG.md', `**${m} 项断言全部通过**`, 'CHANGELOG 验证方式'],
 ]) {
     ok(`${label}写着 ${m}`, readDoc(file).includes(needle), `缺「${needle}」`);
@@ -238,8 +238,8 @@ if (!pageConst) {
         `EXPECTED_ASSERTIONS=${PAGE_N}，expectCount 合计=${declared.reduce((a, b) => a + b, 0)}（${declared.length} 个用例）`);
     for (const [file, needle, label] of [
         ['README.md', `page--smoke-${PAGE_N}%20passing`, 'README 冒烟徽章'],
-        ['README.md', `${PAGE_N} 项断言`, 'README 开发与自检'],
-        ['README.md', `（${PAGE_N} 项）`, 'README 目录结构'],
+        ['CONTRIBUTING.md', `${PAGE_N} 项断言`, 'CONTRIBUTING 质量门禁'],
+        ['CONTRIBUTING.md', `（${PAGE_N} 项）`, 'CONTRIBUTING 目录结构'],
         ['CHANGELOG.md', `**${PAGE_N} 项断言全部通过**`, 'CHANGELOG 验证方式'],
     ]) {
         ok(`${label}写着 ${PAGE_N}`, readDoc(file).includes(needle), `缺「${needle}」`);
@@ -264,11 +264,12 @@ for (const f of scanTargets) {
 }
 ok('文档 / 工作流里没有过期的断言数', staleNums.length === 0, staleNums.slice(0, 8).join('；'));
 
-const readmeCmd = cmd => (readDoc('README.md').split('\n').find(l => l.includes(cmd)) || '').trim();
-ok(`README 的 panel-smoke 命令注释写着 ${m} 项断言`,
-    readmeCmd('tools/panel-smoke.mjs').includes(`${m} 项断言`), readmeCmd('tools/panel-smoke.mjs'));
-ok(`README 的 page-smoke 命令注释写着 ${PAGE_N} 项断言`,
-    readmeCmd('tools/page-smoke.mjs').includes(`${PAGE_N} 项断言`), readmeCmd('tools/page-smoke.mjs'));
+// 维护者向的命令与断言数已迁到 CONTRIBUTING.md，README 只留面向使用者的内容。
+const docCmd = cmd => (readDoc('CONTRIBUTING.md').split('\n').find(l => l.includes(cmd)) || '').trim();
+ok(`CONTRIBUTING 的 panel-smoke 命令注释写着 ${m} 项断言`,
+    docCmd('tools/panel-smoke.mjs').includes(`${m} 项断言`), docCmd('tools/panel-smoke.mjs'));
+ok(`CONTRIBUTING 的 page-smoke 命令注释写着 ${PAGE_N} 项断言`,
+    docCmd('tools/page-smoke.mjs').includes(`${PAGE_N} 项断言`), docCmd('tools/page-smoke.mjs'));
 
 // README 里引用的本地图片必须真实存在，否则 GitHub 上就是裂图（换预览图时最容易漏提交）
 const imgRefs = [...readDoc('README.md').matchAll(/(?:src|srcset)="([^"#?]+)"/g)]

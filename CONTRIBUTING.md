@@ -18,13 +18,13 @@
 ## 本地验证（提交前必跑）
 
 ```bash
-node tools/selftest.mjs                      # 元数据 + 181 项内置断言 + 文档数字校验，不联网
+node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 181 项断言 + 文档数字校验，不联网
 node tools/check-workflows.mjs               # GitHub Actions 配置静态检查（pin SHA / 权限 / 脚本路径）
 node tools/release.mjs --dry-run             # 本地发版助手：版本与 CHANGELOG 校验 + 跑测试 + 打 tag 预演
 node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致
 node tools/merge-bank.mjs data/*.json -o /tmp/merged.json   # 题库合并工具冒烟（幂等）
-node tools/panel-smoke.mjs --require-browser # 真实浏览器面板冒烟（40 项）
-node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟（72 项）
+node tools/panel-smoke.mjs --require-browser # 真实浏览器面板冒烟（40 项断言）
+node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟（72 项断言）
 ```
 
 - 两种浏览器冒烟共用 `tools/browser.mjs` 探测浏览器（`FX_BROWSER` → 常见安装路径 → PATH，Windows 也支持），
@@ -34,6 +34,40 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
   改了这些数字必须同步，否则测试会直接指出缺哪个字符串；它还会校验 `@updateURL` / `@downloadURL` 是否为 `main`
   分支的完整 https 直链，以及用户脚本体积不超过 512 KB。
 - 手动冒烟：装脚本 → 打开任意 `*.faxuanyun.com` 页面 → 面板能建起来、按钮与快捷键正常。
+
+## 质量门禁与工具
+
+单文件、纯前端、**无构建步骤**，改完直接安装即可。上面命令块里每条工具的职责：
+
+- `tools/selftest.mjs` 在最小 DOM / 油猴打桩下加载脚本，跑的就是面板「自检」按钮调用的同一批用例；
+  它还会校验 `@-metadata` 是否完整、`@downloadURL` / `@updateURL` 是否是本仓库 `main` 分支的完整 https 直链且两者一致（只校验字符串，不联网）、脚本体积是否超出 512 KB 预算、
+  脚本里的 `CONNECT_HOSTS` 常量和头部 `@connect` 白名单是否一一对应、
+  README 徽章 / 脚本文案里写明的断言数是否与真实用例数一致，以及 **README 版本徽章是否与 `@version` 一致**（数字和版本写死都会过期）。
+- `tools/panel-smoke.mjs` 找不到浏览器时默认**跳过**（退出码 0）；
+  加 `--require-browser`（或设 `FX_REQUIRE_BROWSER=1`）则直接失败，CI 用的就是强制模式，
+  避免「没装浏览器 → 静默跳过 → 假绿」。也可以用 `FX_BROWSER=/path/to/chrome` 指定浏览器（`tools/browser.mjs` 统一探测，支持 PATH 与 Windows 常见路径）。
+- `tools/page-smoke.mjs` 把脚本装进 `tests/fixtures/` 下的脱敏考试页 / 成绩页 fixture，在真实 Chromium 内核里
+  走一遍「识题 → 作答 → 交卷 → 对账」链路，共 72 项断言；同样支持 `--require-browser` 强制模式（CI 必跑），
+  `FX_PAGE_SMOKE_DUMP=1` 可导出页面快照辅助排查。
+- `tools/check-data.mjs` 校验 `data/` 下最新的题库快照：JSON / CSV 成对、条数与题型分布自洽、
+  且与 README / `data/README.md` 里写死的数字一致——改快照或改文档时能第一时间发现数字漂移；
+  加 `--fix` 会按实测值直接改写文档里写错的数字。
+- `tools/merge-bank.mjs` 是题库合并工具：把多台电脑 / 多份导出的 `.json`、`.csv` 合成一份可直接导入的 `.json`
+  （规则见 [导入 / 导出](README.md#导入--导出)）；加 `--emit-snapshot` 会按仓库约定在 `data/` 下生成成对的 JSON + CSV 快照。
+- `tools/check-workflows.mjs` 对 `.github/workflows/*.yml` 做静态检查：第三方 action 必须 pin 到 40 位 commit SHA、
+  必须声明 `permissions` 与 `timeout-minutes`、禁止 `pull_request_target` 检出 PR 代码、引用的本地脚本必须存在、
+  发版必须由 tag 触发。
+- `tools/release.mjs` 是本地发版助手：校验 `@version` 与 CHANGELOG 章节一致 → 跑自检 / 数据 / 工作流检查 → 打本地 tag，
+  然后按提示推送 `main` 与这一版的 `vX.Y.Z` tag（不要一次推所有 tag），由 `release.yml` 校验 tag 与 `@version` 一致、CHANGELOG 章节非空后自动建 Release，并在发布后回读附件复算 SHA256。
+- 面板里**「自检」（`Alt + T`）**是同一批断言，失败项会逐条写进日志。
+- CI：`.github/workflows/selftest.yml` 在 push 到 `main`、以及每个 PR 上跑上面的检查（含面板冒烟与页面适配冒烟，也可手动触发）；
+  推送 `v*` tag 时 `.github/workflows/release.yml` 自动跑同样的门禁（另加 `merge-bank` 与两种浏览器冒烟）并创建 Release、上传 `.user.js` 与同名 `.sha256`（发布前校验 tag 与 `@version` 一致、CHANGELOG 章节非空；发布后回读 Release 校验附件数与 SHA256，再核对远端 `@updateURL` 的 `@version` 与 latest tag）。
+  环境固定为 `ubuntu-24.04` + Node 22，第三方 action 全部固定到 commit SHA，由 Dependabot 每周开 PR 升级。
+
+改动前请留意两点：
+
+1. 脚本只有一个版本号来源，就是头部的 `@version`（运行时读 `GM_info`），**不要在代码里另写一份版本常量**。
+2. 改文件名或导出前缀时，`tools/` 里的默认脚本路径与文件名断言要同步改，否则 CI 会红。
 
 ## 代码约定
 
@@ -50,6 +84,73 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
 - 随仓库分发的快照（如 `data/faxuanyun-legal-exam-bank-20261020.*`）是某一时刻的切片，**不会随每个版本自动更新**。
 - 题库有实质变化时，用面板导出新的 `.json` + `.csv`，按 `data/README.md` 的命名规则替换或新增，并在 `CHANGELOG.md` 里说明来源与日期。
 - 换成新快照时，用新日期戳的一对文件替换旧文件即可（`.gitignore` 已按命名规则通配放行）；`data/` 只保留一份快照，`tools/check-data.mjs` 会拦第二份。
+
+## 真机确认与回归清单
+
+题目容器 `#timucontent`、题干 `h2`、选项 `input[name="option"]`（`value` 就是 A/B/C/D）
+都是第一候选命中；考试页**没有 iframe**；弹窗是 `position: fixed`（可见性判断已用
+`getClientRects()` 兜底）；`body.innerText` 只有 264 字符、耗时 < 1ms。
+
+v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后残留会话清理、关闭页倒计时与取消、
+百度 / AI 查询链路（`GM_xmlhttpRequest` 跨域 + `@connect` 白名单）、题库跨页持久化与跨电脑导入合并。
+仍有几项只能真机完整走一遍（油猴「自动更新」跨版本升级链路、bfcache 返回、自动关闭、多标签页同场双开、百度 / AI 真实收益），逐项清单见下面「真机回归清单」。
+
+### 真机回归清单（维护者）
+
+以下项目本机无法自动覆盖，发版前建议在真机（油猴 + 真实考试页面）逐项过一遍；报 bug 时用面板「导出诊断包」回传：
+
+- [ ] **自动更新跨版本**：装上一版 → 发布新版 → 油猴「检查更新」能拉到 `@updateURL` 的新 `@version` 并升级
+- [ ] **bfcache 返回**：成绩页对账后前进 / 后退返回考试页，脚本能重新探测（`pageshow.persisted`），不残留旧状态
+- [ ] **自动关闭**：成绩页对账完成后自动关闭本页；被浏览器拒绝时只在日志 / 通知提示，不反复重试
+- [ ] **多标签页同场双开（可选，单标签页考试可跳过）**：两个标签页同时答同一场，脚本能提示分叉；先后落盘不互相覆盖、被删条目不会复活
+- [ ] **百度 / AI 真实收益**：真实站点的回显剔除率、跟进页命中率、单题耗时（默认 20 秒预算内）
+- [ ] **答题卡 / 判断题 / 多选**：真实页面上的三色判定、判断题复用、多选组合策略与旧版一致或更好
+- [ ] **日志级别颜色**：`❌ / ⚠️ / ✅ / 🕒` 等前缀按级别着色，普通信息不会被标成红色错误
+- [ ] **诊断包**：导出 JSON 可读、字段完整、**不含 API Key**；争议题导出结构与面板提示正常
+
+## 目录结构
+
+```
+.
+├── faxuanyun-legal-exam-assistant.user.js   # 用户脚本本体（.user.js 后缀是油猴识别安装所必需，勿改）
+├── README.md
+├── CHANGELOG.md                  # 版本更新记录
+├── CONTRIBUTING.md               # 贡献与发版流程
+├── SECURITY.md                   # 安全问题报告方式
+├── CODE_OF_CONDUCT.md            # 行为准则
+├── LICENSE                       # MIT
+├── .gitignore
+├── .gitattributes
+├── .github/
+│   ├── dependabot.yml            # 自动升级 GitHub Actions
+│   ├── ISSUE_TEMPLATE/           # issue 模板（bug 报告 + 安全引导）
+│   ├── pull_request_template.md  # PR 自查清单
+│   └── workflows/
+│       ├── selftest.yml          # CI：元数据校验 + 内置自检 + 数据/工作流检查 + 面板冒烟 + 页面适配冒烟
+│       ├── release.yml           # 推送 v* tag 时自动建 Release、上传 .user.js + .sha256，并做更新链校验
+│       ├── auto-merge.yml        # Dependabot 依赖升级 PR：自检全绿后自动合并
+│       └── backfill-sha256.yml   # 推送 main 时给缺少 .sha256 的旧 Release 自动补齐校验文件
+├── docs/                         # README 顶部预览图与 GitHub 社交预览图（panel.png、social-preview-*.webp）
+├── data/
+│   ├── README.md                 # 题库快照的命名规范与提交规则
+│   ├── faxuanyun-legal-exam-bank-20261020.csv    # 随仓库分发的 299 题快照（6 列）
+│   └── faxuanyun-legal-exam-bank-20261020.json   # 同上，字段完整版
+├── tests/
+│   └── fixtures/                 # 页面适配冒烟的 6 个脱敏 fixture（单选/多选/判断/答题卡/成绩/无总题数）
+└── tools/
+    ├── selftest.mjs              # 无依赖自检（元数据 + 181 项断言）
+    ├── check-data.mjs            # 题库快照与文档数字一致性校验（--fix 可自动修）
+    ├── merge-bank.mjs            # 多份题库导出合并（--emit-snapshot 生成 data/ 快照）
+    ├── check-workflows.mjs       # GitHub Actions 配置静态检查
+    ├── release.mjs               # 本地发版助手（校验 → 测试 → 打 tag）
+    ├── browser.mjs               # 浏览器探测与 headless 启动（两种冒烟共用）
+    ├── panel-smoke.mjs           # 真实浏览器面板冒烟测试（40 项），CI 用强制模式
+    └── page-smoke.mjs            # 真实浏览器页面适配冒烟：6 个 fixture（72 项），CI 必跑
+```
+
+从面板「导出答案库」拿到的文件按日期命名，可以直接放进 `data/` 归档；
+这类带日期的快照默认被 `.gitignore` 排除，不会误提交——
+只有 `data/` 下随仓库分发的那一份按命名规则通配放行（仓库只保留一份，`check-data` 会拦第二份），规则见 [`data/README.md`](data/README.md)。
 
 ## 发版流程（维护者）
 

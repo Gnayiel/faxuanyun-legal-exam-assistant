@@ -9,6 +9,14 @@
 [![page--smoke](https://img.shields.io/badge/page--smoke-72%20passing-success)](#开发与自检)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-4.0%2B-black)](https://www.tampermonkey.net/)
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/social-preview-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/social-preview-light.png">
+    <img src="docs/social-preview-light.png" alt="法宣在线学法考试自动答题助手：结构化题库 + AI/百度双源查答案，单文件，内置自检" width="820">
+  </picture>
+</p>
+
 用于 **法宣在线**（`*.faxuanyun.com`）学法考试平台的 Tampermonkey 用户脚本。
 单文件、无构建、无第三方依赖：结构化题库 + 站点适配层 + AI / 百度双通道查答案 + 内置自检。
 
@@ -390,7 +398,9 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 │   └── workflows/
 │       ├── selftest.yml          # CI：元数据校验 + 内置自检 + 数据/工作流检查 + 面板冒烟 + 页面适配冒烟
 │       ├── release.yml           # 推送 v* tag 时自动建 Release、上传 .user.js + .sha256，并做更新链校验
-│       └── auto-merge.yml        # Dependabot 依赖升级 PR：自检全绿后自动合并
+│       ├── auto-merge.yml        # Dependabot 依赖升级 PR：自检全绿后自动合并
+│       └── backfill-sha256.yml   # 推送 main 时给缺少 .sha256 的旧 Release 自动补齐校验文件
+├── docs/                         # README 顶部预览图与 GitHub 社交预览图（panel.png、social-preview-*.png）
 ├── data/
 │   ├── README.md                 # 题库快照的命名规范与提交规则
 │   ├── faxuanyun-legal-exam-bank-20261020.csv    # 随仓库分发的 299 题快照（6 列）
@@ -410,7 +420,7 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 
 从面板「导出答案库」拿到的文件按日期命名，可以直接放进 `data/` 归档；
 这类带日期的快照默认被 `.gitignore` 排除，不会误提交——
-只有随仓库分发的那一份用 `!` 规则显式放行，规则见 [`data/README.md`](data/README.md)。
+只有 `data/` 下随仓库分发的那一份按命名规则通配放行（仓库只保留一份，`check-data` 会拦第二份），规则见 [`data/README.md`](data/README.md)。
 
 ## 贡献
 

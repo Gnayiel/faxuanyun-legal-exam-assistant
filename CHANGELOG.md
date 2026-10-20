@@ -13,6 +13,22 @@
 
 ---
 
+## v2.0.15
+
+**2026-10-21**
+
+> 自动更新改用 `@latest`，绕开 jsDelivr 的分支缓存空窗。
+
+### 修复
+- `@downloadURL` / `@updateURL` 的 jsDelivr 路径从 `@main` 改为 `@latest`：jsDelivr 对分支路径有最长 12 小时的边缘缓存，
+  发版后 purge 接口返回 `"status": "finished"` 但三个边缘仍持续返回旧版本（v2.0.13 → v2.0.14 实测）；`@latest` 按 tag 解析，
+  新 tag 推送后秒级生效（实测 v2.0.14 在 fastly / gcore / testingcf 三个边缘立刻可读）。
+- `tools/selftest.mjs` 的自动更新地址白名单同步接受 `@latest`。
+
+### 验证方式
+- `node --check`、`selftest`（181/181）、`check-data`、`check-workflows`、`release.mjs --check-ci v2.0.15`：通过。
+- 发版后 `curl https://fastly.jsdelivr.net/gh/.../@latest/...user.js` 与三个边缘均应读到 `2.0.15`。
+
 ## v2.0.14
 
 **2026-10-21**

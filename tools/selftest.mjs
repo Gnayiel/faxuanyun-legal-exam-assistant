@@ -110,7 +110,7 @@ const RAW_FILE = 'faxuanyun-legal-exam-assistant.user.js';
 const UPDATE_URL_PREFIXES = [
     // 自动更新优先走 jsDelivr：raw.githubusercontent / github.com/raw 在国内多数网络下不可达，
     // 会让「检查更新」静默失败（这正是 v2.0.12 改地址的原因）。
-    `https://fastly.jsdelivr.net/gh/${REPO}@main/`,
+    `https://fastly.jsdelivr.net/gh/${REPO}@latest/`,
     `https://raw.githubusercontent.com/${REPO}/main/`,
     `https://github.com/${REPO}/raw/main/`,
 ];

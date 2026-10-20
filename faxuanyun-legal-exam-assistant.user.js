@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.14
+// @version      2.0.15
 // @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 181 项内置自检
 // @author       Gnayiel
 // @license      MIT
@@ -24,8 +24,8 @@
 // @connect      ark.cn-beijing.volces.com
 // @homepageURL  https://github.com/Gnayiel/faxuanyun-legal-exam-assistant
 // @supportURL   https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/issues
-// @downloadURL  https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@main/faxuanyun-legal-exam-assistant.user.js
-// @updateURL    https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@main/faxuanyun-legal-exam-assistant.user.js
+// @downloadURL  https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@latest/faxuanyun-legal-exam-assistant.user.js
+// @updateURL    https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@latest/faxuanyun-legal-exam-assistant.user.js
 // ==/UserScript==
 
 /*

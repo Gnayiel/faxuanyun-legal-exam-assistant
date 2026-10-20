@@ -1,6 +1,6 @@
 # 甘肃省国家工作人员学法考试平台自动答题助手
 
-[![version](https://img.shields.io/badge/version-2.0.14-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.15-blue)](CHANGELOG.md)
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
@@ -74,7 +74,7 @@
 1. 浏览器安装 [Tampermonkey](https://www.tampermonkey.net/)（或 Violentmonkey）
 2. 安装脚本，任选其一：
    - **推荐**：jsDelivr 镜像地址（国内可直连；自动更新也走这个源），油猴会直接弹出安装页：
-     `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@main/faxuanyun-legal-exam-assistant.user.js`
+     `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@latest/faxuanyun-legal-exam-assistant.user.js`
      ⚠️ 镜像路径**区分大小写**，请照抄 `Gnayiel`。
    - GitHub 原始地址（海外网络更稳；国内多数网络下不可达，可作备用）：
      `https://raw.githubusercontent.com/Gnayiel/faxuanyun-legal-exam-assistant/main/faxuanyun-legal-exam-assistant.user.js`
@@ -121,10 +121,14 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
 
 ## 更新与自动更新
 
-脚本头部已经写好 `@updateURL` / `@downloadURL`，都指向本仓库 `main` 分支上这个脚本的
-**jsDelivr 镜像**（`fastly.jsdelivr.net/gh/Gnayiel/...@main/...`）——换成镜像是因为
+脚本头部已经写好 `@updateURL` / `@downloadURL`，都指向本仓库**最新 tag** 上这个脚本的
+**jsDelivr 镜像**（`fastly.jsdelivr.net/gh/Gnayiel/...@latest/...`）——换成镜像是因为
 `raw.githubusercontent.com` 在国内多数网络下不可达，会让「检查更新」静默失败。
 **用户装好一版之后不需要再做任何事**，后续版本由油猴自动更新。
+
+> 为什么用 `@latest` 而不是 `@main`：jsDelivr 对**分支**路径有最长 12 小时的边缘缓存，
+> 发版后手动 purge 也常常刷不掉，会出现「Release 已经是新版、镜像还在发旧版」的空窗；
+> `@latest` 按 tag 解析与缓存，新 tag 一推上去立刻可读（实测发版后秒级生效）。
 
 ### 用户侧：油猴怎么更新
 

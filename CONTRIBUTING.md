@@ -11,7 +11,7 @@
 
 ## 开发环境
 
-- Node.js ≥ 20（CI 用 22 LTS；工具脚本只用到 Node 内置模块，**没有任何 npm 依赖**）
+- Node.js ≥ 22（CI 用 22 LTS；工具脚本只用到 Node 内置模块，**没有任何 npm 依赖**）
 - Edge / Chrome / Chromium 任一（面板冒烟测试用；可用 `FX_BROWSER` 指定可执行路径）
 - 不需要构建：改完 `faxuanyun-legal-exam-assistant.user.js`，重新装到油猴里刷新页面即可
 
@@ -48,7 +48,7 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
 单文件、纯前端、**无构建步骤**，改完直接安装即可。上面命令块里每条工具的职责：
 
 - `tools/selftest.mjs` 在最小 DOM / 油猴打桩下加载脚本，跑的就是面板「自检」按钮调用的同一批用例；
-  它还会校验 `@-metadata` 是否完整、`@downloadURL` / `@updateURL` 是否是本仓库 `main` 分支的完整 https 直链且两者一致（只校验字符串，不联网）、脚本体积是否超出 512 KB 预算、
+  它还会校验 `@-metadata` 是否完整、`@downloadURL` / `@updateURL` 是否是 `@latest`（jsDelivr）或 `main` 分支的完整 https 直链且两者一致（只校验字符串，不联网）、脚本体积是否超出 512 KB 预算、
   脚本里的 `CONNECT_HOSTS` 常量和头部 `@connect` 白名单是否一一对应、
   README 徽章 / 脚本文案里写明的断言数是否与真实用例数一致，以及 **README 版本徽章是否与 `@version` 一致**（数字和版本写死都会过期）。
 - `tools/panel-smoke.mjs` 找不到浏览器时默认**跳过**（退出码 0）；
@@ -122,13 +122,17 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 .
 ├── faxuanyun-legal-exam-assistant.user.js   # 用户脚本本体（.user.js 后缀是油猴识别安装所必需，勿改）
 ├── README.md
-├── CHANGELOG.md                  # 版本更新记录
+├── CHANGELOG.md                  # 版本更新记录（只留最近三个版本）
+├── CHANGELOG-archive.md          # 更早的版本记录归档（v2.0.0 起）
 ├── CONTRIBUTING.md               # 贡献与发版流程
 ├── SECURITY.md                   # 安全问题报告方式
 ├── CODE_OF_CONDUCT.md            # 行为准则
 ├── LICENSE                       # MIT
 ├── .gitignore
 ├── .gitattributes
+├── .editorconfig                 # 编辑器行为（统一 LF/缩进；CSV 与图片例外）
+├── .nvmrc                        # Node 22（与 CI 一致）
+├── package.json                  # 元数据 + npm run check / smoke / release 快捷命令
 ├── .github/
 │   ├── dependabot.yml            # 自动升级 GitHub Actions
 │   ├── ISSUE_TEMPLATE/           # issue 模板（bug 报告 + 安全引导）
@@ -137,10 +141,11 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 │       ├── selftest.yml          # CI：元数据校验 + 内置自检 + 数据/工作流检查 + 面板冒烟 + 页面适配冒烟
 │       ├── release.yml           # 推送 v* tag 时自动建 Release、上传 .user.js + .sha256，并做更新链校验
 │       ├── auto-merge.yml        # Dependabot 依赖升级 PR：自检全绿后自动合并
-│       └── backfill-sha256.yml   # 推送 main 时给缺少 .sha256 的旧 Release 自动补齐校验文件
+│       └── backfill-sha256.yml   # 手动触发 / 每月巡检：给缺少 .sha256 的旧 Release 补校验文件
 ├── docs/                         # README 顶部预览图与 GitHub 社交预览图（panel.png、social-preview-*.webp）
 ├── data/
 │   ├── README.md                 # 题库快照的命名规范与提交规则
+│   ├── bank.schema.json                          # 题库 JSON 的 schema（check-data 校验用）
 │   ├── faxuanyun-legal-exam-bank-20261020.csv    # 随仓库分发的 299 题快照（6 列）
 │   └── faxuanyun-legal-exam-bank-20261020.json   # 同上，字段完整版
 ├── tests/
@@ -192,7 +197,7 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 7. **只升不降**：不要发布比已在线版本更低的 `@version`（油猴不会降级到旧版）；某版有问题时，改代码后发一个
    **更高**的版本修正，不要删除或重打已经推送的 tag（`protect-release-tags` 规则集会直接拦截）——Release 附件与 SHA256 是按 tag 固化的，删 tag 会让
    已下载的用户对不上版本。
-8. 发布后自查：浏览器打开 `@updateURL` 指向的 raw 文件确认新 `@version`；或留一个旧版装油猴点「检查更新」，验证自动更新链路（raw 走 CDN，可能需要等几分钟）。
+8. 发布后自查：浏览器打开 `@updateURL` 指向的文件（jsDelivr 镜像或 raw）确认新 `@version`；或留一个旧版装油猴点「检查更新」，验证自动更新链路（镜像有边缘缓存，可能需要等几分钟）。
    CI 也会自动核对远端 `@updateURL` 的 `@version` 与 latest tag；如果刚推完 tag 就红，多半是 CDN 延迟，重跑即可。
 
 ## 报告问题

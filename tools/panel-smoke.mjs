@@ -252,7 +252,10 @@ if (!m) {
     console.error(dom.slice(0, 1200));
     process.exit(2);
 }
-const res = JSON.parse(m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+// 单遍解实体：先解 &amp; 再解 &lt; 会把 "&amp;lt;" 解成 "<"（CodeQL js/double-escaping）
+const HTML_ENTITY = { quot: '"', amp: '&', lt: '<', gt: '>' };
+const unescapeHtml = s => s.replace(/&(quot|amp|lt|gt);/g, (_, e) => HTML_ENTITY[e]);
+const res = JSON.parse(unescapeHtml(m[1]));
 
 for (const f of res.failed) console.log('FAIL  ' + f.name + (f.extra ? '  → ' + f.extra : ''));
 console.log(`\n面板冒烟测试：${res.pass}/${res.total} 通过  （浏览器：${BROWSERS}）`);

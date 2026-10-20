@@ -44,7 +44,11 @@ ok('@name 存在', !!one('name'));
 ok('@namespace 存在（改了会丢用户已存的题库）', !!one('namespace'));
 ok('@version 是 x.y.z', /^\d+\.\d+\.\d+$/.test(one('version')), one('version'));
 ok('@license 存在', !!one('license'), one('license'));
-ok('@match 已限定在法宣在线域名', many('match').length > 0 && many('match').every(x => x.includes('faxuanyun.com')), many('match').join(' '));
+// 锚定正则而不是 includes()：后者连 "*://evil.com/?u=faxuanyun.com/*" 也放过
+// （CodeQL js/incomplete-url-substring-sanitization）。
+const MATCH_OK = /^\*:\/\/(\*\.)?([\w-]+\.)*faxuanyun\.com\/\*$/;
+ok('@match 已限定在法宣在线域名', many('match').length > 0 && many('match').every(x => MATCH_OK.test(x)),
+    many('match').join(' '));
 ok('@noframes 已声明（避免 iframe 里重复注入）', meta.noframes !== undefined);
 ok('@run-at document-idle', one('run-at') === 'document-idle', one('run-at'));
 for (const g of ['GM_xmlhttpRequest', 'GM_getValue', 'GM_setValue', 'GM_addStyle', 'GM_addValueChangeListener', 'GM_info']) {
@@ -56,8 +60,20 @@ ok('@connect 覆盖 www.baidu.com', many('connect').includes('www.baidu.com'));
 // 油猴的「检查更新」与 README 里的安装链接都靠它们。
 const REPO = 'GNAYIEL/faxuanyun-legal-exam-assistant';
 const urlKeys = ['homepageURL', 'supportURL', 'downloadURL', 'updateURL'];
+// 解析 URL 比对 host + 路径前缀，而不是 includes()：后者 "https://evil.com/?x=/GNAYIEL/repo"
+// 也能过（CodeQL js/incomplete-url-substring-sanitization）。
+const inRepo = k => {
+    try {
+        const u = new URL(one(k));
+        const base = '/' + REPO.toLowerCase();
+        const p = u.pathname.toLowerCase();
+        // homepage/support 在 github.com，download/update 在 raw.githubusercontent.com
+        const hostOk = ['github.com', 'raw.githubusercontent.com'].includes(u.hostname.toLowerCase());
+        return hostOk && (p === base || p.startsWith(base + '/'));
+    } catch { return false; }
+};
 ok('仓库地址四行都指向同一仓库、无占位符',
-    urlKeys.every(k => one(k).includes(REPO) && !/[<>]/.test(one(k))),
+    urlKeys.every(k => inRepo(k) && !/[<>]/.test(one(k))),
     urlKeys.map(k => `${k}=${one(k)}`).join('  '));
 ok('downloadURL / updateURL 指向当前文件名（改名后必须同步）',
     one('downloadURL').endsWith('/faxuanyun-legal-exam-assistant.user.js') &&
@@ -257,6 +273,8 @@ ok('README 引用的本地图片都存在', imgRefs.length > 0 && missingImg.len
 
 // README 内部锚点（](#...)）最容易在改标题后静默失效：GitHub 上点了只会留在本页。
 // 按 GitHub 的 slug 规则把标题换算成锚点逐条核对；以后改标题必须同步改链接。
+// 这里不是消毒（无 HTML 上下文，只用来和标题 slug 比字符串），CodeQL
+// js/incomplete-multi-character-sanitization 在此属误报。
 const slugify = s => s.trim().toLowerCase()
     .replace(/<[^>]*>/g, '')
     .replace(/[^\p{L}\p{N}\s_-]/gu, '')

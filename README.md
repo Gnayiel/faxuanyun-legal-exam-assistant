@@ -1,17 +1,17 @@
 # 甘肃省国家工作人员学法考试平台自动答题助手
 
-[![version](https://img.shields.io/badge/version-2.0.9-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.10-blue)](CHANGELOG.md)
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
-[![self-test](https://img.shields.io/badge/self--test-179%20passing-success)](#开发与自检)
+[![self-test](https://img.shields.io/badge/self--test-181%20passing-success)](#开发与自检)
 [![panel--smoke](https://img.shields.io/badge/panel--smoke-40%20passing-success)](#开发与自检)
 [![page--smoke](https://img.shields.io/badge/page--smoke-72%20passing-success)](#开发与自检)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-4.0%2B-black)](https://www.tampermonkey.net/)
 
 <p align="center">
-  <img src="docs/social-preview-dark.png#gh-dark-mode-only" alt="法宣在线学法考试自动答题助手：结构化题库 + AI/百度双源查答案，单文件，内置自检" width="820">
-  <img src="docs/social-preview-light.png#gh-light-mode-only" alt="法宣在线学法考试自动答题助手：结构化题库 + AI/百度双源查答案，单文件，内置自检" width="820">
+  <img src="docs/social-preview-dark.webp#gh-dark-mode-only" alt="法宣在线学法考试自动答题助手：结构化题库 + AI/百度双源查答案，单文件，内置自检" width="820">
+  <img src="docs/social-preview-light.webp#gh-light-mode-only" alt="法宣在线学法考试自动答题助手：结构化题库 + AI/百度双源查答案，单文件，内置自检" width="820">
 </p>
 
 用于 **法宣在线**（`*.faxuanyun.com`）学法考试平台的 Tampermonkey 用户脚本。
@@ -66,7 +66,7 @@
   自己没打开的标签页时，日志会提示手动关闭，脚本不重复尝试
 - **面板**：可拖拽、一键收起（收成一条写着自己名字的窄条）、**按钮按用途分类折叠**、分类标题带实时状态摘要、
   快捷键、Shadow DOM 隔离站点样式（面板样式不污染页面，页面样式也不会打乱面板）、日志分级与导出、题库导入导出
-- **内置自检**：179 项纯函数断言，面板一键运行；不联网、不读写题库数据
+- **内置自检**：181 项纯函数断言，面板一键运行；不联网、不读写题库数据
 - **多标签页写保护**：落盘前先读盘合并、用 3 秒短时写锁串行化两个标签页的写入，再用「墓碑」确保删除不会被旧副本搬回来
 - **同场双页提醒**：同一场考试在第二个标签页打开时会提示「只留一个标签页」，避免两页记录分叉
 - **手动对账兜底**：成绩页识别不出答题卡时，面板「题库与本场 → 手动对账」可按 `1-8=对, 9=错, 10=未答` 手填，照样走对账 / 写库 / 错题清理
@@ -287,7 +287,7 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 单文件、纯前端、**无构建步骤**，改完直接安装即可。验证命令都不需要安装依赖：
 
 ```bash
-node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 179 项断言，不联网
+node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 181 项断言，不联网
 node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致（--fix 可自动改）
 node tools/check-workflows.mjs               # GitHub Actions 配置静态检查（action 必须 pin SHA 等）
 node tools/merge-bank.mjs data/*.json -o /tmp/merged.json   # 题库合并工具冒烟（幂等）
@@ -397,7 +397,7 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 │       ├── release.yml           # 推送 v* tag 时自动建 Release、上传 .user.js + .sha256，并做更新链校验
 │       ├── auto-merge.yml        # Dependabot 依赖升级 PR：自检全绿后自动合并
 │       └── backfill-sha256.yml   # 推送 main 时给缺少 .sha256 的旧 Release 自动补齐校验文件
-├── docs/                         # README 顶部预览图与 GitHub 社交预览图（panel.png、social-preview-*.png）
+├── docs/                         # README 顶部预览图与 GitHub 社交预览图（panel.png、social-preview-*.webp）
 ├── data/
 │   ├── README.md                 # 题库快照的命名规范与提交规则
 │   ├── faxuanyun-legal-exam-bank-20261020.csv    # 随仓库分发的 299 题快照（6 列）
@@ -405,7 +405,7 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 ├── tests/
 │   └── fixtures/                 # 页面适配冒烟的 6 个脱敏 fixture（单选/多选/判断/答题卡/成绩/无总题数）
 └── tools/
-    ├── selftest.mjs              # 无依赖自检（元数据 + 179 项断言）
+    ├── selftest.mjs              # 无依赖自检（元数据 + 181 项断言）
     ├── check-data.mjs            # 题库快照与文档数字一致性校验（--fix 可自动修）
     ├── merge-bank.mjs            # 多份题库导出合并（--emit-snapshot 生成 data/ 快照）
     ├── check-workflows.mjs       # GitHub Actions 配置静态检查
@@ -433,7 +433,14 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 
 ## 更新记录
 
-当前版本 **v2.0.9**（2026-10-20）：判断题安全复用补上「量化词」闸门、导入题库后同步清会话缓存，并清理了仓库外会话日志里的明文访问凭据
+当前版本 **v2.0.10**（2026-10-21）：修掉 CodeQL 首扫报出的正则回溯与实体二次解码两处真实缺陷，README 预览图转 WebP
+
+- 修复：答案解析的关键词正则把 `[\s]*` 嵌在重复组里，遇到超长空白会灾难性回溯（整页卡死）→ 改为单层字符类，匹配线性化
+- 修复：`stripHtml` 先解 `&amp;` 再解 `&lt;`，`&amp;lt;` 会被二次解码成 `<` → 改为单遍实体映射；两个冒烟脚本的 DOM 反解同理
+- 变更：README 预览图 PNG（1.35 MB）→ WebP Q82（117 KB）；CI 小加固（checkout 不持久化 token、dependabot 补 label 与 PR 上限）
+- 测试：内置自检 **179 → 181 项**（新增正则回溯与实体解码断言）
+
+v2.0.9（2026-10-20）：判断题安全复用补上「量化词」闸门、导入题库后同步清会话缓存，并清理了仓库外会话日志里的明文访问凭据
 
 - 新增：判断题「量化词一致性」闸门——题干里所有/全部/任何/部分/个别/有些/一律/全都数量不一致时，即使编辑距离 ≤ 2 也不复用（「所有权/所有制/所有者」不算量化词）；内置自检 179 → 179 项
 - 修复：导入题库后清空会话答案缓存，避免同一场继续命中导入前的旧答案

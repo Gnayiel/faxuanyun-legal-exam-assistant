@@ -176,7 +176,7 @@ if (!tagList.ok) {
         const tagSha = tryGit(['rev-parse', '-q', '--verify', `refs/tags/${tag}^{commit}`]);
         if (!tagSha.ok || !tagSha.out) gate(`tag ${tag} 存在但解析不出提交`);
         else if (headSha && tagSha.out !== headSha) {
-            gate(`tag ${tag} 已存在但不在 HEAD（${tagSha.out.slice(0, 7)} ≠ ${headSha.slice(0, 7)}）：改用新版本号（`v*` tag 受 protect-release-tags 保护，不能删除 / 改指向；确需重打请先临时停用该 ruleset）`);
+            gate(`tag ${tag} 已存在但不在 HEAD（${tagSha.out.slice(0, 7)} ≠ ${headSha.slice(0, 7)}）：改用新版本号（「v*」tag 受 protect-release-tags 保护，不能删除 / 改指向；确需重打请先临时停用该 ruleset）`);
         }
     }
 }

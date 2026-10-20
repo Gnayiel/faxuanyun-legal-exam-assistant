@@ -26,11 +26,21 @@ jobs:
         with:
           # 版本单调 / 历史比较要读完整 tag 历史，浅克隆下会退化。
           fetch-depth: 0
+          # 这个 job 只读：不把 GITHUB_TOKEN 留在 .git/config 里，少一个被后续步骤拿去推代码的面
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '22'
 
-      # 元数据校验 + 脚本内置的 179 项断言，无第三方依赖
+      # 工具脚本语法检查：一个手滑的全角引号就能让发版门禁脚本直接编译失败（v2.0.10 曾踩到）
+      - name: 工具脚本语法检查
+        run: |
+          for f in faxuanyun-legal-exam-assistant.user.js tools/*.mjs; do
+            node --check "$f"
+          done
+          echo "工具脚本语法检查通过"
+
+      # 元数据校验 + 脚本内置的 181 项断言，无第三方依赖
       - name: 内置自检
         run: node tools/selftest.mjs
 

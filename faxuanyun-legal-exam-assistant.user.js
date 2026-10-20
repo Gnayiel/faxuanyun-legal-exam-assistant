@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.9
-// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 179 项内置自检
+// @version      2.0.10
+// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 181 项内置自检
 // @author       GNAYIEL
 // @license      MIT
 // @match        *://gs.faxuanyun.com/*
@@ -90,7 +90,7 @@
  *   作答策略          多选组合枚举、chooseAnswer 决策、answerCurrent 单题流程
  *   成绩解析          答题卡颜色判定、分数读取、交卷对账入库
  *   考试流程控制      退出原因、暂停等待、倒计时、弹窗、最后一题、mainLoop
- *   内置自检          179 项纯函数断言 + window.__FX_TEST__ 测试钩子
+ *   内置自检          181 项纯函数断言 + window.__FX_TEST__ 测试钩子
  *   面板              UI 构建、分类折叠、拖拽、状态摘要、AI 设置、导入导出与日志按钮
  */
 
@@ -2525,7 +2525,9 @@
         }
 
         // 3) 带提示词后的字母：「答案是 A」「正确答案为 B」「【答案】C」「正确选项：B」「应选 D」
-        const KEYED = /(?:正确答案|参考答案|标准答案|正确选项|本题答案|答案|应选|选择|选项|判断|结论|选)\s*(?:[是为]|[:：]|[\]】）)］]|[\s]*)*\s*([A-Za-z](?:[\s,，、/和及与]*[A-Za-z])*)/;
+        // 必须是「单层字符类」：写成 (?:…|[\s]*)* 时，超长空白串会灾难性回溯、整页卡死
+        // （CodeQL js/redos，v2.0.10 修复）。
+        const KEYED = /(?:正确答案|参考答案|标准答案|正确选项|本题答案|答案|应选|选择|选项|判断|结论|选)[是为:：\]】）)］\s]*([A-Za-z](?:[\s,，、/和及与]*[A-Za-z])*)/;
         const keyed = s.match(KEYED);
         if (keyed) {
             const r = hit(keyed[1], 0.9, '提示词+字母');
@@ -2854,12 +2856,23 @@
         return `${who}返回 ${r.status}${tail}`;
     }
 
-    const stripHtml = html => String(html)
-        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/&nbsp;|&emsp;/g, ' ')
-        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    const HTML_ENTITY = { nbsp: ' ', emsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"' };
+
+    /**
+     * 单遍解码受支持的文字实体（纯函数）。
+     * 必须单遍：先解 &amp; 再解 &lt; 会把 "&amp;lt;" 解成 "<"，页面里的转义文本就被
+     * 还原成真标签（CodeQL js/double-escaping，v2.0.10 修复）。
+     */
+    function decodeEntities(s) {
+        return String(s).replace(/&(nbsp|emsp|amp|lt|gt|quot);/g, (_, e) => HTML_ENTITY[e]);
+    }
+
+    // 只产出纯文本（日志 / 错误提示用，不进 innerHTML）：先摘掉 script/style 整段
+    // （允许属性与结尾空白），再把标签退化成空格，最后单遍解实体。
+    const stripHtml = html => decodeEntities(String(html)
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ')
+        .replace(/<[^>]*>/g, ' '))
         .replace(/\s+/g, ' ');
 
     const SRC_NAME = { ai: 'AI', baidu: '百度', cache: '缓存' };
@@ -6004,6 +6017,19 @@
                 && truncateResponseText('x'.repeat(10), 0).length === 10;
         });
 
+        // ---------- v2.0.10：CodeQL 首扫告警的回归断言 ----------
+        t('提示词正则遇到超长空白不回溯爆炸（v2.0.10 ReDoS）', () => {
+            const opts = [{ letter: 'A', text: '甲' }, { letter: 'B', text: '乙' }];
+            // 旧实现把 [\s]* 嵌在 (...)* 里，这段输入会让页面假死
+            const nasty = '答案是' + ' '.repeat(500) + '．';
+            const t0 = Date.now();
+            const r = extractAnswer(nasty, opts, 'single');
+            return r === null && Date.now() - t0 < 200;
+        });
+        t('实体单遍解码：&amp;lt; 不再被解成 <（v2.0.10 double-escaping）', () =>
+            decodeEntities('&amp;lt;script&amp;gt;') === '&lt;script&gt;'
+            && decodeEntities('&nbsp;&amp;&quot;') === ' &"');
+
         return cases;
     }
 
@@ -6030,7 +6056,7 @@
     try {
         window.__FX_TEST__ = {
             normStem, fpKey, similarity, prefixSame, matchOption, entryToLetters, extractAnswer,
-            stripQueryEcho, clipQuery, followPageRelevant, flattenText, removeFlatFragments,
+            stripQueryEcho, clipQuery, decodeEntities, followPageRelevant, flattenText, removeFlatFragments,
             extractAIAnswer, jsonObjectCandidates, hasJsonObject,
             locateBankEntryForWrong, bankAnswerIsWrongPick, reconcileKey, clearedSessionState, pageShowAction,
             mergeCandidates, chooseAnswer, combosOf, multiCombos, comboKey, parseDelimited, sniffDelim,

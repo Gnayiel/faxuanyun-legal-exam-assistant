@@ -10,3 +10,4 @@
 
 # 图片按二进制处理，不做换行转换
 *.png binary
+*.webp binary

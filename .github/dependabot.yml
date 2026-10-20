@@ -8,6 +8,11 @@ updates:
       interval: weekly
     commit-message:
       prefix: "chore(ci)"
+    labels:
+      - dependencies
+      - ci
+    # 分组后通常只有 1 个 PR，上限只是防意外刷屏
+    open-pull-requests-limit: 5
     groups:
       github-actions:
         patterns:

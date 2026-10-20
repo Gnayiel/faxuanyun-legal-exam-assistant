@@ -370,8 +370,10 @@ function buildPage(c) {
     return page;
 }
 
+// 单遍解实体：先解 &amp; 再解 &lt; 会把 "&amp;lt;" 解成 "<"（CodeQL js/double-escaping）
+const HTML_ENTITY = { quot: '"', amp: '&', lt: '<', gt: '>' };
 function unescapeDom(s) {
-    return s.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    return s.replace(/&(quot|amp|lt|gt);/g, (_, e) => HTML_ENTITY[e]);
 }
 
 let pass = 0, total = 0, fatal = 0;

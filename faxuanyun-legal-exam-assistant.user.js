@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.8
-// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 177 项内置自检
+// @version      2.0.9
+// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 179 项内置自检
 // @author       GNAYIEL
 // @license      MIT
 // @match        *://gs.faxuanyun.com/*
@@ -90,7 +90,7 @@
  *   作答策略          多选组合枚举、chooseAnswer 决策、answerCurrent 单题流程
  *   成绩解析          答题卡颜色判定、分数读取、交卷对账入库
  *   考试流程控制      退出原因、暂停等待、倒计时、弹窗、最后一题、mainLoop
- *   内置自检          177 项纯函数断言 + window.__FX_TEST__ 测试钩子
+ *   内置自检          179 项纯函数断言 + window.__FX_TEST__ 测试钩子
  *   面板              UI 构建、分类折叠、拖拽、状态摘要、AI 设置、导入导出与日志按钮
  */
 
@@ -1559,6 +1559,22 @@
     }
 
     /**
+     * 判断题量化词闸门（v2.0.9）：量化词改变命题真值（「所有…都…」vs「部分…」），
+     * 但编辑距离可以很小。注意「所有权 / 所有制 / 所有者」是法律术语，不算量化词。
+     */
+    const QUANT_RE = /所有(?!权|制|者)|全部|任何|部分|个别|有些|一律|全都/g;
+
+    /** 题干里的量化词签名（纯函数，自检可断言）：按出现次数统计，与词序无关。 */
+    function quantifierSignature(s) {
+        const counts = {};
+        const str = String(s || '');
+        QUANT_RE.lastIndex = 0;
+        let m;
+        while ((m = QUANT_RE.exec(str))) counts[m[0]] = (counts[m[0]] || 0) + 1;
+        return Object.keys(counts).sort().map(w => `${w}×${counts[w]}`).join(',');
+    }
+
+    /**
      * 判断题专用安全复用（纯函数，自检可断言，R1）
      * 判断题的选项永远是「正确/错误」，普通相似度分不清「属于人民」与「不属于人民」——
      * 复用错了就是稳定答反，而且毫无提示。所以只接受两种极强证据：
@@ -1588,6 +1604,8 @@
             if (negCount(target) !== negCount(norm)) continue;
             // 模态词不同（应当↔可以、必须↔无需）同样是语义差异，编辑距离小也不能复用（v2.0.8）
             if (modalSignature(target) !== modalSignature(norm)) continue;
+            // 量化词不同（所有↔部分）同样改变真值，编辑距离小也不能复用（v2.0.9）
+            if (quantifierSignature(target) !== quantifierSignature(norm)) continue;
             const diff = levenshtein(target, norm);
             if (diff <= limit) {
                 hits.push({ key, e, diff, sim: 1 - diff / Math.max(target.length, norm.length) });
@@ -2298,6 +2316,7 @@
     function importData(text) {
         const t = String(text || '').replace(/^\ufeff/, '').trim();
         resetTombstones();   // 用户主动导入=明确要求这些条目进库：清掉本地遗留墓碑（B7），跨电脑合并语义不变
+        clearAnswerCache();  // 导入会改题库：清掉会话答案缓存，避免同一场继续命中导入前的旧答案（v2.0.9）
         if (t.startsWith('{') || t.startsWith('[')) {
             // 数组形态以前被换成空 bank 静默丢弃，现在原样交给 importJson
             return importJson(t);
@@ -5952,6 +5971,23 @@
             return !!exact && exact.diff === 0 && modal === null && modal2 === null
                 && modalSignature('甲应当乙') !== modalSignature('甲可以乙')
                 && modalSignature('甲应当乙') === modalSignature('甲应当乙');
+        });
+        t('判断题安全复用：量化词不同（所有↔部分）即使编辑距离≤2 也不复用', () => {
+            const base = '所有考生都必须严格遵守考场纪律规定';
+            const entries = [['k2', { t: 'judge', q: base, a: ['正确'] }]];
+            const exact = judgeStemMatch(base, 'judge', entries);
+            const quant = judgeStemMatch('部分考生都必须严格遵守考场纪律规定', 'judge', entries);
+            return !!exact && exact.diff === 0 && quant === null
+                && quantifierSignature('所有考生') === '所有×1'
+                && quantifierSignature('部分考生') === '部分×1'
+                && quantifierSignature('保护公民的所有权、所有制与所有者权益') === '';
+        });
+        t('判断题安全复用：量化词相同（都含「全部」）时仍按编辑距离判定', () => {
+            const base = '全部考生都必须严格遵守考场纪律规定';
+            const entries = [['k3', { t: 'judge', q: base, a: ['正确'] }]];
+            const exact = judgeStemMatch(base, 'judge', entries);
+            const near = judgeStemMatch('全部考生都必须严格遵守考场纪律规范', 'judge', entries);
+            return !!exact && exact.diff === 0 && !!near && near.diff === 1 && near.how === 'judge-fuzzy';
         });
         t('会话缓存：题库条目被删后同题缓存立即失效，别的题不受影响（R5 收尾）', () => {
             const key = answerCacheKey('V208缓存测试甲题', 'single', [{ text: 'A' }, { text: 'B' }]);

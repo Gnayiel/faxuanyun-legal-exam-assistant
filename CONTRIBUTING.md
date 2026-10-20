@@ -18,7 +18,7 @@
 ## 本地验证（提交前必跑）
 
 ```bash
-node tools/selftest.mjs                      # 元数据 + 177 项内置断言 + 文档数字校验，不联网
+node tools/selftest.mjs                      # 元数据 + 179 项内置断言 + 文档数字校验，不联网
 node tools/check-workflows.mjs               # GitHub Actions 配置静态检查（pin SHA / 权限 / 脚本路径）
 node tools/release.mjs --dry-run             # 本地发版助手：版本与 CHANGELOG 校验 + 跑测试 + 打 tag 预演
 node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致

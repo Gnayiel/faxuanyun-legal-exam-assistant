@@ -1,10 +1,10 @@
 # 甘肃省国家工作人员学法考试平台自动答题助手
 
-[![version](https://img.shields.io/badge/version-2.0.8-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.9-blue)](CHANGELOG.md)
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
-[![self-test](https://img.shields.io/badge/self--test-177%20passing-success)](#开发与自检)
+[![self-test](https://img.shields.io/badge/self--test-179%20passing-success)](#开发与自检)
 [![panel--smoke](https://img.shields.io/badge/panel--smoke-40%20passing-success)](#开发与自检)
 [![page--smoke](https://img.shields.io/badge/page--smoke-72%20passing-success)](#开发与自检)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-4.0%2B-black)](https://www.tampermonkey.net/)
@@ -59,7 +59,7 @@
   自己没打开的标签页时，日志会提示手动关闭，脚本不重复尝试
 - **面板**：可拖拽、一键收起（收成一条写着自己名字的窄条）、**按钮按用途分类折叠**、分类标题带实时状态摘要、
   快捷键、Shadow DOM 隔离站点样式（面板样式不污染页面，页面样式也不会打乱面板）、日志分级与导出、题库导入导出
-- **内置自检**：177 项纯函数断言，面板一键运行；不联网、不读写题库数据
+- **内置自检**：179 项纯函数断言，面板一键运行；不联网、不读写题库数据
 - **多标签页写保护**：落盘前先读盘合并、用 3 秒短时写锁串行化两个标签页的写入，再用「墓碑」确保删除不会被旧副本搬回来
 - **同场双页提醒**：同一场考试在第二个标签页打开时会提示「只留一个标签页」，避免两页记录分叉
 - **手动对账兜底**：成绩页识别不出答题卡时，面板「题库与本场 → 手动对账」可按 `1-8=对, 9=错, 10=未答` 手填，照样走对账 / 写库 / 错题清理
@@ -280,7 +280,7 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 单文件、纯前端、**无构建步骤**，改完直接安装即可。验证命令都不需要安装依赖：
 
 ```bash
-node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 177 项断言，不联网
+node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 179 项断言，不联网
 node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致（--fix 可自动改）
 node tools/check-workflows.mjs               # GitHub Actions 配置静态检查（action 必须 pin SHA 等）
 node tools/merge-bank.mjs data/*.json -o /tmp/merged.json   # 题库合并工具冒烟（幂等）
@@ -396,7 +396,7 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 ├── tests/
 │   └── fixtures/                 # 页面适配冒烟的 6 个脱敏 fixture（单选/多选/判断/答题卡/成绩/无总题数）
 └── tools/
-    ├── selftest.mjs              # 无依赖自检（元数据 + 177 项断言）
+    ├── selftest.mjs              # 无依赖自检（元数据 + 179 项断言）
     ├── check-data.mjs            # 题库快照与文档数字一致性校验（--fix 可自动修）
     ├── merge-bank.mjs            # 多份题库导出合并（--emit-snapshot 生成 data/ 快照）
     ├── check-workflows.mjs       # GitHub Actions 配置静态检查
@@ -424,11 +424,15 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 
 ## 更新记录
 
-当前版本 **v2.0.8**（2026-10-20）：判断题安全复用再收紧（新增模态词一致性闸门）、对账删除后缓存同步失效、AI 主响应不再受跟进页体积上限影响，并收掉几个门禁/文档尾巴
+当前版本 **v2.0.9**（2026-10-20）：判断题安全复用补上「量化词」闸门、导入题库后同步清会话缓存，并清理了仓库外会话日志里的明文访问凭据
 
-- 新增：判断题「模态词一致性」闸门——题干里必须/应当/可以/不得/禁止/无需等词形不一致时，即使编辑距离 ≤ 2 也不复用，避免「应当↔可以」这类题被复用后稳定答反；内置自检 174 → 177 项
+- 新增：判断题「量化词一致性」闸门——题干里所有/全部/任何/部分/个别/有些/一律/全都数量不一致时，即使编辑距离 ≤ 2 也不复用（「所有权/所有制/所有者」不算量化词）；内置自检 179 → 179 项
+- 修复：导入题库后清空会话答案缓存，避免同一场继续命中导入前的旧答案
+- 安全：清理仓库外会话日志中的明文 GitHub 令牌（建议同步去 GitHub 撤销该 token）
 - 修复：交卷对账删除题库错答案后同步失效本题会话缓存（同一场重放不再命中旧缓存）；大响应截断只作用于百度跟进页，AI 主响应不截断；争议题导出移除从未写入的 `disputed` 字段；page-smoke 负例不再打印「通过」摘要行
 - 文档：README 补「GitHub 被拦截时的手动更新兜底」；真机回归清单标注多标签页同场双开为可选
+
+v2.0.8（2026-10-20）：判断题安全复用新增模态词一致性闸门、对账删除后缓存同步失效、AI 主响应不再受跟进页上限影响
 
 v2.0.7（2026-10-20）：判断题安全相似复用、答案会话缓存、双源并行、多选组合上限、争议题与诊断包导出、墓碑定期清理与存储占用监控；页面适配冒烟扩到 6 个 fixture 并结构化断言
 

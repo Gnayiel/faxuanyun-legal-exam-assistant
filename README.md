@@ -75,7 +75,7 @@
 2. 安装脚本，按下面顺序挑一个能用的：
    - **推荐**：到 [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 下载最新版本的
      `.user.js` 附件，拖进浏览器窗口安装。
-     这条永远拿到**最新版**，装好后自动更新走 `@updateURL`（`@latest`），后续几秒级拿到新版本号。
+     这条永远拿到**最新版**；装好后自动更新走 `@updateURL`（`@latest`），后续版本由油猴按自己的检查间隔自动装上。
    - 浏览器里能打开 GitHub 时，也可直接点仓库里的
      [`faxuanyun-legal-exam-assistant.user.js`](faxuanyun-legal-exam-assistant.user.js) 再点 **Raw**。
    - 国内多数网络下 github.com / raw.githubusercontent.com 不通，改用 jsDelivr 固定版本直链（把 `vX.Y.Z`

@@ -61,7 +61,7 @@ ok('@connect 覆盖 www.baidu.com', many('connect').some(h => h.toLowerCase() ==
 
 // 四个仓库地址必须都指向同一个仓库，且不能留着 <你的用户名> 这类占位符：
 // 油猴的「检查更新」与 README 里的安装链接都靠它们。
-const REPO = 'GNAYIEL/faxuanyun-legal-exam-assistant';
+const REPO = 'Gnayiel/faxuanyun-legal-exam-assistant';
 const urlKeys = ['homepageURL', 'supportURL', 'downloadURL', 'updateURL'];
 // 解析 URL 比对 host + 路径前缀，而不是 includes()：后者 "https://evil.com/?x=/GNAYIEL/repo"
 // 也能过（CodeQL js/incomplete-url-substring-sanitization）。
@@ -70,12 +70,20 @@ const inRepo = k => {
         const u = new URL(one(k));
         const base = '/' + REPO.toLowerCase();
         const p = u.pathname.toLowerCase();
-        // homepage/support 在 github.com，download/update 在 raw.githubusercontent.com
-        const hostOk = ['github.com', 'raw.githubusercontent.com'].includes(u.hostname.toLowerCase());
-        return hostOk && (p === base || p.startsWith(base + '/'));
+        const host = u.hostname.toLowerCase();
+        // homepage/support 走 github.com；download/update 走 jsDelivr 镜像（国内可达性优先）
+        if (host === 'github.com' || host === 'raw.githubusercontent.com') {
+            return p === base || p.startsWith(base + '/');
+        }
+        if (host === 'cdn.jsdelivr.net') {
+            // jsDelivr 的 GitHub 路径形式：/gh/<owner>/<repo>@<ref>/<文件...>
+            const m = p.match(/^\/gh\/([^/]+)\/([^@/]+)(?:@[^/]+)?(?:\/|$)/);
+            return !!m && `${m[1]}/${m[2]}` === REPO.toLowerCase();
+        }
+        return false;
     } catch { return false; }
 };
-ok('仓库地址四行都指向同一仓库、无占位符',
+ok('仓库地址四行都指向同一仓库、无占位符（github.com / jsDelivr 两种 host 都认）',
     urlKeys.every(k => inRepo(k) && !/[<>]/.test(one(k))),
     urlKeys.map(k => `${k}=${one(k)}`).join('  '));
 // 取 pathname 的最后一段比文件名，而不是 endsWith(整串)：后者属于 URL 子串校验
@@ -92,6 +100,9 @@ ok('downloadURL / updateURL 指向当前文件名（改名后必须同步）',
 // 不同客户端会从不同地址取更新，行为分叉且难排查，所以两个字段必须完全一致。
 const RAW_FILE = 'faxuanyun-legal-exam-assistant.user.js';
 const UPDATE_URL_PREFIXES = [
+    // 自动更新优先走 jsDelivr：raw.githubusercontent / github.com/raw 在国内多数网络下不可达，
+    // 会让「检查更新」静默失败（这正是 v2.0.12 改地址的原因）。
+    `https://cdn.jsdelivr.net/gh/${REPO}@main/`,
     `https://raw.githubusercontent.com/${REPO}/main/`,
     `https://github.com/${REPO}/raw/main/`,
 ];

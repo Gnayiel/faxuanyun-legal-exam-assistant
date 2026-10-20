@@ -1,0 +1,22 @@
+# 统一编辑器行为，避免「同一份文件在不同机器上换行/缩进不一致」的噪声 diff。
+# 与 .gitattributes 保持一致：源码与文档统一 LF；题库 CSV 由脚本导出为 UTF-8 BOM + CRLF，原样保留。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{md,yml,yaml,json}]
+indent_size = 2
+
+[*.csv]
+end_of_line = crlf
+charset = utf-8-bom
+trim_trailing_whitespace = false
+
+[*.png]
+insert_final_newline = false

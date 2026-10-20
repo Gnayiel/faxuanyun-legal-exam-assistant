@@ -1,6 +1,6 @@
 # 甘肃省国家工作人员学法考试平台自动答题助手
 
-[![version](https://img.shields.io/badge/version-2.0.11-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.12-blue)](CHANGELOG.md)
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
@@ -73,11 +73,12 @@
 
 1. 浏览器安装 [Tampermonkey](https://www.tampermonkey.net/)（或 Violentmonkey）
 2. 安装脚本，任选其一：
-   - 打开原始文件地址，油猴会直接弹出安装页：
-     `https://raw.githubusercontent.com/GNAYIEL/faxuanyun-legal-exam-assistant/main/faxuanyun-legal-exam-assistant.user.js`
-   - **国内网络打不开 raw 时**，用 jsDelivr 镜像安装（只影响这一次安装；装好后自动更新仍走上面的原始地址）：
+   - **推荐**：jsDelivr 镜像地址（国内可直连；自动更新也走这个源），油猴会直接弹出安装页：
      `https://cdn.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@main/faxuanyun-legal-exam-assistant.user.js`
-     ⚠️ 镜像路径**区分大小写**，请照抄 `Gnayiel`；镜像也不通时见下面两条。
+     ⚠️ 镜像路径**区分大小写**，请照抄 `Gnayiel`。
+   - GitHub 原始地址（海外网络更稳；国内多数网络下不可达，可作备用）：
+     `https://raw.githubusercontent.com/Gnayiel/faxuanyun-legal-exam-assistant/main/faxuanyun-legal-exam-assistant.user.js`
+   - 镜像与 raw 都不通时见下面两条。
    - 到 [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 下载最新版本的
      `.user.js` 附件，拖进浏览器窗口安装
    - 或下载仓库里的 [`faxuanyun-legal-exam-assistant.user.js`](faxuanyun-legal-exam-assistant.user.js)，
@@ -120,8 +121,10 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
 
 ## 更新与自动更新
 
-脚本头部已经写好 `@updateURL` / `@downloadURL`，都指向本仓库 `main` 分支上的这个
-`faxuanyun-legal-exam-assistant.user.js`。**用户装好一版之后不需要再做任何事**，后续版本由油猴自动更新。
+脚本头部已经写好 `@updateURL` / `@downloadURL`，都指向本仓库 `main` 分支上这个脚本的
+**jsDelivr 镜像**（`cdn.jsdelivr.net/gh/Gnayiel/...@main/...`）——换成镜像是因为
+`raw.githubusercontent.com` 在国内多数网络下不可达，会让「检查更新」静默失败。
+**用户装好一版之后不需要再做任何事**，后续版本由油猴自动更新。
 
 ### 用户侧：油猴怎么更新
 
@@ -133,8 +136,8 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
 - **数据不丢**：更新是「同一个脚本」的原地替换，身份由 `@name` + `@namespace` 决定，
   题库、错题记录、AI 设置、面板位置都保留。只有改 `@name` / `@namespace` 才会被当成新脚本
   （v2.0.0 就是这么一次，迁移见上一节）。
-- **更新失败的兜底**：`raw.githubusercontent.com` 在部分网络（尤其国内）下可能连不上，
-  自动检查会静默失败（不会损坏数据）。可以开代理后重试；也可以到
+- **更新失败的兜底**：自动更新走 jsDelivr，若它也不通（CDN 故障 / 网络限制），
+  自动检查会静默失败（不会损坏数据）。可以换网络后重试；也可以到
   [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 下载该版本的
   `.user.js` 附件，或直接下载仓库里的文件，拖进浏览器窗口安装——
   同一脚本的新版本会覆盖旧版本，效果与自动更新一致，数据同样不丢。
@@ -291,11 +294,15 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 
 ## 更新记录
 
-当前版本 **v2.0.11**（2026-10-21）：CodeQL 收尾——HTML 转纯文本改用 DOMParser，自检里的两处 URL / 文本断言去掉误报
+当前版本 **v2.0.12**（2026-10-21）：自动更新改走国内可达的 jsDelivr，答题过程中题库定时落盘
 
-- 修复：`stripHtml` 不再用正则剥标签，改用 `DOMParser` 惰性解析（实体、`script/style`、注释、畸形标签都由解析器处理）；无 DOM 宿主回退到单遍实体解码
-- 修复：`tools/selftest.mjs` 的 `downloadURL/updateURL` 断言改用 URL pathname 比较，标题 slug 不再做伪消毒
+- 变更：`@downloadURL` / `@updateURL` 改指 jsDelivr 镜像（`raw.githubusercontent.com` 在国内多数网络下不可达，旧地址会让自动更新静默失败）；安装说明把镜像提到推荐位
+- 变更：每答一题尝试落盘一次，节流到最少 20 秒写一次（新增 `CONFIG.bankFlushMinInterval`）；以前只在导入 / 对账 / 页面关闭时落盘，浏览器崩溃或被系统回收会丢掉这一轮新学的答案与命中统计
+- 修复：删掉从未被调用的 `getTotalQ()`；去掉与 `*://*.faxuanyun.com/*` 完全重复的 `@match *://gs.faxuanyun.com/*`
+- 杂项：仓库地址大小写统一为 `Gnayiel`（`@namespace` 不动，它是脚本身份）；`CHANGELOG.md` 只留最近三个版本，更早归档到 [CHANGELOG-archive.md](CHANGELOG-archive.md)
+
+v2.0.11（2026-10-21）：CodeQL 收尾——HTML 转纯文本改用 DOMParser，自检里的两处 URL / 文本断言去掉误报
 
 v2.0.10（2026-10-21）：修掉 CodeQL 首扫报出的正则回溯与实体二次解码两处真实缺陷，README 预览图转 WebP
 
-完整清单见 [CHANGELOG.md](CHANGELOG.md)。
+完整清单见 [CHANGELOG.md](CHANGELOG.md)，更早版本在 [CHANGELOG-archive.md](CHANGELOG-archive.md)。

@@ -124,8 +124,9 @@ jobs:
       # 发版门禁 4：自动更新链路。用户点「检查更新」读的是 main 分支上 @updateURL 指向的文件，
       # 所以远端脚本里的 // @version 必须已经是本 tag；latest Release 也必须指向本 tag，
       # 否则新装用户拿到旧版、老用户永远被提示「已是最新」。
-      # GitHub raw 有 CDN 缓存，刚打 tag 时可能还是旧内容，因此重试 6 次 × 20 秒；
-      # 仍不一致时先手动重跑本 workflow（多半是 CDN 延迟），重跑还红才是真问题。
+      # v2.0.12 起 @updateURL 指向 jsDelivr 镜像（raw 在国内不可达），而镜像对 @main 有小时级缓存，
+      # 因此：先主动 purge jsDelivr 缓存 → 用 raw（权威、无长缓存）判定 main 是否已跟上 tag →
+      # 再尽量确认镜像也刷新了；镜像没刷新只记 warning，不把发版卡成红的（重跑 workflow 即可）。
       - name: 更新链校验（远端 @updateURL / latest tag）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -137,20 +138,44 @@ jobs:
             exit 1
           }
 
-          script_url="$(sed -n 's/^\/\/ @updateURL[[:space:]]\{1,\}//p' faxuanyun-legal-exam-assistant.user.js | head -n1)"
-          [ -n "$script_url" ] || script_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/faxuanyun-legal-exam-assistant.user.js"
-          echo "检查远端脚本：$script_url"
+          FILE=faxuanyun-legal-exam-assistant.user.js
+          script_url="$(sed -n 's/^\/\/ @updateURL[[:space:]]\{1,\}//p' "$FILE" | head -n1)"
+          authoritative="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/${FILE}"
+          read_version() {
+            curl -fsSL --max-time 20 "$1" 2>/dev/null \
+              | sed -n 's/^\/\/ @version[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' | head -n1
+          }
 
-          remote_version=""
+          # 1) 主动清一次 jsDelivr 缓存（失败不影响发版结论，只是少一个加速手段）
+          case "$script_url" in
+            https://cdn.jsdelivr.net/gh/*)
+              purge_url="https://purge.jsdelivr.net/gh/${script_url#https://cdn.jsdelivr.net/gh/}"
+              echo "purge 镜像缓存：$purge_url"
+              curl -fsS --max-time 20 "$purge_url" >/dev/null 2>&1 || echo "::warning::purge jsDelivr 失败（不影响发版，镜像会自行过期刷新）"
+              ;;
+          esac
+
+          # 2) 权威判定：raw 上的 main 必须已经是本 tag 的版本（raw 无长缓存，重试 6 次 × 20 秒）
+          echo "检查权威地址：$authoritative"
+          raw_version=""
           for i in 1 2 3 4 5 6; do
-            body="$(curl -fsSL --max-time 20 "$script_url" 2>/dev/null || true)"
-            remote_version="$(printf '%s\n' "$body" | sed -n 's/^\/\/ @version[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' | head -n1)"
-            [ "${remote_version#v}" = "${TAG#v}" ] && break
-            echo "第 $i/6 次：远端版本 ${remote_version:-空}，未到 $TAG，20 秒后重试…"
+            raw_version="$(read_version "$authoritative")"
+            [ "${raw_version#v}" = "${TAG#v}" ] && break
+            echo "第 $i/6 次：raw 版本 ${raw_version:-空}，未到 $TAG，20 秒后重试…"
             sleep 20
           done
-          [ "${remote_version#v}" = "${TAG#v}" ] || fail "远端 @updateURL 的 // @version 是「${remote_version:-空}」，与 tag $TAG 不一致。可能是 GitHub raw 的 CDN 还没刷新，稍后重跑本 workflow 即可；若重跑仍不一致，说明 main 上的脚本版本没跟上 tag"
-          echo "✓ 远端 @updateURL 已是 $TAG"
+          [ "${raw_version#v}" = "${TAG#v}" ] || fail "main 上的 $FILE 版本是「${raw_version:-空}」，与 tag $TAG 不一致：先确认 main 已包含本版脚本再打 tag（发版流程要求先推 main）"
+          echo "✓ main 上的脚本已是 $TAG"
+
+          # 3) 镜像侧：尽量确认 @updateURL 也能取到本版；镜像缓存未刷新只警告（用户侧会自动过期）
+          if [ -n "$script_url" ] && [ "$script_url" != "$authoritative" ]; then
+            mirror_version="$(read_version "$script_url")"
+            if [ "${mirror_version#v}" = "${TAG#v}" ]; then
+              echo "✓ 镜像 @updateURL 已是 $TAG"
+            else
+              echo "::warning::镜像（$script_url）当前版本 ${mirror_version:-取不到}，尚未刷新到 $TAG；jsDelivr 会自行过期（几小时内），急着验证可稍后重跑本 workflow"
+            fi
+          fi
 
           latest="$(gh release view --json tagName --jq '.tagName' 2>/dev/null || true)"
           [ "$latest" = "$TAG" ] || fail "latest Release 是「${latest:-无}」，不是 $TAG；Releases 页的 latest 下载入口会落后，请到 Release 页面把 $TAG 设为 latest"

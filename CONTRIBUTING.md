@@ -27,13 +27,21 @@ node tools/panel-smoke.mjs --require-browser # 真实浏览器面板冒烟（40 
 node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟（72 项断言）
 ```
 
+- 装了 Node 之后也可以用 `package.json` 里的快捷命令：`npm run check`（自检 + 数据 + 工作流）、
+  `npm run smoke`（两种浏览器冒烟，强制模式）、`npm run release`（发版助手）；命令内容与上面完全一致。
 - 两种浏览器冒烟共用 `tools/browser.mjs` 探测浏览器（`FX_BROWSER` → 常见安装路径 → PATH，Windows 也支持），
   找不到浏览器时默认**跳过**（退出码 0）；加 `--require-browser`（或设 `FX_REQUIRE_BROWSER=1`）则改为失败——
   CI 用的就是强制模式，防止「没装浏览器 → 静默跳过 → 假绿」。
 - `selftest.mjs` 会校验 README / CHANGELOG / 脚本注释里写死的自检断言数、page-smoke 断言数与 README 版本徽章是否与 `@version` 一致。
   改了这些数字必须同步，否则测试会直接指出缺哪个字符串；它还会校验 `@updateURL` / `@downloadURL` 是否为 `main`
-  分支的完整 https 直链，以及用户脚本体积不超过 512 KB。
+  分支的完整 https 直链（默认走 `cdn.jsdelivr.net` 镜像，也认 `raw.githubusercontent.com`），以及用户脚本体积不超过 512 KB。
 - 手动冒烟：装脚本 → 打开任意 `*.faxuanyun.com` 页面 → 面板能建起来、按钮与快捷键正常。
+
+## 更新日志与版本号
+
+- 每个版本在 `CHANGELOG.md` 顶部新增 `## vX.Y.Z` 章节，写完再改 `@version` 与 README 的版本徽章；三者不一致时门禁会拦。
+- `CHANGELOG.md` 只保留最近三个版本，更早的记录移入 `CHANGELOG-archive.md`（原样保留，不再更新），避免主文件无限膨胀。
+- 只改文档 / 预览图这类不影响脚本的提交不发版，用 `docs:` / `chore:` 前缀直接推 `main` 即可。
 
 ## 质量门禁与工具
 
@@ -61,7 +69,7 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
   然后按提示推送 `main` 与这一版的 `vX.Y.Z` tag（不要一次推所有 tag），由 `release.yml` 校验 tag 与 `@version` 一致、CHANGELOG 章节非空后自动建 Release，并在发布后回读附件复算 SHA256。
 - 面板里**「自检」（`Alt + T`）**是同一批断言，失败项会逐条写进日志。
 - CI：`.github/workflows/selftest.yml` 在 push 到 `main`、以及每个 PR 上跑上面的检查（含面板冒烟与页面适配冒烟，也可手动触发）；
-  推送 `v*` tag 时 `.github/workflows/release.yml` 自动跑同样的门禁（另加 `merge-bank` 与两种浏览器冒烟）并创建 Release、上传 `.user.js` 与同名 `.sha256`（发布前校验 tag 与 `@version` 一致、CHANGELOG 章节非空；发布后回读 Release 校验附件数与 SHA256，再核对远端 `@updateURL` 的 `@version` 与 latest tag）。
+  推送 `v*` tag 时 `.github/workflows/release.yml` 自动跑同样的门禁（另加 `merge-bank` 与两种浏览器冒烟）并创建 Release、上传 `.user.js` 与同名 `.sha256`（发布前校验 tag 与 `@version` 一致、CHANGELOG 章节非空；发布后回读 Release 校验附件数与 SHA256，再用 raw 上 `main` 的脚本核对 `@version` 与 latest tag，并主动 purge 一次 jsDelivr 缓存、尽力确认镜像也已刷新）。
   环境固定为 `ubuntu-24.04` + Node 22，第三方 action 全部固定到 commit SHA，由 Dependabot 每周开 PR 升级。
 
 改动前请留意两点：

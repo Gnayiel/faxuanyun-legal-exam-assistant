@@ -1,11 +1,10 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.11
+// @version      2.0.12
 // @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 181 项内置自检
-// @author       GNAYIEL
+// @author       Gnayiel
 // @license      MIT
-// @match        *://gs.faxuanyun.com/*
 // @match        *://*.faxuanyun.com/*
 // @noframes
 // @run-at       document-idle
@@ -23,10 +22,10 @@
 // @connect      api.moonshot.cn
 // @connect      api.siliconflow.cn
 // @connect      ark.cn-beijing.volces.com
-// @homepageURL  https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @supportURL   https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant/issues
-// @downloadURL  https://raw.githubusercontent.com/GNAYIEL/faxuanyun-legal-exam-assistant/main/faxuanyun-legal-exam-assistant.user.js
-// @updateURL    https://raw.githubusercontent.com/GNAYIEL/faxuanyun-legal-exam-assistant/main/faxuanyun-legal-exam-assistant.user.js
+// @homepageURL  https://github.com/Gnayiel/faxuanyun-legal-exam-assistant
+// @supportURL   https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/issues
+// @downloadURL  https://cdn.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@main/faxuanyun-legal-exam-assistant.user.js
+// @updateURL    https://cdn.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@main/faxuanyun-legal-exam-assistant.user.js
 // ==/UserScript==
 
 /*
@@ -206,6 +205,7 @@
         parseRetryInterval: 300,     // 解析重试间隔（毫秒）
         parseMaxRetry: 10,           // 解析最大重试次数
         reparseDebounce: 5000,       // 二次交卷/连点时的解析去抖（毫秒）
+        bankFlushMinInterval: 20000, // 答题过程中题库落盘的最小间隔（毫秒）：崩溃时最多丢这么久的新记录
         parseWatchdogMs: 15000,      // 成绩解析看门狗：超时强制释放解析锁（B3）
         absentAsWrongCoverage: 0.8,  // 「只标对不标错」兜底要求的最低识别覆盖率
 
@@ -820,11 +820,6 @@
         return max;
     }
 
-    /** 总题数（带兜底值，只用于界面显示，不能用于「是否答满」的判定） */
-    function getTotalQ() {
-        return getTotalQExact() || CONFIG.defaultTotalQ;
-    }
-
     /**
      * 给用户提示该补哪条 @connect：IP 原样返回；co.uk 这类多段后缀取三层，其余取末两层。
      * 不能用 slice(-2) 一刀切——IP 会被截成「0.1」，co.uk 会被截成「co.uk」的上一级。
@@ -1371,6 +1366,23 @@
                 flushRetryTimer = setTimeout(() => { flushRetryTimer = null; flushBank(); }, 2000);
             }
         }
+    }
+
+    /**
+     * 答题过程中的落盘节流（v2.0.12）：
+     * 题库会随每道题变脏（新学答案、命中统计、错题记录），而 flushBank 原本只在导入 / 对账 /
+     * 页面关闭（beforeunload / pagehide / visibilitychange）时被调用。浏览器崩溃、被系统回收、
+     * 手机切后台 OOM 都不会触发这些事件，那一轮新学的答案就白答了。
+     * 这里在每次作答后尝试落盘，但最多每 bankFlushMinInterval 毫秒写一次，避免每题都写 100+ KB。
+     * 首次调用（lastBankFlushAt = 0）会立刻写一次，相当于开考后第一个检查点。
+     */
+    let lastBankFlushAt = 0;
+    function flushBankThrottled() {
+        if (!dirty) return;
+        const now = TS();
+        if (now - lastBankFlushAt < CONFIG.bankFlushMinInterval) return;
+        lastBankFlushAt = now;
+        flushBank();
     }
 
     // 别的标签页写库时，反过来把新条目并进来；它删掉的键要同步删掉并记墓碑，
@@ -3476,6 +3488,7 @@
                     }
                 }
                 saveSession();
+                flushBankThrottled();
                 updateStats();
             }, 60);
         });
@@ -3928,6 +3941,7 @@
             bankHow,                 // exact / legacy / fuzzy / none
         });
         saveSession();
+        flushBankThrottled();        // 崩溃保护：最多每 20 秒把新记录写一次盘
         answered = history.length;   // answered 只是 history 的镜像，不再单独自增
         updateProgress(history.length, totalQ);
         updateStats();

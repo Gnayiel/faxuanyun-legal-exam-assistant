@@ -72,17 +72,20 @@
 ## 安装
 
 1. 浏览器安装 [Tampermonkey](https://www.tampermonkey.net/)（或 Violentmonkey）
-2. 安装脚本，任选其一：
-   - **推荐**：jsDelivr 镜像地址（国内可直连；自动更新也走这个源），油猴会直接弹出安装页：
+2. 安装脚本，按下面顺序挑一个能用的：
+   - **推荐**：到 [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 下载最新版本的
+     `.user.js` 附件，拖进浏览器窗口安装。
+     这条永远拿到**最新版**，装好后自动更新走 `@updateURL`（`@latest`），后续几秒级拿到新版本号。
+   - 浏览器里能打开 GitHub 时，也可直接点仓库里的
+     [`faxuanyun-legal-exam-assistant.user.js`](faxuanyun-legal-exam-assistant.user.js) 再点 **Raw**。
+   - 国内多数网络下 github.com / raw.githubusercontent.com 不通，改用 jsDelivr 固定版本直链（把 `vX.Y.Z`
+     换成 [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 里的最新标签，
+     例如 `v2.0.15`）——地址与内容一一对应，装到的一定是那个版本：
+     `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@v2.0.15/faxuanyun-legal-exam-assistant.user.js`
+   - 想省事、不介意可能装到稍旧一版时，可用 jsDelivr 的 `@latest` 直链（由 CDN 缓存决定当前指向，可能滞后一版）：
      `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@latest/faxuanyun-legal-exam-assistant.user.js`
-     ⚠️ 镜像路径**区分大小写**，请照抄 `Gnayiel`。
-   - GitHub 原始地址（海外网络更稳；国内多数网络下不可达，可作备用）：
-     `https://raw.githubusercontent.com/Gnayiel/faxuanyun-legal-exam-assistant/main/faxuanyun-legal-exam-assistant.user.js`
-   - 镜像与 raw 都不通时见下面两条。
-   - 到 [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 下载最新版本的
-     `.user.js` 附件，拖进浏览器窗口安装
-   - 或下载仓库里的 [`faxuanyun-legal-exam-assistant.user.js`](faxuanyun-legal-exam-assistant.user.js)，
-     拖进浏览器窗口安装
+   - 上述都不通时，用 `gcore.jsdelivr.net` / `testingcf.jsdelivr.net` 替换主机名；`cdn.jsdelivr.net` 在国内多被重置。
+   - ⚠️ 镜像路径**区分大小写**，请照抄 `Gnayiel`。
 3. 打开考试页面，右上角会出现控制面板
 
 > **更新安装不会丢题库**：脚本身份由 `@name` + `@namespace` 决定，**改文件名、改仓库地址都不影响**。

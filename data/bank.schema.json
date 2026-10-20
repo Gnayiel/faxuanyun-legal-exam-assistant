@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/blob/main/data/bank.schema.json",
+  "title": "法宣在线题库导出快照",
+  "description": "脚本面板「导出答案库」产出的 JSON 快照结构。给导入外部题库的人一份机器可校验的约定；tools/check-data.mjs 用同一份 schema 校验仓库随附快照。",
+  "type": "object",
+  "required": [
+    "format",
+    "schema",
+    "version",
+    "count",
+    "bank"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "format": {
+      "const": "faxuanyun-legal-exam-bank"
+    },
+    "schema": {
+      "type": "integer",
+      "enum": [
+        2
+      ]
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "导出时的脚本 @version，仅作溯源"
+    },
+    "exportedAt": {
+      "type": "string"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "bank": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/entry"
+      }
+    }
+  },
+  "definitions": {
+    "entry": {
+      "type": "object",
+      "required": [
+        "q",
+        "a"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "q": {
+          "type": "string",
+          "minLength": 1,
+          "description": "题干"
+        },
+        "t": {
+          "type": "string",
+          "enum": [
+            "single",
+            "multi",
+            "judge"
+          ],
+          "description": "题型"
+        },
+        "s": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "作答时页面上的选项摘要（判断题可为空）"
+        },
+        "a": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "正确答案：单选取一个字母，多选取多个，判断为 对/错 字面"
+        },
+        "l": {
+          "type": "string",
+          "description": "上次判错时记下的错误选项字母",
+          "maxLength": 8
+        },
+        "src": {
+          "type": "string",
+          "description": "答案来源：exam / ai / baidu / user 等"
+        },
+        "by": {
+          "type": "string",
+          "description": "记录者（手动作答时为用户标识）"
+        },
+        "ts": {
+          "type": "integer",
+          "description": "首次记录时间戳（毫秒）"
+        },
+        "us": {
+          "type": "integer",
+          "description": "最近一次使用时间戳（毫秒）"
+        },
+        "hit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ok": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bad": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cft": {
+          "type": "number",
+          "description": "最近一次候选置信度（0~1）"
+        }
+      }
+    }
+  }
+}

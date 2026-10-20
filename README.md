@@ -1,6 +1,6 @@
 # 甘肃省国家工作人员学法考试平台自动答题助手
 
-[![version](https://img.shields.io/badge/version-2.0.13-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.14-blue)](CHANGELOG.md)
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
@@ -294,7 +294,13 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 
 ## 更新记录
 
-当前版本 **v2.0.13**（2026-10-21）：自动更新改用国内实测可达的 jsDelivr 边缘域名（fastly）
+当前版本 **v2.0.14**（2026-10-21）：内部工程化收口，行为不变
+
+- 变更：内置自检按主题拆成 8 组（仍是 181 项断言）、两份浏览器冒烟的油猴打桩合并成 `tools/_harness.mjs`、`package.json` 补 `version` 并纳入自检
+- 修复：30 处静默 `catch {}` 改为 `safeWarn()`，存储配额满或隐私模式禁用 storage 时日志里会留一条「⚠ … 已跳过」，不再无声失灵
+- 新增：`data/bank.schema.json`，`check-data` 用它校验随仓库分发的题库快照
+
+v2.0.13（2026-10-21）：自动更新改用国内实测可达的 jsDelivr 边缘域名（fastly）
 
 - 修复：`@downloadURL` / `@updateURL` 从 `cdn.jsdelivr.net` 换成 `fastly.jsdelivr.net` —— 实测 `cdn.jsdelivr.net` 在国内被重置（`ERR_CONNECTION_RESET`），换域名后同一路径可用；`gcore` / `testingcf` 两个边缘域名同样可用，可手动替换
 - 说明：三个 jsDelivr 边缘域名内容一致，缓存共用；若某天 `fastly` 也不通，把 `fastly` 换成 `gcore` 或 `testingcf` 再手动装一次即可（自动更新地址随脚本走）
@@ -305,9 +311,5 @@ v2.0.12（2026-10-21）：自动更新改走 jsDelivr，答题过程中题库定
 - 变更：每答一题尝试落盘一次，节流到最少 20 秒写一次（新增 `CONFIG.bankFlushMinInterval`）；以前只在导入 / 对账 / 页面关闭时落盘，浏览器崩溃或被系统回收会丢掉这一轮新学的答案与命中统计
 - 修复：删掉从未被调用的 `getTotalQ()`；去掉与 `*://*.faxuanyun.com/*` 完全重复的 `@match *://gs.faxuanyun.com/*`
 - 杂项：仓库地址大小写统一为 `Gnayiel`（`@namespace` 不动，它是脚本身份）；`CHANGELOG.md` 只留最近三个版本，更早归档到 [CHANGELOG-archive.md](CHANGELOG-archive.md)
-
-v2.0.11（2026-10-21）：CodeQL 收尾——HTML 转纯文本改用 DOMParser，自检里的两处 URL / 文本断言去掉误报
-
-v2.0.10（2026-10-21）：修掉 CodeQL 首扫报出的正则回溯与实体二次解码两处真实缺陷，README 预览图转 WebP
 
 完整清单见 [CHANGELOG.md](CHANGELOG.md)，更早版本在 [CHANGELOG-archive.md](CHANGELOG-archive.md)。

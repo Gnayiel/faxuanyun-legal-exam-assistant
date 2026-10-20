@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.13
+// @version      2.0.14
 // @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 181 项内置自检
 // @author       Gnayiel
 // @license      MIT
@@ -500,6 +500,19 @@
     const logLevel = text => (LOG_LEVELS.find(l => l.re.test(String(text).trim())) || { k: 'info' }).k;
     const logLines = [];
 
+    // ---------- 静默失败出口（v2.0.14）----------
+    // 以前是 30 处 `catch {}`：存储配额满 / 隐私模式禁用 storage / 页面结构变化时，
+    // 功能会静默失灵，用户报「没反应」而日志里一个字都没有。这里统一记一条，同类只记一次。
+    const safeWarned = new Set();
+    function safeWarn(label, err) {
+        try {
+            if (safeWarned.has(label)) return;
+            safeWarned.add(label);
+            const detail = (err && (err.message || err.name)) || String(err || '未知错误');
+            log('⚠ ' + label + '失败，已跳过：' + detail, 'warn');
+        } catch { }
+    }
+
     function log(text, level) {
         const lv = level || logLevel(text);
         const time = new Date().toLocaleTimeString();
@@ -992,7 +1005,7 @@
         if (!TOMB_KEYS[which]) return {};
         if (!tombMem[which]) {
             let raw = {};
-            try { raw = GM_getValue(TOMB_KEYS[which], {}) || {}; } catch { }
+            try { raw = GM_getValue(TOMB_KEYS[which], {}) || {}; } catch (e) { safeWarn('存储读取', e); }
             tombMem[which] = purgeTombstones(raw, Date.now(), TOMB_TTL);
         }
         return tombMem[which];
@@ -1016,7 +1029,7 @@
     }
 
     function saveTombMap(which) {
-        try { GM_setValue(TOMB_KEYS[which], tombMem[which] || {}); } catch { }
+        try { GM_setValue(TOMB_KEYS[which], tombMem[which] || {}); } catch (e) { safeWarn('存储写入', e); }
         // R8：墓碑只增不减会越积越多（每次删除都会登记一条）。每落盘 tombPurgeEvery 次
         // 或表超过 500 条时清一次过期项；仍超上限就按时间裁掉最旧的，保证 GM 存储不无限膨胀。
         tombSaveCount++;
@@ -1027,7 +1040,7 @@
         const after = Object.keys(trimmed).length;
         tombMem[which] = trimmed;
         if (after !== before) {
-            try { GM_setValue(TOMB_KEYS[which], trimmed); } catch { }
+            try { GM_setValue(TOMB_KEYS[which], trimmed); } catch (e) { safeWarn('存储写入', e); }
             log(`🧹 墓碑定期清理（${which}）：${before} → ${after}`);
         }
     }
@@ -1233,7 +1246,7 @@
         try {
             const lock = GM_getValue(WRITE_LOCK_KEY, null);
             if (lock && lock.owner === writeLockId()) GM_setValue(WRITE_LOCK_KEY, null);
-        } catch { }
+        } catch (e) { safeWarn('写锁释放', e); }
     }
 
     // ==================== 同场双页检测 / 人工对账 ====================
@@ -1255,7 +1268,7 @@
         try { return JSON.parse(localStorage.getItem(ACTIVE_TAB_KEY) || 'null'); } catch { return null; }
     }
     function writeActiveTab(claim) {
-        try { localStorage.setItem(ACTIVE_TAB_KEY, JSON.stringify(claim)); } catch { }
+        try { localStorage.setItem(ACTIVE_TAB_KEY, JSON.stringify(claim)); } catch (e) { safeWarn('标签页互斥标记写入', e); }
     }
     /** 开答前认领「本页正在答题」并起心跳；发现另一页也在答就提醒（不强行停，交给用户） */
     function claimActiveTab() {
@@ -1270,7 +1283,7 @@
             beat();
             if (tabClaimTimer) clearInterval(tabClaimTimer);
             tabClaimTimer = setInterval(beat, 5000);
-        } catch { }
+        } catch (e) { safeWarn('标签页互斥标记读取', e); }
     }
     /** 停止答题时撤掉心跳（标记里不是自己就不动，避免误删别的标签页） */
     function releaseActiveTab() {
@@ -1278,7 +1291,7 @@
         try {
             const cur = readActiveTab();
             if (cur && cur.owner === TAB_ID) writeActiveTab({ owner: '', ts: 0, path: '' });
-        } catch { }
+        } catch (e) { safeWarn('标签页互斥标记清理', e); }
     }
 
     // ---------- 手动对账：成绩页 DOM 识别不出来时的兜底入口 ----------
@@ -1406,7 +1419,7 @@
             // 墓碑表被别的标签页改过（清了某个键的墓碑 = 它又答对了）：作废本页缓存，下次重读
             GM_addValueChangeListener(TOMB_KEYS.bank, () => { tombMem.bank = null; });
             GM_addValueChangeListener(TOMB_KEYS.wrong, () => { tombMem.wrong = null; });
-        } catch { }
+        } catch (e) { safeWarn('题库落盘', e); }
     }
 
     /** 前缀索引：取归一化题干前 IDX_LEN 字做桶，避免每次全表扫描 */
@@ -2359,7 +2372,7 @@
                 submitted: submittedMark,   // 已交卷的会话，下次开考直接丢弃
                 history,
             });
-        } catch { }
+        } catch (e) { safeWarn('会话保存', e); }
     }
 
     /**
@@ -2374,7 +2387,7 @@
         try {
             const s = GM_getValue('pendingSession', null);
             if (s) { s.submitted = true; GM_setValue('pendingSession', s); }
-        } catch { }
+        } catch (e) { safeWarn('交卷标记保存', e); }
     }
     let sessionRestored = false;
     let restoredUnsure = false;      // 恢复的记录可能来自另一场（进入地址不同）
@@ -2406,8 +2419,8 @@
         restoredUnsure = false;
         // 会话统计也要一起清：否则按钮显示「已答 0」而命中率还是旧数据
         session.ans = 0; session.hit = 0;
-        try { session.attempted.clear(); } catch { }
-        try { GM_setValue('pendingSession', null); } catch { }
+        try { session.attempted.clear(); } catch (e) { safeWarn('会话状态复位', e); }
+        try { GM_setValue('pendingSession', null); } catch (e) { safeWarn('存储写入', e); }
         // 运行态一起复位（B5）：否则下一场还挂着上一场的「已交卷 / 总题数 / 已解析」状态
         const reset = clearedSessionState();
         submittedMark = reset.submitted;
@@ -2417,7 +2430,7 @@
         answered = reset.answered;
         autoSubmitted = reset.autoSubmitted;
         sawNextBtn = reset.sawNextBtn;
-        try { GM_setValue('lastReconcileKey', ''); } catch { }   // 清掉对账幂等键，下一场允许重新入库（B1）
+        try { GM_setValue('lastReconcileKey', ''); } catch (e) { safeWarn('存储写入', e); }   // 清掉对账幂等键，下一场允许重新入库（B1）
         log(`🧹 已清空本场作答记录${reason ? `（${reason}）` : ''}`);
         updateStats();
     }
@@ -2443,7 +2456,7 @@
         // 成绩页里保留（刷新后还能重新对账），其它页面直接清掉——不再弹「若这是新一场请点清空本场」。
         if (s.submitted && !isResultPage()) {
             GM_setValue('pendingSession', null);
-            try { GM_setValue('lastReconcileKey', ''); } catch { }   // 新一场重新开始计：旧对账键作废（B5）
+            try { GM_setValue('lastReconcileKey', ''); } catch (e) { safeWarn('存储写入', e); }   // 新一场重新开始计：旧对账键作废（B5）
             log('ℹ️ 上一场已交卷，已自动清空残留的作答记录（题库数据不受影响）');
             return;
         }
@@ -2728,7 +2741,7 @@
             why: '两源答案冲突（差距不足 crossAcceptGap）',
         };
         const list = addDispute(loadDisputes(), item);
-        try { GM_setValue(DISPUTE_KEY, list); } catch { }
+        try { GM_setValue(DISPUTE_KEY, list); } catch (e) { safeWarn('存储写入', e); }
         log(`⚔️ 记录争议题：${item.cands.map(c => `${c.letters}(${(c.conf * 100).toFixed(0)}%)`).join(' vs ')}（共 ${list.length} 条）`);
         return { ...item, ts: Date.now() };
     }
@@ -3032,7 +3045,7 @@
             try {
                 const o = JSON.parse(body);
                 if (o && typeof o === 'object') return true;
-            } catch { }
+            } catch (e) { safeWarn('JSON 解析', e); }
         }
         return false;
     }
@@ -3420,7 +3433,7 @@
                 if (!getBox()) return;
                 const os = getOptions();
                 selBefore = os.filter(o => o.input.checked).map(o => o.letter).sort().join('');
-            } catch { }
+            } catch (e) { safeWarn('点击监听绑定', e); }
         }, true);
         document.addEventListener('click', e => {
             if (autoClicking > 0) return;                       // 脚本自己点的，忽略
@@ -3517,7 +3530,7 @@
     function abortPendingWaits() {
         const list = [...waitAborters];
         waitAborters.clear();
-        list.forEach(fn => { try { fn(); } catch { } });
+        list.forEach(fn => { try { fn(); } catch (e) { safeWarn('等待回调清理', e); } });
     }
 
     /**
@@ -3559,8 +3572,8 @@
                 if (done) return;
                 done = true;
                 waitAborters.delete(abort);
-                try { onMutation && onMutation.cancel(); } catch { }
-                try { obs && obs.disconnect(); } catch { }
+                try { onMutation && onMutation.cancel(); } catch (e) { safeWarn('观察器释放', e); }
+                try { obs && obs.disconnect(); } catch (e) { safeWarn('观察器释放', e); }
                 clearTimeout(timer); clearTimeout(to);
                 resolve(ok);
             };
@@ -4116,7 +4129,7 @@
         // 图例可能在顶层文档，也可能在同源 iframe 里，全部扫一遍
         const els = [];
         for (const root of roots || resultRoots()) {
-            try { els.push(...root.querySelectorAll('span, div, li, p, td, i, em, b, strong')); } catch { }
+            try { els.push(...root.querySelectorAll('span, div, li, p, td, i, em, b, strong')); } catch (e) { safeWarn('页面图例取样', e); }
         }
         for (const el of els) {
             // 性能：先用原始 textContent 的「短文本」做预过滤（整页几千个节点时便宜得多），
@@ -4503,7 +4516,7 @@
         // 旧实现每次都再 saveCorrect 一遍，题库 ok/hit 被二次灌水（B1）。幂等键完全相同 → 只展示不写库。
         const rcKey = reconcileKey(verdicts, { score, total: paper }, { historyLen: history.length, history });
         let lastRcKey = '';
-        try { lastRcKey = String(GM_getValue('lastReconcileKey', '') || ''); } catch { }
+        try { lastRcKey = String(GM_getValue('lastReconcileKey', '') || ''); } catch (e) { safeWarn('存储读取', e); }
         if (rcKey && lastRcKey && rcKey === lastRcKey) {
             log('ℹ️ 本次成绩与上次对账完全相同：只重新展示结果，不重复写库（避免题库 ok/hit 被二次灌水）');
             log(`📊 题库现有 ${Object.keys(ensureBank()).length} 题`);
@@ -4599,7 +4612,7 @@
             }
         }
 
-        try { GM_setValue('lastReconcileKey', rcKey); } catch { }   // 记下本次对账键：同一份成绩页再解析时只展示不写库（B1）
+        try { GM_setValue('lastReconcileKey', rcKey); } catch (e) { safeWarn('存储写入', e); }   // 记下本次对账键：同一份成绩页再解析时只展示不写库（B1）
         flushBank();
         GM_setValue('pendingSession', null);
         log(`✅ 判定答对 ${correctN} 题（其中 ${saved} 题写入/修正了库内答案），记录 ${wrong} 道错误题${absentWrong ? `（含 ${absentWrong} 题按「未标对=答错」兜底）` : ''}${conflict ? `，${conflict} 道答案冲突` : ''}${edited ? `，其中 ${edited} 道是您手动改对的` : ''}`);
@@ -4644,7 +4657,7 @@
             autoCloseTimer = null;
             if (autoCloseTick) { clearInterval(autoCloseTick); autoCloseTick = null; }
             autoCloseLeft = 0;
-            try { window.close(); } catch { }
+            try { window.close(); } catch (e) { safeWarn('自动关闭页面', e); }
             // 关成功时页面已卸载，下面的定时器不会执行；只有「浏览器拒绝关闭」才会走到这里。
             // 这里只提示手动关闭（B2）：旧实现会 history.back() / location.replace('about:blank')，
             // 但脚本作用域里的 history 是本场作答记录数组（不是 window.history），调用必然抛错；
@@ -5121,7 +5134,17 @@
     // ==================== 内置自检 ====================
     // 以前这个脚本没有任何可执行的回归测试，每次改动只能人肉看。这里把关键纯函数的断言放进脚本本身：
     // 点面板「自检」（或 Alt+T）即可运行；不依赖 Node、不联网、不读写题库数据。
-    function selfTestCases() {
+    // ---------- 自检共用的固定输入（拆分后提升到模块作用域）----------
+    const CASE_OPTS_5Y = [{ letter: 'A', text: '15年' }, { letter: 'B', text: '5年' }, { letter: 'C', text: '10年' }];
+    const CASE_JUDGE_OPTS = [{ letter: 'A', text: '正确' }, { letter: 'B', text: '错误' }];
+    const CASE_YN_OPTS = [{ letter: 'A', text: '是' }, { letter: 'B', text: '否' }];
+    const CASE_SINGLE_OPTS = [{ letter: 'A', text: '书面' }, { letter: 'B', text: '口头' }, { letter: 'C', text: '音像' }, { letter: 'D', text: '公证' }];
+    const CASE_BANK_ENTRY = { q: '第一题题干', a: ['甲'] };
+
+    // ---------- 内置自检用例（v2.0.14 按主题拆分）----------
+    // 拆分只为便于定位失败与 review；断言总数不变，由 selftest/README 徽章同步校验。
+
+    function casesParsing() {
         const cases = [];
         const t = (name, fn) => cases.push({ name, fn });
 
@@ -5137,8 +5160,7 @@
             '中华人民共和国的一切权力不属于人民人民代表大会制度是我国的根本政治制度'));
 
         // ---------- 选项文本匹配（曾经把「5年」映射到「15年」） ----------
-        const o1 = [{ letter: 'A', text: '15年' }, { letter: 'B', text: '5年' }, { letter: 'C', text: '10年' }];
-        t('「5年」精确命中 5年（不会先命中 15年）', () => matchOption(o1, '5年')?.letter === 'B');
+        t('「5年」精确命中 5年（不会先命中 15年）', () => matchOption(CASE_OPTS_5Y, '5年')?.letter === 'B');
         t('「书面」精确命中「书面」', () => matchOption([{ letter: 'A', text: '书面' }, { letter: 'B', text: '书面形式' }], '书面')?.letter === 'A');
         t('唯一超串才认（非等值）：记录「书面形式的规定」→ 命中「书面形式」',
             () => matchOption([{ letter: 'A', text: '书面形式' }, { letter: 'B', text: '书面' }], '书面形式的规定')?.letter === 'A');
@@ -5147,48 +5169,45 @@
         t('单字包含不认', () => matchOption([{ letter: 'A', text: '罚款' }], '罚') === null);
 
         // ---------- 判断题抽取（曾经被「正确/是」劫持成「对」） ----------
-        const jOpts = [{ letter: 'A', text: '正确' }, { letter: 'B', text: '错误' }];
-        t('「正确答案：B」判为 B（旧实现判成 A）', () => extractAnswer('正确答案：B', jOpts, 'judge')?.letters === 'B');
-        t('「答案是B」判为 B（旧实现判成 A）', () => extractAnswer('答案是B', jOpts, 'judge')?.letters === 'B');
-        t('「该说法错误，正确答案是B」判为 B', () => extractAnswer('该说法错误，正确答案是B', jOpts, 'judge')?.letters === 'B');
-        t('「该说法正确」判为 A', () => extractAnswer('该说法正确', jOpts, 'judge')?.letters === 'A');
-        t('「该说法错误」判为 B', () => extractAnswer('该说法错误', jOpts, 'judge')?.letters === 'B');
-        const ynOpts = [{ letter: 'A', text: '是' }, { letter: 'B', text: '否' }];
-        t('「是/否」型判断题：答案是「是」→ A', () => extractAnswer('是', ynOpts, 'judge')?.letters === 'A');
-        t('「答案：是」→ A', () => extractAnswer('答案：是', ynOpts, 'judge')?.letters === 'A');
-        t('「否」→ B（否定式优先）', () => extractAnswer('否', ynOpts, 'judge')?.letters === 'B');
-        t('「答案是B」在是/否题型下仍取字母 B', () => extractAnswer('答案是B', ynOpts, 'judge')?.letters === 'B');
+        t('「正确答案：B」判为 B（旧实现判成 A）', () => extractAnswer('正确答案：B', CASE_JUDGE_OPTS, 'judge')?.letters === 'B');
+        t('「答案是B」判为 B（旧实现判成 A）', () => extractAnswer('答案是B', CASE_JUDGE_OPTS, 'judge')?.letters === 'B');
+        t('「该说法错误，正确答案是B」判为 B', () => extractAnswer('该说法错误，正确答案是B', CASE_JUDGE_OPTS, 'judge')?.letters === 'B');
+        t('「该说法正确」判为 A', () => extractAnswer('该说法正确', CASE_JUDGE_OPTS, 'judge')?.letters === 'A');
+        t('「该说法错误」判为 B', () => extractAnswer('该说法错误', CASE_JUDGE_OPTS, 'judge')?.letters === 'B');
+        t('「是/否」型判断题：答案是「是」→ A', () => extractAnswer('是', CASE_YN_OPTS, 'judge')?.letters === 'A');
+        t('「答案：是」→ A', () => extractAnswer('答案：是', CASE_YN_OPTS, 'judge')?.letters === 'A');
+        t('「否」→ B（否定式优先）', () => extractAnswer('否', CASE_YN_OPTS, 'judge')?.letters === 'B');
+        t('「答案是B」在是/否题型下仍取字母 B', () => extractAnswer('答案是B', CASE_YN_OPTS, 'judge')?.letters === 'B');
         t('判断题语义分支把握度 <0.8（会触发第二源交叉验证）',
-            () => (extractAnswer('该说法正确', jOpts, 'judge')?.conf || 1) < CONFIG.crossCheckBelow
-                && (extractAnswer('该说法错误', jOpts, 'judge')?.conf || 1) < CONFIG.crossCheckBelow);
+            () => (extractAnswer('该说法正确', CASE_JUDGE_OPTS, 'judge')?.conf || 1) < CONFIG.crossCheckBelow
+                && (extractAnswer('该说法错误', CASE_JUDGE_OPTS, 'judge')?.conf || 1) < CONFIG.crossCheckBelow);
         t('题干回显「是否正确」时不按语义乱判（旧实现每道都判成「错误」）',
-            () => extractAnswer('下列说法是否正确？各级人民政府应当加强法治宣传教育工作', jOpts, 'judge') === null);
+            () => extractAnswer('下列说法是否正确？各级人民政府应当加强法治宣传教育工作', CASE_JUDGE_OPTS, 'judge') === null);
         t('「是否正确」问句后的回答仍可采用，且 conf 会触发交叉验证', () => {
-            const r = extractAnswer('下列说法是否正确？错误', jOpts, 'judge');
+            const r = extractAnswer('下列说法是否正确？错误', CASE_JUDGE_OPTS, 'judge');
             return !!r && r.letters === 'B' && r.conf < CONFIG.crossCheckBelow;
         });
 
         // ---------- 单选 / 多选抽取与合并 ----------
-        const sOpts = [{ letter: 'A', text: '书面' }, { letter: 'B', text: '口头' }, { letter: 'C', text: '音像' }, { letter: 'D', text: '公证' }];
-        t('「答案是：C」→ C', () => extractAnswer('答案是：C', sOpts, 'single')?.letters === 'C');
+        t('「答案是：C」→ C', () => extractAnswer('答案是：C', CASE_SINGLE_OPTS, 'single')?.letters === 'C');
         t('英文句子开头的单词不会被当成答案（旧实现 "The answer is B" 抽成 A）',
-            () => extractAnswer('The answer is B', sOpts, 'single')?.letters === 'B');
+            () => extractAnswer('The answer is B', CASE_SINGLE_OPTS, 'single')?.letters === 'B');
         t('「Baidu 搜索结果…」不再把开头的 Baidu 当成选 A（仍按选项原文命中到 B）', () => {
-            const r = extractAnswer('Baidu 搜索结果显示本题应选口头', sOpts, 'single');
+            const r = extractAnswer('Baidu 搜索结果显示本题应选口头', CASE_SINGLE_OPTS, 'single');
             return !!r && r.letters === 'B' && r.why !== '裸字母';
         });
         t('中文夹字母的兜底仍能取出（「我认为C是对的」→ C）',
-            () => extractAnswer('我认为C是对的', sOpts, 'single')?.letters === 'C');
-        t('多选「答案：AB」→ AB', () => extractAnswer('答案：AB', sOpts, 'multi')?.letters === 'AB');
-        t('多选题只给一个字母的来源作废', () => mergeCandidates([{ letters: 'A', conf: 0.9, src: 'ai' }], 'multi', sOpts) === null);
-        t('越界字母作废', () => mergeCandidates([{ letters: 'Z', conf: 0.9, src: 'ai' }], 'single', sOpts) === null);
+            () => extractAnswer('我认为C是对的', CASE_SINGLE_OPTS, 'single')?.letters === 'C');
+        t('多选「答案：AB」→ AB', () => extractAnswer('答案：AB', CASE_SINGLE_OPTS, 'multi')?.letters === 'AB');
+        t('多选题只给一个字母的来源作废', () => mergeCandidates([{ letters: 'A', conf: 0.9, src: 'ai' }], 'multi', CASE_SINGLE_OPTS) === null);
+        t('越界字母作废', () => mergeCandidates([{ letters: 'Z', conf: 0.9, src: 'ai' }], 'single', CASE_SINGLE_OPTS) === null);
         t('两源一致时加成', () => {
-            const m = mergeCandidates([{ letters: 'A', conf: 0.6, src: 'ai' }, { letters: 'A', conf: 0.6, src: 'baidu' }], 'single', sOpts);
+            const m = mergeCandidates([{ letters: 'A', conf: 0.6, src: 'ai' }, { letters: 'A', conf: 0.6, src: 'baidu' }], 'single', CASE_SINGLE_OPTS);
             return !!m && m.conf > 0.6;
         });
 
-        t('题干回显（所有选项都命中）时单选不瞎猜', () => extractAnswer('下列哪项属于书面形式？A.书面 B.口头 C.音像 D.公证', sOpts, 'single') === null);
-        t('唯一选项原文命中仍可用', () => extractAnswer('本题的答案是书面，其余都不对', sOpts, 'single')?.letters === 'A');
+        t('题干回显（所有选项都命中）时单选不瞎猜', () => extractAnswer('下列哪项属于书面形式？A.书面 B.口头 C.音像 D.公证', CASE_SINGLE_OPTS, 'single') === null);
+        t('唯一选项原文命中仍可用', () => extractAnswer('本题的答案是书面，其余都不对', CASE_SINGLE_OPTS, 'single')?.letters === 'A');
 
         t('一字之差的两道判断题不算同题（闸门对 judge 生效）', () => {
             const a = '中华人民共和国的一切权力属于人民人民代表大会制度是我国的根本政治制度';
@@ -5204,6 +5223,13 @@
             '根据安全生产法的规定，生产经营单位应当具备本法和有关法律、行政法规和国家标准或者行业标准规定的安全生产条件',
             '根据安全生产法的规定，生产经营单位应当具备本法和有关法律、行政法规和国家标准或者行业标准规定的安全生产条件，下列说法正确的是'));
 
+
+        return cases;
+    }
+
+    function casesDecision() {
+        const cases = [];
+        const t = (name, fn) => cases.push({ name, fn });
         // ---------- 作答决策 ----------
         t('短错项不再误伤正确候选（回归：错项「书面」曾把「书面形式」一起排除）', () => {
             const r = chooseAnswer({
@@ -5230,16 +5256,23 @@
             return r.strategy === 'reset-wrong' && r.letters === null;
         });
         t('多选无候选时优先全选', () => {
-            const r = chooseAnswer({ type: 'multi', options: sOpts, wrongTexts: [], triedCombos: [], cand: null });
+            const r = chooseAnswer({ type: 'multi', options: CASE_SINGLE_OPTS, wrongTexts: [], triedCombos: [], cand: null });
             return r.letters === 'ABCD';
         });
         t('多选已失败组合会被跳过', () => {
-            const first = chooseAnswer({ type: 'multi', options: sOpts, wrongTexts: [], triedCombos: [], cand: null });
-            const key = comboKey(sOpts, first.letters);
-            const r = chooseAnswer({ type: 'multi', options: sOpts, wrongTexts: [], triedCombos: [key], cand: null });
+            const first = chooseAnswer({ type: 'multi', options: CASE_SINGLE_OPTS, wrongTexts: [], triedCombos: [], cand: null });
+            const key = comboKey(CASE_SINGLE_OPTS, first.letters);
+            const r = chooseAnswer({ type: 'multi', options: CASE_SINGLE_OPTS, wrongTexts: [], triedCombos: [key], cand: null });
             return r.letters !== first.letters;
         });
 
+
+        return cases;
+    }
+
+    function casesIo() {
+        const cases = [];
+        const t = (name, fn) => cases.push({ name, fn });
         // ---------- CSV / 导入导出基础 ----------
         t('引号内的逗号不当分隔', () => {
             const rows = parseDelimited('a,"b,c",d\n', ',');
@@ -5259,6 +5292,49 @@
         });
         t('表头识别「来源」列', () => mapColumns(['序号', '题型', '题目', '正确答案', '错误选项', '来源']).src === 5);
 
+        // ---------- 导出文件命名 ----------
+        t('答案库文件名带本地日期戳（月、日补零）', () =>
+            bankFileNames(new Date(2026, 9, 17)).csv === 'faxuanyun-legal-exam-bank-20261017.csv'
+            && bankFileNames(new Date(2026, 0, 5)).json === 'faxuanyun-legal-exam-bank-20260105.json');
+        t('日志文件名用本地时间（东八区凌晨导出不会退回前一天）', () =>
+            logFileName(new Date(2026, 9, 17, 0, 21, 52)) === 'faxuanyun-legal-exam-log-20261017-002152.txt');
+        t('导出文件名只含小写英文、数字、连字符与点', () =>
+            /^[a-z0-9.-]+$/.test(bankFileNames(new Date(2026, 9, 17)).csv)
+            && /^[a-z0-9.-]+$/.test(logFileName(new Date(2026, 9, 17, 0, 21, 52))));
+        t('同一次导出的 CSV 与 JSON 共用同一个日期戳', () => {
+            const f = bankFileNames(new Date(2026, 11, 31, 23, 59, 59));
+            return f.csv.replace(/\.csv$/, '') === f.json.replace(/\.json$/, '');
+        });
+
+        // ---------- 导入载荷解析（改名后的向后兼容） ----------
+        t('v2 备份（format=faxuanyun-legal-exam-bank）能读出题库', () =>
+            Object.keys(parseBankPayload({ format: 'faxuanyun-legal-exam-bank', json: 1, bank: { k1: CASE_BANK_ENTRY } }).bank).length === 1);
+        t('v1 旧备份（format=faxuanyun-answer-bank）照样能导入', () =>
+            Object.keys(parseBankPayload({ format: 'faxuanyun-answer-bank', bank: { k1: CASE_BANK_ENTRY } }).bank).length === 1);
+        t('一页题干字典按原键导入（以前会被换成空题库静默丢弃）', () => {
+            const p = parseBankPayload({ 'q2-abc': CASE_BANK_ENTRY, '这是一道很长的题干': 'A' });
+            return Object.keys(p.bank).length === 2 && p.bank['q2-abc'] === CASE_BANK_ENTRY;
+        });
+        t('数组形态按序号当键导入', () => {
+            const p = parseBankPayload([CASE_BANK_ENTRY, CASE_BANK_ENTRY]);
+            return p.bank['0'] === CASE_BANK_ENTRY && p.bank['1'] === CASE_BANK_ENTRY;
+        });
+        t('带 format 但缺 bank 的载荷判为空（不把 schema/version 当题目）', () => {
+            const p = parseBankPayload({ format: 'faxuanyun-answer-bank', schema: 2, version: '2.0.0', exportedAt: 'x' });
+            return Object.keys(p.bank).length === 0;
+        });
+        t('坏数据（null / 数字 / 字符串）当空载荷，不抛错', () =>
+            Object.keys(parseBankPayload(null).bank).length === 0
+            && Object.keys(parseBankPayload(42).bank).length === 0
+            && Object.keys(parseBankPayload('x').bank).length === 0);
+
+
+        return cases;
+    }
+
+    function casesUiState() {
+        const cases = [];
+        const t = (name, fn) => cases.push({ name, fn });
         // ---------- 校验与题型 ----------
         t('判断题答案 1/0 可入库', () => validateRow('这是一个足够长的判断题题干', '1', '').ok && validateRow('这是一个足够长的判断题题干', '0', '').ok);
         t('重复字母被拒收', () => !validateRow('这是一个足够长的判断题题干', 'AAB', '').ok);
@@ -5300,43 +5376,6 @@
             && groupBadge('bank', { bank: 12, answered: 3 }) === '题库 12 题 · 已答 3'
             && groupBadge('log', { lines: 5 }) === '日志 5 行');
 
-        // ---------- 导出文件命名 ----------
-        t('答案库文件名带本地日期戳（月、日补零）', () =>
-            bankFileNames(new Date(2026, 9, 17)).csv === 'faxuanyun-legal-exam-bank-20261017.csv'
-            && bankFileNames(new Date(2026, 0, 5)).json === 'faxuanyun-legal-exam-bank-20260105.json');
-        t('日志文件名用本地时间（东八区凌晨导出不会退回前一天）', () =>
-            logFileName(new Date(2026, 9, 17, 0, 21, 52)) === 'faxuanyun-legal-exam-log-20261017-002152.txt');
-        t('导出文件名只含小写英文、数字、连字符与点', () =>
-            /^[a-z0-9.-]+$/.test(bankFileNames(new Date(2026, 9, 17)).csv)
-            && /^[a-z0-9.-]+$/.test(logFileName(new Date(2026, 9, 17, 0, 21, 52))));
-        t('同一次导出的 CSV 与 JSON 共用同一个日期戳', () => {
-            const f = bankFileNames(new Date(2026, 11, 31, 23, 59, 59));
-            return f.csv.replace(/\.csv$/, '') === f.json.replace(/\.json$/, '');
-        });
-
-        // ---------- 导入载荷解析（改名后的向后兼容） ----------
-        const e1 = { q: '第一题题干', a: ['甲'] };
-        t('v2 备份（format=faxuanyun-legal-exam-bank）能读出题库', () =>
-            Object.keys(parseBankPayload({ format: 'faxuanyun-legal-exam-bank', json: 1, bank: { k1: e1 } }).bank).length === 1);
-        t('v1 旧备份（format=faxuanyun-answer-bank）照样能导入', () =>
-            Object.keys(parseBankPayload({ format: 'faxuanyun-answer-bank', bank: { k1: e1 } }).bank).length === 1);
-        t('一页题干字典按原键导入（以前会被换成空题库静默丢弃）', () => {
-            const p = parseBankPayload({ 'q2-abc': e1, '这是一道很长的题干': 'A' });
-            return Object.keys(p.bank).length === 2 && p.bank['q2-abc'] === e1;
-        });
-        t('数组形态按序号当键导入', () => {
-            const p = parseBankPayload([e1, e1]);
-            return p.bank['0'] === e1 && p.bank['1'] === e1;
-        });
-        t('带 format 但缺 bank 的载荷判为空（不把 schema/version 当题目）', () => {
-            const p = parseBankPayload({ format: 'faxuanyun-answer-bank', schema: 2, version: '2.0.0', exportedAt: 'x' });
-            return Object.keys(p.bank).length === 0;
-        });
-        t('坏数据（null / 数字 / 字符串）当空载荷，不抛错', () =>
-            Object.keys(parseBankPayload(null).bank).length === 0
-            && Object.keys(parseBankPayload(42).bank).length === 0
-            && Object.keys(parseBankPayload('x').bank).length === 0);
-
         // ---------- 状态栏文案与状态灯同源 ----------
         t('状态灯与状态栏说同一件事：运行中/已暂停/已停止', () =>
             runStatusLabel(false, false) === '已停止'
@@ -5362,6 +5401,13 @@
         t('接口校验：合法 https 配置通过',
             () => validateApi('https://api.deepseek.com/v1/chat/completions', 'sk-12345678', 'deepseek-chat') === '');
 
+
+        return cases;
+    }
+
+    function casesPageParse() {
+        const cases = [];
+        const t = (name, fn) => cases.push({ name, fn });
         // ---------- 答题卡格子识别（结果页题号写法不止一种，旧实现只认纯数字） ----------
         t('答题卡题号识别：第12题 / 12. / 12题 / 12、都算，「10/10」「答案12」「85分」不算', () => {
             const yes = [['第12题', 12], ['12.', 12], ['12题', 12], ['12、', 12], ['第 3 题', 3], ['7', 7]];
@@ -5412,6 +5458,13 @@
             && lockIsStale({ owner: 'other', ts: 900 }, 1000, 3000, 'me') === false
             && lockIsStale({ owner: 'other', ts: 0 }, 5000, 3000, 'me') === true);
 
+
+        return cases;
+    }
+
+    function casesReconcile() {
+        const cases = [];
+        const t = (name, fn) => cases.push({ name, fn });
         // ---- v2.0.4：同场双页检测 / 人工对账 / 成绩对账纯函数 ----
         t('parseManualVerdicts：范围 + 单个 + 三种判定', () => {
             const r = parseManualVerdicts('1-5=对, 6=错, 7-10=未答');
@@ -5522,36 +5575,36 @@
             const m = mergeCandidates([
                 { letters: 'A', conf: 0.99, src: 'ai' },
                 { letters: 'A', conf: 0.99, src: 'baidu' },
-            ], 'single', sOpts);
+            ], 'single', CASE_SINGLE_OPTS);
             return !!m && m.letters === 'A' && m.conf === 1;
         });
         t('AI 结构化高把握 vs 百度冲突时采信领先方（不再永远 null）', () => {
             const m = mergeCandidates([
                 { letters: 'A', conf: 0.9, src: 'ai', structured: true, why: 'AI 结构化：法条' },
                 { letters: 'B', conf: 0.81, src: 'baidu', why: '孤立字母·已按百度可信度折减' },
-            ], 'single', sOpts);
+            ], 'single', CASE_SINGLE_OPTS);
             return !!m && m.letters === 'A' && Math.abs(m.conf - 0.9) < 1e-9;
         });
         t('两源同分冲突仍判 null（宁可不答）', () => {
             const m = mergeCandidates([
                 { letters: 'A', conf: 0.6, src: 'ai', why: 'AI 文本兜底' },
                 { letters: 'B', conf: 0.6, src: 'baidu', why: '孤立字母' },
-            ], 'single', sOpts);
+            ], 'single', CASE_SINGLE_OPTS);
             return m === null;
         });
 
         t('AI 结构化：confidence=0 原样保留（不再被当成 0.9 的高把握）', () => {
-            const o = extractAIAnswer('{"answer":"A","confidence":0}', sOpts, 'single');
+            const o = extractAIAnswer('{"answer":"A","confidence":0}', CASE_SINGLE_OPTS, 'single');
             return !!o && o.letters === 'A' && o.conf === 0 && o.conf < CONFIG.crossCheckBelow;
         });
         t('AI 结构化：非数字 confidence 回退 0.9', () => {
-            const o = extractAIAnswer('{"answer":"A","confidence":"high"}', sOpts, 'single');
+            const o = extractAIAnswer('{"answer":"A","confidence":"high"}', CASE_SINGLE_OPTS, 'single');
             return !!o && o.letters === 'A' && o.conf === 0.9;
         });
         t('AI 结构化：单选给 "AB" 直接丢弃候选，不静默取 A', () =>
-            extractAIAnswer('{"answer":"AB","confidence":0.9}', sOpts, 'single') === null);
+            extractAIAnswer('{"answer":"AB","confidence":0.9}', CASE_SINGLE_OPTS, 'single') === null);
         t('AI 结构化：正文多个 JSON 时按出现顺序解析（示例对象不撑坏正式答案）', () => {
-            const o = extractAIAnswer('示例格式：{"note":"不要照抄"}；正式答案：{"answer":"C","confidence":0.9}', sOpts, 'single');
+            const o = extractAIAnswer('示例格式：{"note":"不要照抄"}；正式答案：{"answer":"C","confidence":0.9}', CASE_SINGLE_OPTS, 'single');
             return !!o && o.letters === 'C';
         });
         t('reasoning_content 只有含合法 JSON 才当答案文本用', () =>
@@ -5560,20 +5613,20 @@
             && jsonObjectCandidates('a {x} b {y}').length === 2);
 
         t('弱候选不再直接采信：多选孤立字母改走组合策略（4 选 3 不再点 ABC）', () => {
-            const r = chooseAnswer({ type: 'multi', options: sOpts, wrongTexts: [], triedCombos: [], cand: 'ABC', candConf: 0.32 });
+            const r = chooseAnswer({ type: 'multi', options: CASE_SINGLE_OPTS, wrongTexts: [], triedCombos: [], cand: 'ABC', candConf: 0.32 });
             return r.strategy === 'multi-combo' && r.letters === 'ABCD';
         });
         t('强候选（≥0.65）多选仍直接采信', () => {
-            const r = chooseAnswer({ type: 'multi', options: sOpts, wrongTexts: [], triedCombos: [], cand: 'AB', candConf: 0.9 });
+            const r = chooseAnswer({ type: 'multi', options: CASE_SINGLE_OPTS, wrongTexts: [], triedCombos: [], cand: 'AB', candConf: 0.9 });
             return r.strategy === 'cand' && r.letters === 'AB';
         });
         t('单选弱候选改走排除法；不传 candConf（旧调用）保持原行为', () => {
             const weak = chooseAnswer({
-                type: 'single', options: sOpts, wrongTexts: ['口头', '音像', '公证'], triedCombos: [],
+                type: 'single', options: CASE_SINGLE_OPTS, wrongTexts: ['口头', '音像', '公证'], triedCombos: [],
                 cand: 'A', candConf: 0.32,
             });
             const legacy = chooseAnswer({
-                type: 'single', options: sOpts, wrongTexts: ['口头', '音像', '公证'], triedCombos: [], cand: 'A',
+                type: 'single', options: CASE_SINGLE_OPTS, wrongTexts: ['口头', '音像', '公证'], triedCombos: [], cand: 'A',
             });
             return weak.strategy === 'exclude' && weak.letters === 'A'
                 && legacy.strategy === 'cand' && legacy.letters === 'A';
@@ -5615,6 +5668,13 @@
             return clearedSessionState().submitted === false;
         });
 
+
+        return cases;
+    }
+
+    function casesNetwork() {
+        const cases = [];
+        const t = (name, fn) => cases.push({ name, fn });
         // ---- v2.0.6：B1 试卷指纹 / A5 百度回显与跟进页 / A6 网络预算 / P2 / B6 观察器 / B7 跨页删除 ----
         t('对账幂等键：同一份试卷（history 题序不同）仍得到同一个键', () => {
             const h1 = [{ stem: '第一道题的题干内容' }, { stem: '第二道题的题干内容' }, { stem: '第三道题的题干内容' }];
@@ -5676,7 +5736,7 @@
         });
 
         t('两源合并：conf=0 不会被抬成 0.5（明确「没把握」保持 0）（P2#1）', () => {
-            const m = mergeCandidates([{ letters: 'A', conf: 0, src: 'ai' }], 'single', sOpts);
+            const m = mergeCandidates([{ letters: 'A', conf: 0, src: 'ai' }], 'single', CASE_SINGLE_OPTS);
             return !!m && m.letters === 'A' && m.conf === 0;
         });
         t('对账删除闸门：字母相同但选项文本不同 → 不删库（P2#2）', () => {
@@ -5689,13 +5749,13 @@
             const byFlag = mergeCandidates([
                 { letters: 'A', conf: 0.9, src: 'ai', structured: true, why: '随便什么文案' },
                 { letters: 'B', conf: 0.81, src: 'baidu', why: '孤立字母' },
-            ], 'single', sOpts);
+            ], 'single', CASE_SINGLE_OPTS);
             const byWhy = mergeCandidates([
                 { letters: 'A', conf: 0.9, src: 'ai', why: 'AI 结构化：法条' },
                 { letters: 'B', conf: 0.81, src: 'baidu', why: '孤立字母' },
-            ], 'single', sOpts);
-            const json = extractAIAnswer('{"answer":"A","confidence":0.9}', sOpts, 'single');
-            const text = extractAIAnswer('答案：C', sOpts, 'single');
+            ], 'single', CASE_SINGLE_OPTS);
+            const json = extractAIAnswer('{"answer":"A","confidence":0.9}', CASE_SINGLE_OPTS, 'single');
+            const text = extractAIAnswer('答案：C', CASE_SINGLE_OPTS, 'single');
             return !!byFlag && byFlag.letters === 'A' && byWhy === null
                 && !!json && json.structured === true && !!text && text.structured === false;
         });
@@ -5746,6 +5806,13 @@
             return Object.keys(kept).length === 1 && ('fresh' in kept) && !('old' in kept);
         });
 
+
+        return cases;
+    }
+
+    function casesReliability() {
+        const cases = [];
+        const t = (name, fn) => cases.push({ name, fn });
         // ---- v2.0.7：R1 判断题安全复用 / R2 直采与争议 / R3 指纹 / R4 组合上限 /
         //      R5 会话缓存 / R6 双源并行 / R7 响应截断 / R8 墓碑清理 / R9 存储监控 /
         //      R10 争议导出 / R11 诊断包 / R12 脏数据健壮性 ----
@@ -5786,14 +5853,14 @@
                 { src: 'ai', letters: 'A', conf: 0.85, structured: true, why: 'a' },
                 { src: 'ai', letters: 'B', conf: 0.6, structured: true, why: 'b' },
             ];
-            return mergeCandidates(cands, 'single', sOpts) === null;
+            return mergeCandidates(cands, 'single', CASE_SINGLE_OPTS) === null;
         });
         t('直采阈值：AI 结构化把握 0.95 且明显领先时仍直采（R2）', () => {
             const cands = [
                 { src: 'ai', letters: 'A', conf: 0.95, structured: true, why: 'a' },
                 { src: 'ai', letters: 'B', conf: 0.5, structured: true, why: 'b' },
             ];
-            const m = mergeCandidates(cands, 'single', sOpts);
+            const m = mergeCandidates(cands, 'single', CASE_SINGLE_OPTS);
             return !!m && m.letters === 'A';
         });
         t('争议观测：两源都≥0.8 但差距不足时仍返回 null，并回调记录争议（R2）', () => {
@@ -5802,7 +5869,7 @@
                 { src: 'baidu', letters: 'B', conf: 0.85, why: 'bd-b' },
             ];
             let got = null;
-            const m = mergeCandidates(cands, 'single', sOpts, ranked => { got = ranked; });
+            const m = mergeCandidates(cands, 'single', CASE_SINGLE_OPTS, ranked => { got = ranked; });
             return m === null && Array.isArray(got) && got.length === 2;
         });
         t('争议记录：同题干+同候选只更新时间戳，超上限裁掉最旧（R2）', () => {
@@ -5828,7 +5895,7 @@
                 && plan.combos.length === 0 && plan.total > CONFIG.multiComboLimit;
         });
         t('组合上限：正常 4 选项仍按全选优先生成 6 个组合（R4）', () => {
-            const plan = multiComboPlan(sOpts);
+            const plan = multiComboPlan(CASE_SINGLE_OPTS);
             return !plan.exhausted && plan.combos.length === CONFIG.multiMaxTries && plan.combos[0] === 'ABCD';
         });
         t('组合上限：生成预算耗尽时置 timeout，不抛错（R4）', () => {
@@ -5852,9 +5919,9 @@
 
         // R5
         t('会话缓存：键由题型+题干指纹+选项文本组成，题型/选项变化即不命中（R5）', () => {
-            const a = answerCacheKey('同一道题', 'single', sOpts);
-            const b = answerCacheKey(' 同一道题 ', 'single', sOpts);
-            const c = answerCacheKey('同一道题', 'multi', sOpts);
+            const a = answerCacheKey('同一道题', 'single', CASE_SINGLE_OPTS);
+            const b = answerCacheKey(' 同一道题 ', 'single', CASE_SINGLE_OPTS);
+            const c = answerCacheKey('同一道题', 'multi', CASE_SINGLE_OPTS);
             const d = answerCacheKey('同一道题', 'single', [{ letter: 'A', text: '别的选项' }]);
             return a === b && a !== c && a !== d;
         });
@@ -5892,11 +5959,11 @@
             const both = combineSourceResults([
                 { src: 'baidu', r: { text: '答案是A', note: '' } },
                 { src: 'ai', r: { text: '{"answer":"A","confidence":0.9}', note: '' } },
-            ], 'single', sOpts);
+            ], 'single', CASE_SINGLE_OPTS);
             const one = combineSourceResults([
                 { src: 'baidu', r: { text: '答案是A', note: '' } },
                 { src: 'ai', error: new Error('boom') },
-            ], 'single', sOpts);
+            ], 'single', CASE_SINGLE_OPTS);
             return both.cands.length === 2 && one.cands.length === 1 && one.cands[0].src === 'baidu'
                 && one.notes.some(x => x.includes('AI') && x.includes('请求异常'));
         });
@@ -5904,7 +5971,7 @@
             const got = combineSourceResults([
                 { src: 'baidu', r: { text: null, note: '', budgetSpent: true } },
                 { src: 'ai', r: { text: '{"answer":"B","confidence":0.9}', note: '' } },
-            ], 'single', sOpts);
+            ], 'single', CASE_SINGLE_OPTS);
             return got.budgetSpent === true && got.cands.length === 1 && got.cands[0].src === 'ai';
         });
 
@@ -6053,7 +6120,15 @@
             decodeEntities('&amp;lt;script&amp;gt;') === '&lt;script&gt;'
             && decodeEntities('&nbsp;&amp;&quot;') === ' &"');
 
+
         return cases;
+    }
+
+    /** 内置自检用例总表：分组后按序拼接，顺序即执行顺序 */
+    function selfTestCases() {
+        return [].concat(
+            casesParsing(), casesDecision(), casesIo(), casesUiState(),
+            casesPageParse(), casesReconcile(), casesNetwork(), casesReliability());
     }
 
     function runSelfTest() {
@@ -6101,7 +6176,7 @@
         // 旧实现用 `window.__FX_TEST_ALLOW_MUTATE__ === true` 做闸门，但页面自己的脚本也能先把
         // 这个全局变量置 true，再通过 __FX_TEST__ 清空/改写答案库——那道闸门等于没有。
         // 自检用到的纯函数都已在上面；需要调试写库请在油猴控制台里直接调用源码函数。
-    } catch { }
+    } catch (e) { safeWarn('自检用例执行', e); }
 
     // ==================== 存储占用 / 导出（v2.0.7） ====================
     /** GM 里需要统计体积的已知键（R9） */
@@ -6389,7 +6464,7 @@
             panel.style.left = r.left + 'px';
             panel.style.top = r.top + 'px';
             if (e.pointerId !== undefined && handle.setPointerCapture) {
-                try { handle.setPointerCapture(e.pointerId); } catch { }
+                try { handle.setPointerCapture(e.pointerId); } catch (e) { safeWarn('指针捕获', e); }
             }
             e.preventDefault();
         };
@@ -6687,7 +6762,7 @@
                     log(`⚠️ 域名 ${host} 不在脚本头部的 @connect 白名单里，请求会被拦截。请在脚本头部补一行：// @connect ${root}`);
                     notify(`接口域名 ${host} 不在 @connect 白名单，请按日志提示补一行`, 'warn');
                 }
-            } catch { }
+            } catch (e) { safeWarn('面板初始化', e); }
             apiFormErr('');
             return true;
         };
@@ -7174,8 +7249,8 @@
         autoCloseLeft = 0;
         releaseParse();                 // 解析锁 / 看门狗 / 重试定时器一起作废
         lastSubmitTs = 0;               // 允许重新识别本页的交卷确认
-        try { updateAutoCloseBtn(); } catch { }
-        try { syncRunBtns(); } catch { }
+        try { updateAutoCloseBtn(); } catch (e) { safeWarn('页面恢复后复位', e); }
+        try { syncRunBtns(); } catch (e) { safeWarn('页面恢复后复位', e); }
         if (wasBusy) log('♻️ 页面从缓存恢复，已复位上一轮的运行状态');
         updateStatus('页面从缓存恢复，正在重新检测…');
         setTimeout(() => {
@@ -7183,7 +7258,7 @@
                 const hasStem = !!(getStem() || '').trim();
                 const hasOptions = getOptions().length > 0;
                 let isResult = false;
-                try { isResult = isResultPage(); } catch { }
+                try { isResult = isResultPage(); } catch (e) { safeWarn('页面恢复后复位', e); }
                 const action = pageShowAction(hasStem, hasOptions, isResult);
                 if (action === 'result') {
                     log('♻️ 缓存恢复后检测到成绩页，自动重新解析（与上次对账一致时不会重复写库）');

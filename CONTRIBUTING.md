@@ -21,7 +21,7 @@
 node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 181 项断言 + 文档数字校验，不联网
 node tools/check-workflows.mjs               # GitHub Actions 配置静态检查（pin SHA / 权限 / 脚本路径）
 node tools/release.mjs --dry-run             # 本地发版助手：版本与 CHANGELOG 校验 + 跑测试 + 打 tag 预演
-node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致
+node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致，并按 data/bank.schema.json 校验格式
 node tools/merge-bank.mjs data/*.json -o /tmp/merged.json   # 题库合并工具冒烟（幂等）
 node tools/panel-smoke.mjs --require-browser # 真实浏览器面板冒烟（40 项断言）
 node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟（72 项断言）
@@ -152,6 +152,7 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
     ├── check-workflows.mjs       # GitHub Actions 配置静态检查
     ├── release.mjs               # 本地发版助手（校验 → 测试 → 打 tag）
     ├── browser.mjs               # 浏览器探测与 headless 启动（两种冒烟共用）
+    ├── _harness.mjs              # 页面内 GM_* 打桩与假百度接口（两种冒烟共用）
     ├── panel-smoke.mjs           # 真实浏览器面板冒烟测试（40 项），CI 用强制模式
     └── page-smoke.mjs            # 真实浏览器页面适配冒烟：6 个 fixture（72 项），CI 必跑
 ```

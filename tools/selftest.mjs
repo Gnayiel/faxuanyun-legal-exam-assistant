@@ -44,6 +44,13 @@ ok('@name 存在', !!one('name'));
 ok('@namespace 存在（改了会丢用户已存的题库）', !!one('namespace'));
 ok('@version 是 x.y.z', /^\d+\.\d+\.\d+$/.test(one('version')), one('version'));
 ok('@license 存在', !!one('license'), one('license'));
+// package.json 的 version 是第 5 个版本号副本（脚本头 / README 徽章 / CHANGELOG / 发版 tag 之外）。
+// 只写不校验的话迟早过期，所以这里当场比对；缺失视为不通过（v2.0.14 起强制存在）。
+const pkgPath = resolve(HERE, '..', 'package.json');
+const pkgVersion = (() => {
+    try { return JSON.parse(readFileSync(pkgPath, 'utf8')).version || ''; } catch { return ''; }
+})();
+ok('package.json version 与 @version 一致', pkgVersion === one('version'), `package.json=${pkgVersion || '缺失'} @version=${one('version')}`);
 // 锚定正则而不是 includes()：后者连 "*://evil.com/?u=faxuanyun.com/*" 也放过
 // （CodeQL js/incomplete-url-substring-sanitization）。
 const MATCH_OK = /^\*:\/\/(\*\.)?([\w-]+\.)*faxuanyun\.com\/\*$/;

@@ -6,6 +6,7 @@
 // 加 --require-browser（或设置 FX_REQUIRE_BROWSER=1）则改为失败（退出码 2），
 // CI 用它来防止「没装浏览器 → 静默跳过 → 假绿」。
 import { readFileSync, writeFileSync } from 'node:fs';
+import { gmCore, noNetwork, downloadHook } from './_harness.mjs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // 浏览器探测 + headless 启动抽到公共 helper，和 page-smoke.mjs 共用同一份实现
@@ -44,24 +45,11 @@ const html = `<!DOCTYPE html>
 <body>
 <div id="fx-out">RUNNING</div>
 <script>
-/* ---------- 油猴 API 打桩 ---------- */
-window.__store = new Map();
-window.GM_info = { script: { version: '9.9.9', name: 'smoke' } };
-window.GM_getValue = (k, d) => window.__store.has(k) ? window.__store.get(k) : d;
-window.GM_setValue = (k, v) => { window.__store.set(k, v); };
-window.GM_addStyle = () => document.createElement('style');
-window.GM_addValueChangeListener = () => 0;
-window.GM_xmlhttpRequest = () => { throw new Error('冒烟测试不允许联网'); };
+${gmCore({ name: 'smoke', version: '9.9.9' })}
+${noNetwork()}
 
 /* ---------- 拦截下载 ---------- */
-window.__downloads = [];
-URL.createObjectURL = (blob) => { window.__lastBlob = blob; return 'blob:fx/' + window.__downloads.length; };
-URL.revokeObjectURL = () => {};
-const realClick = HTMLAnchorElement.prototype.click;
-HTMLAnchorElement.prototype.click = function () {
-    if (this.download) { window.__downloads.push({ name: this.download, size: window.__lastBlob ? window.__lastBlob.size : -1 }); return; }
-    return realClick.apply(this, arguments);
-};
+${downloadHook()}
 </script>
 
 <script>

@@ -14,7 +14,7 @@
  * 加 --fix 时，会把 README / data/README 里写错的数字直接改成本次实测值（默认只报告不改）。
  * 退出码：0 全部通过；1 有硬错误（--warn-only 时降级为 0）。
  */
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -168,5 +168,67 @@ if (doFix) {
     if (!fixes.length) console.log('  ℹ️ 文档数字已经一致，无需修正');
     else console.log('  ℹ️ 已按实测值修正文档，建议再跑一次 check-data 确认全绿');
 }
+// ---------- 题库 JSON Schema 校验（v2.0.14）----------
+// data/bank.schema.json 不只是给人看的约定：这里用同一份 schema 校验随仓库分发的快照，
+// 保证「文档写的格式」与「文件实际的格式」不会各走各的。只实现用到的关键字，不引第三方依赖。
+const schemaPath = join(DATA, 'bank.schema.json');
+if (!existsSync(schemaPath)) {
+    ok('存在 data/bank.schema.json', false);
+} else {
+    ok('存在 data/bank.schema.json', true);
+    const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
+    const typeOf = v => Array.isArray(v) ? 'array' : v === null ? 'null' : typeof v;
+    const resolveRef = ref => {
+        const p = ref.replace(/^#\//, '').split('/');
+        let cur = schema;
+        for (const k of p) cur = cur && cur[k];
+        return cur || null;
+    };
+    const errs = [];
+    const check = (val, sc, path) => {
+        if (!sc || typeof sc !== 'object') return;
+        if (sc.$ref) return check(val, resolveRef(sc.$ref), path);
+        if (sc.const !== undefined && val !== sc.const) errs.push(`${path}: 期望常量 ${JSON.stringify(sc.const)}，实际 ${JSON.stringify(val)}`);
+        if (sc.enum && !sc.enum.includes(val)) errs.push(`${path}: 不在枚举 ${JSON.stringify(sc.enum)} 内（实际 ${JSON.stringify(val)}）`);
+        if (sc.type) {
+            const t = typeOf(val);
+            const want = Array.isArray(sc.type) ? sc.type : [sc.type];
+            // integer 是 number 的细化
+            const hitType = want.some(w => (w === 'integer' ? Number.isInteger(val) : w === 'number' ? typeof val === 'number' : w === t));
+            if (!hitType) errs.push(`${path}: 类型应为 ${want.join('|')}，实际 ${t}`);
+        }
+        if (typeof val === 'string') {
+            if (sc.minLength !== undefined && val.length < sc.minLength) errs.push(`${path}: 长度 ${val.length} < ${sc.minLength}`);
+            if (sc.pattern && !new RegExp(sc.pattern).test(val)) errs.push(`${path}: 不匹配 ${sc.pattern}`);
+        }
+        if (typeof val === 'number' && sc.minimum !== undefined && val < sc.minimum) errs.push(`${path}: ${val} < minimum ${sc.minimum}`);
+        if (typeOf(val) === 'object') {
+            for (const req of sc.required || []) if (!(req in val)) errs.push(`${path}: 缺必填字段 ${req}`);
+            const props = sc.properties || {};
+            for (const [k, v] of Object.entries(val)) {
+                if (props[k]) check(v, props[k], `${path}.${k}`);
+                else if (sc.additionalProperties === false) errs.push(`${path}: 不允许的字段 ${k}`);
+                else if (sc.additionalProperties && typeof sc.additionalProperties === 'object') check(v, sc.additionalProperties, `${path}.${k}`);
+            }
+        }
+        if (typeOf(val) === 'array' && sc.items) val.forEach((x, i) => check(x, sc.items, `${path}[${i}]`));
+        if (Array.isArray(sc.oneOf)) {
+            const before = errs.length;
+            let matched = 0;
+            for (const sub of sc.oneOf) {
+                const mark = errs.length;
+                check(val, sub, path);
+                if (errs.length === mark) matched++;
+                else errs.length = mark;
+            }
+            if (!matched) errs.push(`${path}: 不符合 oneOf 任一分支`);
+            errs.length = before === errs.length ? errs.length : errs.length;
+        }
+    };
+    const snapshot = JSON.parse(readFileSync(join(DATA, jsonName), 'utf8'));
+    check(snapshot, schema, '$');
+    ok('题库 JSON 通过 data/bank.schema.json 校验', errs.length === 0, errs.slice(0, 5).join('；'));
+}
+
 console.log(failed === 0 ? '\n全部通过。\n' : `\n${failed} 项未通过。\n`);
 process.exit(failed === 0 || warnOnly ? 0 : 1);

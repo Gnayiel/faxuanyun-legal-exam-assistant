@@ -13,6 +13,33 @@
 
 ---
 
+## v2.0.14
+
+**2026-10-21**
+
+> 内部工程化收口：内置自检按主题拆成 8 组、30 处静默失败改为留痕、题库格式补上机器可校验的 schema，两份冒烟的油猴打桩合并成一份。
+
+**变更**
+
+- `selfTestCases()` 从 933 行单函数拆成 8 个主题分组（`casesParsing` / `casesDecision` / `casesIo` / `casesUiState` / `casesPageParse` / `casesReconcile` / `casesNetwork` / `casesReliability`），`selfTestCases()` 只做拼接。断言总数不变（181），拆分只为定位失败和 review。
+- 自检共用的固定输入（`CASE_OPTS_5Y` / `CASE_JUDGE_OPTS` / `CASE_YN_OPTS` / `CASE_SINGLE_OPTS` / `CASE_BANK_ENTRY`）提升到模块作用域——拆分后它们要被多个分组共用。
+- 新增 `tools/_harness.mjs`：`gmCore()` / `noNetwork()` / `downloadHook()` / `fakeBaidu()` 四个页面内打桩片段，由 `panel-smoke.mjs` 与 `page-smoke.mjs` 共用，删掉两份各自维护的重复实现。
+- 新增 `data/bank.schema.json`（JSON Schema draft-07），并在 `tools/check-data.mjs` 里用同一份 schema 校验随仓库分发的快照——文档写的格式与文件实际格式不再各走各的。
+- `package.json` 补上 `version` 字段，`tools/selftest.mjs` 增加一条断言：`package.json` 的 version 必须与 `@version` 一致（第 5 个版本号副本从此有门禁）。
+
+**修复**
+
+- 30 处 `catch {}` 改为 `safeWarn(标签, e)`：存储配额满、隐私模式禁用 storage、页面结构变化时不再静默失灵，面板日志会留一条「⚠ … 失败，已跳过」，同一类只记一次（避免刷屏）。
+
+**验证方式**
+
+- `node tools/selftest.mjs`：元数据 + 内置 **181 项**断言 + 文档数字校验全部通过。
+- `node tools/check-data.mjs`（含 schema 校验）、`node tools/check-workflows.mjs`：通过。
+- `node tools/panel-smoke.mjs --require-browser`：**40 项断言全部通过**；`node tools/page-smoke.mjs --require-browser`：**72 项断言全部通过**。
+- `node tools/release.mjs --check-ci v2.0.14`：通过。
+
+---
+
 ## v2.0.13
 
 **2026-10-21**

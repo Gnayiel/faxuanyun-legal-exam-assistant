@@ -27,6 +27,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findBrowser, runHeadless } from './browser.mjs';
+import { gmCore, fakeBaidu } from './_harness.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -63,41 +64,9 @@ const readFixture = name => readFileSync(join(FIXTURES, name), 'utf8');
 
 /** GM_* 打桩 + 假的百度搜索接口（全部离线，记录请求 URL 供断言「没有联网」） */
 function stubScript(cfg) {
-    return `
-window.__store = new Map();
-window.GM_info = { script: { version: '9.9.9', name: 'page-smoke' } };
-window.GM_getValue = function (k, d) { return window.__store.has(k) ? window.__store.get(k) : d; };
-window.GM_setValue = function (k, v) { window.__store.set(k, v); };
-window.GM_addStyle = function () { return document.createElement('style'); };
-window.GM_addValueChangeListener = function () { return 0; };
-(function () {
-  var cfg = ${JSON.stringify({ answers: cfg.answers || [], store: cfg.store || {} })};
-  for (var k in cfg.store) window.__store.set(k, cfg.store[k]);
-  window.__fxNet = [];
-  window.__fxAnswers = cfg.answers;
-  window.GM_xmlhttpRequest = function (o) {
-    var url = String((o && o.url) || '');
-    window.__fxNet.push(url);
-    var m = url.match(/[?&]wd=([^&]*)/);
-    var wd = m ? decodeURIComponent(m[1]) : '';
-    var ans = '';
-    for (var i = 0; i < cfg.answers.length; i++) {
-      if (wd.indexOf(cfg.answers[i].clue) >= 0) { ans = cfg.answers[i].answer; break; }
-    }
-    var responseText;
-    if (ans) {
-      var filler = '';
-      for (var j = 0; j < 20; j++) filler += '根据相关法律法规的规定，本选项符合法定情形，故选择该答案。';
-      responseText = '<html><body><div class="result c-container"><h3 class="t">题目答案与解析</h3>'
-        + '<div class="c-abstract">参考答案：' + ans + '。' + filler + '</div></div></body></html>';
-    } else {
-      responseText = '<html><body><div class="result c-container">没有找到该题的答案</div></body></html>';
-    }
-    setTimeout(function () { if (o && o.onload) o.onload({ status: 200, responseText: responseText }); }, 0);
-    return { abort: function () { } };
-  };
-})();
-`;
+    // 打桩拆到 ./_harness.mjs：核心 GM_* + 离线假百度接口，两边冒烟共用同一份实现
+    return `${gmCore({ name: 'page-smoke' })}
+${fakeBaidu({ answers: cfg.answers || [], store: cfg.store || {} })}`;
 }
 
 /** 页面内断言驱动：让用户脚本按真实流程自动跑（考试页就绪自动答题 / 成绩页自动解析），从面板日志与页面 DOM 取证据 */

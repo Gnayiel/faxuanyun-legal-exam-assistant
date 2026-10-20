@@ -77,7 +77,7 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
    workflow 会先跑自检 / 数据 / 工作流 / 合并 / 两种冒烟，再建 Release、回读附件，最后核对远端 `@updateURL` 的 `@version` 与 latest tag。
    也可以在工作流跑完后到 Release 页面核对附件与发布说明。
 6. **断点续发**：workflow 失败时按报错处理——`release.mjs --check-ci` 门禁失败（tag 与 `@version` 不符、CHANGELOG 缺章节）
-   要先改代码 / 文档再重打 tag；发布后回读校验失败（附件数 / SHA256 不一致）时 Release 其实已经建好，修好原因后
+   要先改代码 / 文档，再推送新的版本 tag（`v*` tag 受 `protect-release-tags` 保护，已推送的不能原地重打）；发布后回读校验失败（附件数 / SHA256 不一致）时 Release 其实已经建好，修好原因后
    直接在 Actions 里重跑本 workflow 即可，附件会用 `--clobber` 覆盖，**不需要**删 tag 重打。只有 tag 本身打错时，才需要先临时停用 `protect-release-tags` ruleset、删除后重打，打完记得重新启用（平时 `v*` tag 受保护，删不掉是正常的）。
 7. **只升不降**：不要发布比已在线版本更低的 `@version`（油猴不会降级到旧版）；某版有问题时，改代码后发一个
    **更高**的版本修正，不要删除或重打已经推送的 tag（`protect-release-tags` 规则集会直接拦截）——Release 附件与 SHA256 是按 tag 固化的，删 tag 会让

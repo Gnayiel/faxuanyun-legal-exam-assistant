@@ -254,6 +254,20 @@ const missingImg = imgRefs.filter(p => !existsSync(join(ROOT, p)));
 ok('README 引用的本地图片都存在', imgRefs.length > 0 && missingImg.length === 0,
     imgRefs.length ? missingImg.join(', ') : '没找到本地图片引用');
 
+
+// README 内部锚点（](#...)）最容易在改标题后静默失效：GitHub 上点了只会留在本页。
+// 按 GitHub 的 slug 规则把标题换算成锚点逐条核对；以后改标题必须同步改链接。
+const slugify = s => s.trim().toLowerCase()
+    .replace(/<[^>]*>/g, '')
+    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+    .replace(/\s/g, '-');
+const readmeSrc = readDoc('README.md');
+const headingSlugs = new Set([...readmeSrc.matchAll(/^#{1,6}\s+(.+)$/gm)].map(h => slugify(h[1])));
+const anchors = [...readmeSrc.matchAll(/\]\(#([^)\s]+)\)/g)].map(a => a[1]);
+const deadAnchors = anchors.filter(a => !headingSlugs.has(a));
+ok('README 内部锚点都指向真实标题', anchors.length > 0 && deadAnchors.length === 0,
+    anchors.length ? deadAnchors.join(', ') : '一条内部锚点都没找到（检查 README 是否还带目录）');
+
 console.log(failed === 0
     ? `\n全部通过。\n`
     : `\n${failed} 项未通过。\n`);

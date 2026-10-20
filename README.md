@@ -10,11 +10,8 @@
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-4.0%2B-black)](https://www.tampermonkey.net/)
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/social-preview-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/social-preview-light.png">
-    <img src="docs/social-preview-light.png" alt="法宣在线学法考试自动答题助手：结构化题库 + AI/百度双源查答案，单文件，内置自检" width="820">
-  </picture>
+  <img src="docs/social-preview-dark.png#gh-dark-mode-only" alt="法宣在线学法考试自动答题助手：结构化题库 + AI/百度双源查答案，单文件，内置自检" width="820">
+  <img src="docs/social-preview-light.png#gh-light-mode-only" alt="法宣在线学法考试自动答题助手：结构化题库 + AI/百度双源查答案，单文件，内置自检" width="820">
 </p>
 
 用于 **法宣在线**（`*.faxuanyun.com`）学法考试平台的 Tampermonkey 用户脚本。

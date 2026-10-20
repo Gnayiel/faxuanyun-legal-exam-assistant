@@ -54,7 +54,10 @@ ok('@run-at document-idle', one('run-at') === 'document-idle', one('run-at'));
 for (const g of ['GM_xmlhttpRequest', 'GM_getValue', 'GM_setValue', 'GM_addStyle', 'GM_addValueChangeListener', 'GM_info']) {
     ok(`@grant ${g}`, many('grant').includes(g));
 }
-ok('@connect 覆盖 www.baidu.com', many('connect').includes('www.baidu.com'));
+// 等值比较而不是 includes()：后者 "https://evil.com/?h=www.baidu.com" 也能过
+// （CodeQL js/incomplete-url-substring-sanitization）。
+ok('@connect 覆盖 www.baidu.com', many('connect').some(h => h.toLowerCase() === 'www.baidu.com'),
+    many('connect').join(' '));
 
 // 四个仓库地址必须都指向同一个仓库，且不能留着 <你的用户名> 这类占位符：
 // 油猴的「检查更新」与 README 里的安装链接都靠它们。

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.10
+// @version      2.0.11
 // @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 181 项内置自检
 // @author       GNAYIEL
 // @license      MIT
@@ -2867,13 +2867,22 @@
         return String(s).replace(/&(nbsp|emsp|amp|lt|gt|quot);/g, (_, e) => HTML_ENTITY[e]);
     }
 
-    // 只产出纯文本（日志 / 错误提示用，不进 innerHTML）：先摘掉 script/style 整段
-    // （允许属性与结尾空白），再把标签退化成空格，最后单遍解实体。
-    const stripHtml = html => decodeEntities(String(html)
-        .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
-        .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ')
-        .replace(/<[^>]*>/g, ' '))
-        .replace(/\s+/g, ' ');
+    /**
+     * 把 HTML 片段退化成纯文本（日志 / 错误提示用，结果不进 innerHTML）。
+     * 用 DOMParser 的惰性文档解析，而不是正则剥标签：实体解码、script/style、注释、
+     * 畸形标签都由浏览器解析器负责，正则做这件事永远会漏（CodeQL js/bad-tag-filter）。
+     * 没有 DOM 的宿主（比如纯 Node 环境）回退到单遍实体解码。
+     */
+    function stripHtml(html) {
+        const src = String(html == null ? '' : html);
+        let doc = null;
+        try {
+            if (typeof DOMParser === 'function') doc = new DOMParser().parseFromString(src, 'text/html');
+        } catch { doc = null; }
+        if (!doc || !doc.body) return decodeEntities(src).replace(/\s+/g, ' ');
+        for (const el of doc.body.querySelectorAll('script, style, noscript')) el.remove();
+        return String(doc.body.textContent || '').replace(/\s+/g, ' ');
+    }
 
     const SRC_NAME = { ai: 'AI', baidu: '百度', cache: '缓存' };
 

@@ -1,6 +1,6 @@
 # 甘肃省国家工作人员学法考试平台自动答题助手
 
-[![version](https://img.shields.io/badge/version-2.0.10-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.11-blue)](CHANGELOG.md)
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
@@ -433,7 +433,12 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 
 ## 更新记录
 
-当前版本 **v2.0.10**（2026-10-21）：修掉 CodeQL 首扫报出的正则回溯与实体二次解码两处真实缺陷，README 预览图转 WebP
+当前版本 **v2.0.11**（2026-10-21）：CodeQL 收尾——HTML 转纯文本改用 DOMParser，测试里的两处 URL/文本断言去掉误报
+
+- 修复：`stripHtml` 不再用正则剥标签，改用 `DOMParser` 惰性解析（实体、script/style、注释、畸形标签都由解析器处理）；无 DOM 宿主回退到单遍实体解码
+- 修复：`tools/selftest.mjs` 的 `downloadURL/updateURL` 断言改用 URL pathname 比较，标题 slug 不再做伪消毒
+
+v2.0.10（2026-10-21）：修掉 CodeQL 首扫报出的正则回溯与实体二次解码两处真实缺陷，README 预览图转 WebP
 
 - 修复：答案解析的关键词正则把 `[\s]*` 嵌在重复组里，遇到超长空白会灾难性回溯（整页卡死）→ 改为单层字符类，匹配线性化
 - 修复：`stripHtml` 先解 `&amp;` 再解 `&lt;`，`&amp;lt;` 会被二次解码成 `<` → 改为单遍实体映射；两个冒烟脚本的 DOM 反解同理

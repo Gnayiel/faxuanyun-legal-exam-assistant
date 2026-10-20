@@ -13,6 +13,28 @@
 
 ---
 
+## v2.0.11
+
+**2026-10-21**
+
+> CodeQL 收尾：把「HTML 转纯文本」从正则剥标签换成浏览器解析器，顺带清掉测试里的两处误报，安全页告警归零。
+
+**修复**
+
+- `stripHtml` 不再用 `<[^>]*>` 这类正则剥标签（CodeQL `js/bad-tag-filter`：正则做 HTML 过滤永远会漏），改用 `DOMParser` 解析成惰性文档后取 `textContent`，并移除 `script/style/noscript`；实体解码、注释、畸形标签交给解析器。没有 DOM 的宿主回退到单遍实体解码。
+- `tools/selftest.mjs` 的 `downloadURL` / `updateURL` 断言从 `endsWith()` 改成解析 URL 取 pathname 末段比较（CodeQL `js/incomplete-url-substring-sanitization`）。
+- `tools/selftest.mjs` 的标题 `slugify` 去掉「剥标签」式的伪消毒，改成只滤掉尖括号与非词字符（CodeQL `js/incomplete-multi-character-sanitization`）：它只用于把 README 标题换算成锚点，没有 HTML 上下文。
+
+**验证方式**
+
+- `node tools/selftest.mjs`：元数据 + 内置 **181 项**断言 + 文档数字校验全部通过。
+- `node tools/check-data.mjs`、`node tools/check-workflows.mjs`：通过。
+- `node tools/panel-smoke.mjs --require-browser`：**40 项断言全部通过**；`node tools/page-smoke.mjs --require-browser`：**72 项断言全部通过**。
+- `node --check faxuanyun-legal-exam-assistant.user.js`：通过。
+- `node tools/release.mjs --check-ci v2.0.11`：通过。
+
+---
+
 ## v2.0.10
 
 **2026-10-21**

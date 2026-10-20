@@ -22,5 +22,5 @@ faxuanyun-exam-log-*.txt
 # 随仓库分发的那一份题库快照：显式放行，不受上面的通配影响
 # （放行规则必须排在忽略规则之后才生效）
 # 想再放一份进来，就照着加一行 !data/<文件名>
-!data/faxuanyun-legal-exam-bank-20261017.csv
-!data/faxuanyun-legal-exam-bank-20261017.json
+!data/faxuanyun-legal-exam-bank-20261020.csv
+!data/faxuanyun-legal-exam-bank-20261020.json

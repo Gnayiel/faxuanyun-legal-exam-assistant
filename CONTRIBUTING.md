@@ -47,7 +47,7 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
 
 ## 题库快照维护
 
-- 随仓库分发的快照（`data/faxuanyun-legal-exam-bank-20261017.*`）是某一时刻的切片，**不会随每个版本自动更新**。
+- 随仓库分发的快照（如 `data/faxuanyun-legal-exam-bank-20261020.*`）是某一时刻的切片，**不会随每个版本自动更新**。
 - 题库有实质变化时，用面板导出新的 `.json` + `.csv`，按 `data/README.md` 的命名规则替换或新增，并在 `CHANGELOG.md` 里说明来源与日期。
 - 带日期的新快照默认被 `.gitignore` 排除；想让它进仓库，照 `data/README.md` 加一行 `!data/...` 放行。
 

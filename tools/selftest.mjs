@@ -251,7 +251,7 @@ if (!pageConst) {
 } else {
     PAGE_N = +pageConst[1];
     ok(`数得出 page-smoke 的断言数（${PAGE_N} 项）`, PAGE_N > 0, 'EXPECTED_ASSERTIONS 必须是正整数');
-    const declared = [...pageSrc.matchAll(/expectCount:\s*(\d+)/g)].map(x => +x[1]);
+    const declared = [...pageSrc.matchAll(/(?:expectCount|reloadExpectCount):\s*(\d+)/g)].map(x => +x[1]);
     ok('page-smoke 各用例的 expectCount 之和与 EXPECTED_ASSERTIONS 一致',
         declared.length > 0 && declared.reduce((a, b) => a + b, 0) === PAGE_N,
         `EXPECTED_ASSERTIONS=${PAGE_N}，expectCount 合计=${declared.reduce((a, b) => a + b, 0)}（${declared.length} 个用例）`);

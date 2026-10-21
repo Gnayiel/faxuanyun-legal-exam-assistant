@@ -37,9 +37,9 @@ HTMLAnchorElement.prototype.click = function () {
  * 假的百度搜索接口（离线）：按 clue 命中答案，记录每次请求 URL，
  * 供断言「答案来自百度」「没有真的联网」。正文塞够长度的解析文本，模拟真实结果页。
  */
-export function fakeBaidu({ answers = [], store = {} } = {}) {
+export function fakeBaidu({ answers = [], store = {}, delayMs = 0 } = {}) {
     return `(function () {
-  var cfg = ${JSON.stringify({ answers, store })};
+  var cfg = ${JSON.stringify({ answers, store, delayMs })};
   for (var k in cfg.store) window.__store.set(k, cfg.store[k]);
   window.__fxNet = [];
   window.__fxAnswers = cfg.answers;
@@ -61,7 +61,7 @@ export function fakeBaidu({ answers = [], store = {} } = {}) {
     } else {
       responseText = '<html><body><div class="result c-container">没有找到该题的答案</div></body></html>';
     }
-    setTimeout(function () { if (o && o.onload) o.onload({ status: 200, responseText: responseText }); }, 0);
+    setTimeout(function () { if (o && o.onload) o.onload({ status: 200, responseText: responseText }); }, cfg.delayMs || 0);
     return { abort: function () { } };
   };
 })();`;

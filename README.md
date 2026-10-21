@@ -6,7 +6,7 @@
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
 [![self-test](https://img.shields.io/badge/self--test-190%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
 [![panel--smoke](https://img.shields.io/badge/panel--smoke-40%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
-[![page--smoke](https://img.shields.io/badge/page--smoke-88%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
+[![page--smoke](https://img.shields.io/badge/page--smoke-103%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-4.0%2B-black)](https://www.tampermonkey.net/)
 
 <p align="center">

@@ -38,11 +38,11 @@ const REQUIRE_BROWSER = process.argv.includes('--require-browser') || process.en
 const FIXTURES = join(ROOT, 'tests', 'fixtures');
 const DUMP = process.env.FX_PAGE_SMOKE_DUMP === '1' || !!process.env.FX_PAGE_SMOKE_DUMP;
 
-// 七个用例的断言总数（README 徽章 / CHANGELOG 验证方式都写这个数）。
+// 九个用例的断言总数（README 徽章 / CHANGELOG 验证方式都写这个数）。
 // 每个用例在 CASES 里另有 expectCount；父进程会核对运行时 total 与这里的常量一致，
 // tools/selftest.mjs 也会数这一行并检查 README / CHANGELOG 是否同步，避免改了 fixture
 // 却忘记更新文档。改断言时先改这里，再跑一遍确认运行时总数一致。
-const EXPECTED_ASSERTIONS = 88; // 72 + 16（本地题库精确命中用例）
+const EXPECTED_ASSERTIONS = 103; // 88 + 8（跨页持久化 2+6）+ 7（停止/重启竞态）
 
 // 与用户脚本完全一致的题干归一化 / 主键算法：给「本地题库」用例预置键，保证命中的是
 // 精确键（而不是旧记录 / 模糊匹配），从而能断言 bankHow === 'exact'。
@@ -92,7 +92,7 @@ const readFixture = name => readFileSync(join(FIXTURES, name), 'utf8');
 function stubScript(cfg) {
     // 打桩拆到 ./_harness.mjs：核心 GM_* + 离线假百度接口，两边冒烟共用同一份实现
     return `${gmCore({ name: 'page-smoke' })}
-${fakeBaidu({ answers: cfg.answers || [], store: cfg.store || {} })}`;
+${fakeBaidu({ answers: cfg.answers || [], store: cfg.store || {}, delayMs: cfg.delayMs || 0 })}`;
 }
 
 /** 页面内断言驱动：让用户脚本按真实流程自动跑（考试页就绪自动答题 / 成绩页自动解析），从面板日志与页面 DOM 取证据 */
@@ -135,8 +135,64 @@ function driverScript(cfg) {
       for (var i = 0; i < inputs.length; i++) out.push(inputs[i].value);
       return out.sort().join('');
     };
+    var done = function () { return has(/答题完成|已答满|⏹️ 已停止|已是最后一题|未找到「下一题」/); };
 
-    if (CFG.scenario === 'result') {
+    if (CFG.scenario === 'persist') {
+      await waitFor(done, '第一页答题结束');
+      await sleep(200);
+      // 自动答题只写 pendingSession；题库要等交卷判定或用户手改才落盘。
+      // 这里模拟一次手动作答（B→A），既走真实事件链，也能让 saveUserAnswer 立刻写入题库。
+      var aOpt = document.querySelector('input[name="option"][value="A"]');
+      if (aOpt) aOpt.click();
+      await sleep(500);
+      collect();
+      var pb = window.__store.get('questionBank') || {};
+      var pkeys = Object.keys(pb);
+      ok('第一页答题后题库已落盘', pkeys.length === 1, '题库条数：' + pkeys.length + ' | ' + tail());
+      window.__FX_STORE__ = { questionBank: pb };
+    } else if (CFG.scenario === 'persist-reload') {
+      var rb = window.__store.get('questionBank') || {};
+      ok('第二页加载后仍能读到第一页的题库', Object.keys(rb).length === 1, '题库条数：' + Object.keys(rb).length);
+      await waitFor(done, '第二页答题结束');
+      await sleep(300);
+      collect();
+      ok('第二页从本地题库精确命中（不查百度）', has(/📚 题库命中（精确·[^）]+）：A/), tail());
+      var rnet = window.__fxNet || [];
+      ok('第二页零联网（题库精确命中）', rnet.length === 0, rnet.slice(0, 3).join(' | '));
+      var rs = window.__store.get('pendingSession');
+      var rh = rs && rs.history ? rs.history : [];
+      ok('第二页只写入一条作答记录且答案正确',
+        rh.length === 1 && rh[0].letters === 'A' && rh[0].type === 'judge',
+        rh.length ? JSON.stringify(rh.map(function (h) { return { n: h.qNum, letters: h.letters, type: h.type }; })) : '没有 pendingSession');
+      ok('第二页页面选中态正确（A）', currentChecked() === 'A', '实际选中：' + currentChecked());
+    } else if (CFG.scenario === 'race') {
+      await waitFor(function () { return has(/📝 第1题/); }, '开始查答案');
+      var stopBtn = $('fx-stop');
+      if (stopBtn) stopBtn.click();
+      await sleep(120);
+      collect();
+      ok('停止按钮立即生效', has(/⏹️ 已停止/), tail());
+      // 同一个按钮在停止后就是「开始」：再点一次即从当前题继续
+      if (stopBtn) stopBtn.click();
+      await waitFor(function () { return has(/答题完成|已是最后一题/); }, '重新开始后完成答题');
+      await sleep(400);
+      collect();
+      ok('重新开始后完成答题', has(/答题完成|已是最后一题/), tail());
+      var clicks = window.__clicks || [];
+      ok('停止/重开只点击一次选项', clicks.length === 1, '点击次数：' + clicks.length);
+      var raceSess = window.__store.get('pendingSession');
+      var raceHist = raceSess && raceSess.history ? raceSess.history : [];
+      ok('停止/重开只写入一条作答记录',
+        raceHist.length === 1 && raceHist[0].letters === 'B' && raceHist[0].type === 'judge',
+        raceHist.length ? JSON.stringify(raceHist.map(function (h) { return { n: h.qNum, letters: h.letters, type: h.type }; })) : '没有 pendingSession');
+      // 自动答题只写 pendingSession；再模拟一次手动作答，让题库落盘后断言只有一条。
+      var raceOpt = document.querySelector('input[name="option"][value="A"]');
+      if (raceOpt) raceOpt.click();
+      await sleep(500);
+      var raceBank = window.__store.get('questionBank') || {};
+      ok('停止/重开只入库一条', Object.keys(raceBank).length === 1, '题库条数：' + Object.keys(raceBank).length);
+      ok('最终页面选中态正确（A）', currentChecked() === 'A', '实际选中：' + currentChecked());
+    } else if (CFG.scenario === 'result') {
       ok('成绩页 fixture 就位（分数与弹窗答题卡）', !!document.querySelector('.layui-layer .answer-card'));
       // 成绩页是「打开面板后自动识别 + 延迟解析」的，不点按钮，等它自己跑完
       await waitFor(function () { return has(/📊 题库现有|成绩解析完成|成绩解析异常|不像成绩页|解析成绩失败/); }, '成绩解析结束');
@@ -289,7 +345,7 @@ function driverScript(cfg) {
   var failed = R.filter(function (r) { return !r.pass; });
   var out = document.getElementById('fx-out');
   if (!out) { out = document.createElement('div'); out.id = 'fx-out'; document.body.appendChild(out); }
-  out.textContent = 'FX_RESULT ' + JSON.stringify({ case: CFG.case, pass: R.length - failed.length, total: R.length, expectCount: CFG.expectCount, failed: failed });
+  out.textContent = 'FX_RESULT ' + JSON.stringify({ case: CFG.case, pass: R.length - failed.length, total: R.length, expectCount: CFG.expectCount, failed: failed, store: window.__FX_STORE__ || null });
 })();
 `;
 }
@@ -350,6 +406,31 @@ const CASES = [
             q2: { typeLabel: '单选', stemPart: '举证责任', answer: 'B', saveType: 'single', pickedHas: ['被告'] },
             keys: [BANK_KEY_1, BANK_KEY_2],
         },
+    },
+    {
+        name: '跨页持久化：第一页答题入库，第二页全新加载只读命中',
+        case: 'persist',
+        file: 'exam-persist.html',
+        budgetMs: 40000,
+        scenario: 'persist',
+        expectCount: 2,
+        reloadExpectCount: 6,
+        twoPhase: true,
+        store: { answerMode: 'baidu', autoCloseSec: 0 },
+        answers: [{ clue: '行政机关作出行政处罚决定前', answer: 'B' }],
+        expect: {},
+    },
+    {
+        name: '停止后立即重开：旧循环不再点击或写入第二条记录',
+        case: 'race',
+        file: 'exam-race.html',
+        budgetMs: 40000,
+        scenario: 'race',
+        expectCount: 7,
+        delayMs: 600,
+        store: { answerMode: 'baidu', autoCloseSec: 0 },
+        answers: [{ clue: '行政机关作出行政处罚决定前', answer: 'B' }],
+        expect: {},
     },
     {
         name: '多选 / 判断题页：题型识别与作答',
@@ -436,44 +517,62 @@ function unescapeDom(s) {
     return s.replace(/&(quot|amp|lt|gt);/g, (_, e) => HTML_ENTITY[e]);
 }
 
+function runResult(c, html, tag) {
+    const run = runHeadless(BROWSERS, html, { prefix: 'fx-page-smoke-', budgetMs: c.budgetMs });
+    if (DUMP) {
+        const stem = c.file.replace(/\.html$/, '') + (tag || '');
+        writeFileSync(join(tmpdir(), 'fx-page-smoke-' + stem + '.html'), html, 'utf8');
+        writeFileSync(join(tmpdir(), 'fx-page-smoke-' + stem + '.dom.html'), run.dom, 'utf8');
+    }
+    const m = run.dom.match(/FX_RESULT (\{.*?\})<\/div>/s);
+    if (!m) throw new Error('页面里没有跑出 FX_RESULT（驱动脚本可能抛异常，或用例页面与脚本不匹配）');
+    return JSON.parse(unescapeDom(m[1]));
+}
+
 let pass = 0, total = 0, fatal = 0;
 const failures = [];
 console.log(`页面适配冒烟测试：用 ${BROWSERS} 跑 ${CASES.length} 个脱敏页面…\n`);
 for (const c of CASES) {
-    let dom = '';
     try {
-        const html = buildPage(c);
-        const run = runHeadless(BROWSERS, html, { prefix: 'fx-page-smoke-', budgetMs: c.budgetMs });
-        dom = run.dom;
-        if (DUMP) {
-            writeFileSync(join(tmpdir(), 'fx-page-smoke-' + c.file + '.html'), html, 'utf8');
-            writeFileSync(join(tmpdir(), 'fx-page-smoke-' + c.file + '.dom.html'), dom, 'utf8');
+        const results = [{ c, r: runResult(c, buildPage(c), '') }];
+
+        // 跨页持久化：第一页答完写入 questionBank；第二页是全新页面，只把这份题库预置回 GM 存储，
+        // 断言它从精确键命中、零联网，而不是再查一次百度。
+        if (c.twoPhase) {
+            const first = results[0].r;
+            const bank = first.store && first.store.questionBank;
+            if (!bank || !Object.keys(bank).length) {
+                throw new Error('第一页没有写出 questionBank，无法验证跨页持久化');
+            }
+            const reload = {
+                ...c,
+                case: c.case + '-reload',
+                name: c.name + '（第二页）',
+                scenario: 'persist-reload',
+                expectCount: c.reloadExpectCount,
+                store: { ...c.store, questionBank: bank, bankSchema: 2, pendingSession: null },
+                answers: [],
+            };
+            results.push({ c: reload, r: runResult(reload, buildPage(reload), '-reload') });
+        }
+
+        for (const { c: cc, r } of results) {
+            if (r.case !== cc.case || r.expectCount !== cc.expectCount || r.total !== cc.expectCount) {
+                throw new Error(`结构化结果与用例声明不符（case=${r.case}，total=${r.total}，expectCount=${r.expectCount}/${cc.expectCount}）`);
+            }
+            pass += r.pass;
+            total += r.total;
+            console.log(`__FX_SMOKE__ ${JSON.stringify({ case: cc.case, pass: r.pass, total: r.total, expectCount: cc.expectCount })}`);
+            const mark = r.pass === r.total ? '✓' : '✗';
+            console.log(`  ${mark} ${cc.name}：${r.pass}/${r.total}（预期 ${cc.expectCount}）`);
+            for (const f of r.failed || []) {
+                failures.push(`  ✗ [${cc.name}] ${f.name}${f.extra ? '  → ' + f.extra : ''}`);
+            }
         }
     } catch (e) {
         fatal++;
-        console.error(`  ✗ ${c.name}：浏览器运行失败 ${e.message}`);
-        continue;
-    }
-    const m = dom.match(/FX_RESULT (\{.*?\})<\/div>/s);
-    if (!m) {
-        fatal++;
-        console.error(`  ✗ ${c.name}：页面里没有跑出 FX_RESULT（驱动脚本可能抛异常，或用例页面与脚本不匹配）`);
+        console.error(`  ✗ ${c.name}：${e.message}`);
         if (!DUMP) console.error('    排查：FX_PAGE_SMOKE_DUMP=1 node tools/page-smoke.mjs --require-browser');
-        continue;
-    }
-    const r = JSON.parse(unescapeDom(m[1]));
-    if (r.case !== c.case || r.expectCount !== c.expectCount || r.total !== c.expectCount) {
-        fatal++;
-        console.error(`  ✗ ${c.name}：结构化结果与用例声明不符（case=${r.case}，total=${r.total}，expectCount=${r.expectCount}/${c.expectCount}）`);
-        continue;
-    }
-    pass += r.pass;
-    total += r.total;
-    console.log(`__FX_SMOKE__ ${JSON.stringify({ case: c.case, pass: r.pass, total: r.total, expectCount: c.expectCount })}`);
-    const mark = r.pass === r.total ? '✓' : '✗';
-    console.log(`  ${mark} ${c.name}：${r.pass}/${r.total}（预期 ${c.expectCount}）`);
-    for (const f of r.failed || []) {
-        failures.push(`  ✗ [${c.name}] ${f.name}${f.extra ? '  → ' + f.extra : ''}`);
     }
 }
 if (total > 0 && total !== EXPECTED_ASSERTIONS) {

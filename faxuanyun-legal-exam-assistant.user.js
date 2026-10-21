@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.16
+// @version      2.0.17
 // @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 190 项内置自检
 // @author       Gnayiel
 // @license      MIT
@@ -25,8 +25,8 @@
 // @connect      ark.cn-beijing.volces.com
 // @homepageURL  https://github.com/Gnayiel/faxuanyun-legal-exam-assistant
 // @supportURL   https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/issues
-// @downloadURL  https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@latest/faxuanyun-legal-exam-assistant.user.js
-// @updateURL    https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@latest/faxuanyun-legal-exam-assistant.user.js
+// @downloadURL  https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@2/faxuanyun-legal-exam-assistant.user.js
+// @updateURL    https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@2/faxuanyun-legal-exam-assistant.user.js
 // ==/UserScript==
 
 /*
@@ -2074,7 +2074,16 @@
         .replace(/\s+/g, ' ')
         .trim();
 
-    const splitAns = s => String(s || '').split(/\s*[;；]\s*/).map(x => x.trim()).filter(Boolean);
+    const splitAns = s => {
+        const raw = String(s || '').trim();
+        if (!raw) return [];
+        // 字母答案常见「A,B」「A、B」「A/B」写法：只在整串都是短字母时才按分隔符拆，
+        // 避免把选项内容里的逗号（如「A，B，C 三地…」）误切成多个答案。
+        if (/^[A-Ha-h](?:\s*[;；,，、/]\s*[A-Ha-h])*$/.test(raw)) {
+            return raw.split(/[\s;；,，、/]+/).filter(Boolean).map(x => x.toUpperCase());
+        }
+        return raw.split(/\s*[;；]\s*/).map(x => x.trim()).filter(Boolean);
+    };
 
     /** 逐行校验，不合格的行报出原因而不是静默入库 */
     function validateRow(q, ans, wr) {
@@ -3245,7 +3254,7 @@
         const queries = [q + ' 正确答案', q + ' 答案', q];   // 需要从结果正文里剔除的查询词回显
         let text = '', note = '', budgetSpent = false;
         for (const url of entries) {
-            const r = await request({ url, headers: { 'User-Agent': UA }, desc: '百度', deadline: ctx.deadline });
+            const r = await request({ url, headers: { 'User-Agent': UA }, desc: '百度', deadline: ctx.deadline, signal: ctx.signal });
             if (r.budgetSpent) { budgetSpent = true; note = '本题网络预算已用完'; break; }   // 预算耗尽：不换入口、不重试（A6）
             if (!r.ok) { note = failText(r, '百度'); continue; }
             // 反爬/验证码/跳转页识别：正文很短且不含结果块
@@ -3299,6 +3308,7 @@
 
         const r = await request({
             method: 'POST', url, timeout: CONFIG.aiTimeout, desc: 'AI', deadline: ctx.deadline,
+            signal: ctx.signal,
             maxResponseBytes: 0,   // AI 主响应（JSON）不截断，避免超大 JSON 被 512KB 预算截坏（v2.0.8）
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
             data: JSON.stringify({
@@ -3464,8 +3474,8 @@
             dispute = recordDispute(stem, type, options, ranked);
         };
         const runSource = src => (src === 'ai'
-            ? queryAI(stem, options, type, { deadline })
-            : queryBaidu(stem, { deadline }));
+            ? queryAI(stem, options, type, { deadline, signal: opts.signal })
+            : queryBaidu(stem, { deadline, signal: opts.signal }));
         const absorb = responses => {
             const got = combineSourceResults(responses, type, options);
             got.notes.forEach(n => notes.push(n));
@@ -3521,6 +3531,20 @@
 
     // ==================== 答题核心 ====================
     let running = false, answered = 0;
+    // 运行代际 + 可中止请求：停止/重新开始都会 ++runSeq，旧循环与旧请求据此失效，
+    // 避免「点停止后立刻点开始」时两个 mainLoop 并行抢答同一个页面。
+    let runSeq = 0, runAbort = null;
+    function beginRun() {
+        runSeq++;
+        if (runAbort) { try { runAbort.abort(); } catch (e) { /* 旧控制器已结束 */ } }
+        runAbort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        return { id: runSeq, signal: runAbort ? runAbort.signal : undefined };
+    }
+    function cancelRun() {
+        runSeq++;
+        running = false; paused = false;
+        if (runAbort) { try { runAbort.abort(); } catch (e) { /* 已结束 */ } runAbort = null; }
+    }
     let paused = false;          // 暂停标志
     let remainSec = null;        // 最近一次读到的剩余时间
     let lastTimeWarn = 0, timeUp = false;
@@ -3550,8 +3574,9 @@
      * 只点「状态不一致」的选项——已经选中的不再点，避免把复选反选掉；
      * 平台没响应时最多重试 CONFIG.clickSyncRounds 轮。
      */
-    async function syncSelection(options, want, click = clickOption) {
+    async function syncSelection(options, want, click = clickOption, run = null) {
         for (let round = 0; round < CONFIG.clickSyncRounds; round++) {
+            if (run && run.id !== runSeq) return '';   // 已停止或被新一场接管：旧循环不再动页面
             if (await pacedOp('选项点击', () => true) === undefined) return '';   // 节流等待中被停止，不再动页面
             options.forEach(o => {
                 if (want.has(o.letter) !== !!o.input.checked) click(o);
@@ -3973,7 +3998,9 @@
         return { letters: pick.letter, why: `排除后 ${kept.length} 选 1`, strategy: 'random-kept' };
     }
 
-    async function answerCurrent() {
+    async function answerCurrent(run) {
+        const still = () => !run || (run.id === runSeq && running);
+        if (!still()) return { ok: false, reason: 'stopped' };
         const stem = getStem();
         if (!stem) { log('未找到题干'); return { ok: false, reason: 'no-stem' }; }
         let opts = getOptions();
@@ -4022,7 +4049,8 @@
             // 网络与题库一致才放心用，不一致时采用更新鲜的网络结果（题库正是靠交卷结果自纠错的）。
             if (valid && (hitE.e.cft || 0) >= CONFIG.crossCheckConflictMin) {
                 log(`⚔️ 题库该题历史冲突 ${hitE.e.cft} 次，不直接采信：联网交叉验证`);
-                const qr2 = await queryAnswer(stem, opts, type, { forceTwoSources: true });
+                const qr2 = await queryAnswer(stem, opts, type, { forceTwoSources: true, signal: run && run.signal });
+                if (!still()) return { ok: false, reason: 'stopped' };
                 qr2.notes.forEach(n => log(`🔍 ${n}`));
                 if (qr2.cand) {
                     if (qr2.cand.letters === valid) {
@@ -4040,7 +4068,8 @@
             }
         }
         if (!valid && !networkDone) {
-            const qr = await queryAnswer(stem, opts, type);
+            const qr = await queryAnswer(stem, opts, type, { signal: run && run.signal });
+            if (!still()) return { ok: false, reason: 'stopped' };
             qr.notes.forEach(n => log(`🔍 ${n}`));
             if (qr.cand) {
                 const who = qr.cand.srcs.map(x => SRC_NAME[x]).join('+');
@@ -4092,7 +4121,8 @@
 
         // 点击选项：只动选中态不一致的，点完复核实际状态
         const want = new Set(valid.split(''));
-        const picked = await syncSelection(opts, want);
+        const picked = await syncSelection(opts, want, clickOption, run);
+        if (!still()) return { ok: false, reason: 'stopped' };
         if (!picked) {
             // 点不上就不再强行点第一个——那会把假答案写进题库
             log('⚠️ 选项未能选中（页面可能未响应），本题不计入记录');
@@ -4964,6 +4994,7 @@
             timeUp = true;
             log('⏰ 考试时间已到，停止自动答题');
             running = false;
+            if (runAbort) { try { runAbort.abort(); } catch (e) { /* 已结束 */ } runAbort = null; }
             return true;
         }
         if (!rushDisabled && left <= CONFIG.timeRushSec && CONFIG.speed !== 'fast') {
@@ -5128,6 +5159,7 @@
 
     async function mainLoop() {
         if (running) return;
+        const run = beginRun();
         running = true; paused = false; timeUp = false;
         updateStatus(runStatusLabel(running, paused));   // 一开始就写清楚，别让状态栏停在「就绪」
         rushSpeedSaved = ''; rushDisabled = false;      // 每场重新判断自动提速
@@ -5161,7 +5193,7 @@
         syncRunBtns();
 
         let crash = 0;
-        while (running) {
+        while (running && run.id === runSeq) {
           try {   // 单题内的任何异常都在这里兜住，不让整场答题中断
             if (paused) { await sleep(200); continue; }
 
@@ -5239,7 +5271,8 @@
 
             const oldSig = questionSignature();
             if (!skipAnswer) {
-                const res = await answerCurrent();
+                const res = await answerCurrent(run);
+                if (run.id !== runSeq) return;   // 已被停止/新一场接管：旧循环不再收尾或继续
                 if (!res || !res.ok) {
                     const r = (res && res.reason) || 'unknown';
                     failCount[r] = (failCount[r] || 0) + 1;
@@ -5317,9 +5350,12 @@
           }
         }
 
+        // 旧循环：新一场已经接管，不要覆盖它的状态栏
+        if (run.id !== runSeq) return;
         // 先收尾再写状态栏：restoreRushSpeed() 内部会调 syncRunBtns()，
         // 而 syncRunBtns 在 running 为真时会把状态栏改回「答题中」，把结束文案冲掉
         running = false; paused = false;
+        if (runAbort) runAbort = null;      // 正常收尾；下一场 beginRun 会新建控制器
         releaseActiveTab();                 // 撤掉「本页正在答题」心跳
         restoreRushSpeed();
         // 只有正常答完才显示「答题完成」；异常停止如实说明原因（倒计时到点的 running 已为 false，这里靠 stopReason 判断）
@@ -6899,7 +6935,7 @@
         // 开始 / 停止：停下后再点「开始」能从当前题接着答，已记录过的题不会重答
         $('fx-stop').onclick = () => {
             if (running) {
-                running = false; paused = false;
+                cancelRun();                    // ++runSeq 并中止在途请求：旧循环/旧查询立即失效
                 abortPendingWaits();            // 让正在进行的切题等待立刻结束，不再卡 12 秒（B4）
                 releaseActiveTab();             // 立刻撤掉「本页正在答题」心跳，另一页不再误报同场双开（B4）
                 log(`⏹️ 已停止（已答 ${history.length} 题）· 点「开始」可从当前题继续`);
@@ -7513,7 +7549,8 @@
      */
     function resetRuntimeAfterPageShow() {
         const wasBusy = running || parseRunning || !!autoCloseLeft;
-        running = false; paused = false; timeUp = false;
+        cancelRun();                    // 旧循环/旧查询立即失效，避免 bfcache 恢复后两个循环并存
+        timeUp = false;
         abortPendingWaits();            // 缓存恢复时也中止未完成的切题等待（B2/B4）
         releaseActiveTab();
         if (autoCloseTimer) { clearTimeout(autoCloseTimer); autoCloseTimer = null; }

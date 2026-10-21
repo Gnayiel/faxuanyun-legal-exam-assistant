@@ -13,6 +13,41 @@
 
 ---
 
+## v2.0.17
+
+**2026-10-21**
+
+> 更新链与运行期收口：自动更新从 `@latest` 切到 `@2` 主版本别名；停止后立刻开始不再跑双循环；
+> 导入答案支持逗号 / 顿号 / 斜杠分隔的字母串；回填脚本纳入统一门禁。
+
+### 新增
+
+- 新增 `tools/backfill-release-notes.mjs` 与手动触发的 `.github/workflows/backfill-release-notes.yml`：
+  分页把旧 Release 说明里的 `raw/main` 安装链替换为 tag 级 jsDelivr 链接，支持 `--dry-run` / `--self-test`。
+
+### 变更
+
+- `@downloadURL` / `@updateURL` 从 jsDelivr `@latest` 改为 `@2`：`@latest` 别名边缘缓存实测最长 7 天
+  （2026-10-21 发布 v2.0.16 约 9 小时后，三边缘仍全部返回 2.0.14）；`@2` 在三个边缘立即解析到 2.0.16。
+  `@2` 仍受 CDN 缓存影响，但不会继承 `@latest` 已缓存的旧版本；固定版本仍用 `@vX.Y.Z`。
+- `tools/ci.mjs` 新增 `backfill-release-notes.mjs --self-test`，统一门禁由 7 步变 8 步。
+
+### 修复
+
+- **停止后立刻开始可能双循环**：`mainLoop()` 增加运行代际 `runSeq` 与 `AbortController`；停止时 `cancelRun()`
+  同时失效旧循环、中止在途的百度 / AI 请求，旧循环醒来后直接退出，不再与新一场抢答同一页面。
+- **停止不能中止联网请求**：`queryAnswer` / `queryBaidu` / `queryAI` 把运行 signal 透传到 `request()`；
+  停止后不再等满 20 秒查询预算，也不会把旧请求的答案点到新一场。
+- **导入字母答案分隔符**：`splitAns()` 对「A,B」「A、B」「A/B」这类纯字母串按常见分隔符拆分；
+  含中文 / 长文本的答案仍只按分号拆，避免把选项内容里的逗号切坏。
+
+### 验证方式
+
+- `npm run ci` 8 步全过：selftest 190/190、check-data 299 题、merge-smoke 17/17、panel 40/40、page 88/88，
+  另含 `backfill-release-notes --self-test`。
+- `node tools/release.mjs --check-ci v2.0.17` 通过。
+- 三边缘实测：发布前 `@2` 均返回 2.0.16；发布后若 CDN 仍缓存旧版，用 `@v2.0.17` 固定链接验证。
+
 ## v2.0.16
 
 **2026-10-21**
@@ -108,49 +143,7 @@
 - 发版后 `curl https://fastly.jsdelivr.net/gh/.../@latest/...user.js` 仍受边缘缓存影响：新 tag 的 `@vX.Y.Z` 路径在三个边缘立即生效，
   而 `@latest` 通常要数小时才陆续刷新；2026-10-21 实测 v2.0.15 已发布，三个边缘的 `@latest` 仍停在 2.0.14，不能承诺即时。
 
-## v2.0.14
-
-**2026-10-21**
-
-> 内部工程化收口：内置自检按主题拆成 8 组、30 处静默失败改为留痕、题库格式补上机器可校验的 schema，两份冒烟的油猴打桩合并成一份。
-
-**变更**
-
-- `selfTestCases()` 从 933 行单函数拆成 8 个主题分组（`casesParsing` / `casesDecision` / `casesIo` / `casesUiState` / `casesPageParse` / `casesReconcile` / `casesNetwork` / `casesReliability`），`selfTestCases()` 只做拼接。断言总数不变（181），拆分只为定位失败和 review。
-- 自检共用的固定输入（`CASE_OPTS_5Y` / `CASE_JUDGE_OPTS` / `CASE_YN_OPTS` / `CASE_SINGLE_OPTS` / `CASE_BANK_ENTRY`）提升到模块作用域——拆分后它们要被多个分组共用。
-- 新增 `tools/_harness.mjs`：`gmCore()` / `noNetwork()` / `downloadHook()` / `fakeBaidu()` 四个页面内打桩片段，由 `panel-smoke.mjs` 与 `page-smoke.mjs` 共用，删掉两份各自维护的重复实现。
-- 新增 `data/bank.schema.json`（JSON Schema draft-07），并在 `tools/check-data.mjs` 里用同一份 schema 校验随仓库分发的快照——文档写的格式与文件实际格式不再各走各的。
-- `package.json` 补上 `version` 字段，`tools/selftest.mjs` 增加一条断言：`package.json` 的 version 必须与 `@version` 一致（第 5 个版本号副本从此有门禁）。
-
-**修复**
-
-- 30 处 `catch {}` 改为 `safeWarn(标签, e)`：存储配额满、隐私模式禁用 storage、页面结构变化时不再静默失灵，面板日志会留一条「⚠ … 失败，已跳过」，同一类只记一次（避免刷屏）。
-
-**验证方式**
-
-- `node tools/selftest.mjs`：元数据 + 内置 **181 项**断言 + 文档数字校验全部通过。
-- `node tools/check-data.mjs`（含 schema 校验）、`node tools/check-workflows.mjs`：通过。
-- `node tools/panel-smoke.mjs --require-browser`：**40 项断言全部通过**；`node tools/page-smoke.mjs --require-browser`：**72 项断言全部通过**。
-- `node tools/release.mjs --check-ci v2.0.14`：通过。
-
----
-
-## v2.0.13
-
-**2026-10-21**
-
-> v2.0.12 把自动更新指向了 `cdn.jsdelivr.net`，实测在国内被重置（`ERR_CONNECTION_RESET`）——换成同一 CDN 的 `fastly.jsdelivr.net` 边缘域名，路径不变。
-
-**修复**
-
-- `@downloadURL` / `@updateURL` 的主机从 `cdn.jsdelivr.net` 换成 `fastly.jsdelivr.net`。`cdn.jsdelivr.net` 在用户网络（甘肃移动）下连接被重置，`fastly` / `gcore` / `testingcf` 三个边缘域名实测均 200 且内容为同一份（`@version` 一致）；三个域名共享缓存，可随时互换。
-- `tools/selftest.mjs` 的镜像 host 断言从只认 `cdn.jsdelivr.net` 改为认 `cdn` / `fastly` / `gcore` / `testingcf` 四个边缘域名；`release.yml` 的 purge 步骤改为按路径拼 `purge.jsdelivr.net` 地址，不再假定具体边缘域名。
-
-**验证方式**
-
-- `node tools/selftest.mjs`：元数据 + 内置 **181 项**断言 + 文档数字校验全部通过。
-- `node tools/check-data.mjs`、`node tools/check-workflows.mjs`：通过。
-- `node tools/panel-smoke.mjs --require-browser`：**40 项断言全部通过**；`node tools/page-smoke.mjs --require-browser`：**72 项断言全部通过**。
-- `node tools/release.mjs --check-ci v2.0.13`：通过。
+> **后续更正（v2.0.17）**：`@latest` 别名的 `cache-control` 为 `max-age=604800, s-maxage=43200`（浏览器 7 天 / 边缘 12 小时）；
+> v2.0.16 发布约 9 小时后三个边缘仍全部返回 2.0.14，因此 v2.0.17 改用 `@2` 主版本别名。本节保留当时的记录。
 
 ---

@@ -27,6 +27,7 @@ const ALL_STEPS = [
     ['内置自检 + 文档数字', ['tools/selftest.mjs']],
     ['数据 / 文档一致性', ['tools/check-data.mjs']],
     ['工作流静态检查', ['tools/check-workflows.mjs']],
+    ['Release 回填脚本离线自测', ['tools/backfill-release-notes.mjs', '--self-test']],
     ['题库合并冒烟（冲突 / 幂等 / 公式消毒）', ['tools/merge-smoke.mjs']],
     ['面板冒烟（需要真实浏览器）', ['tools/panel-smoke.mjs', '--require-browser']],
     ['页面适配冒烟（需要真实浏览器）', ['tools/page-smoke.mjs', '--require-browser']],

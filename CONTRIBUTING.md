@@ -18,23 +18,24 @@
 ## 本地验证（提交前必跑）
 
 ```bash
+node tools/check-syntax.mjs                  # user.js 与 tools/*.mjs 语法检查
 node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 190 项断言 + 文档数字校验，不联网
-node tools/check-workflows.mjs               # GitHub Actions 配置静态检查（pin SHA / 权限 / 脚本路径）
-node tools/release.mjs --dry-run             # 本地发版助手：版本与 CHANGELOG 校验 + 跑测试 + 打 tag 预演
 node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致，并按 data/bank.schema.json 校验格式
-node tools/merge-bank.mjs data/*.json -o /tmp/merged.json   # 题库合并工具冒烟（幂等）
+node tools/check-workflows.mjs               # GitHub Actions 配置静态检查（pin SHA / 权限 / 脚本路径）
+node tools/merge-smoke.mjs                   # 题库合并冒烟（冲突 / 幂等 / 公式消毒，17 项检查）
+node tools/backfill-release-notes.mjs --self-test   # 旧 Release 说明回填脚本离线自测
 node tools/panel-smoke.mjs --require-browser # 真实浏览器面板冒烟（40 项断言）
 node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟（88 项断言）
 ```
 
 - 装了 Node 之后也可以用 `package.json` 里的快捷命令：`npm run check`（语法 + 自检 + 数据 + 工作流 + 题库合并冒烟）、
-  `npm run ci`（上述全部 + 面板/页面冒烟，与 selftest.yml、release.yml 共用同一份清单）、`npm run smoke`（两种浏览器冒烟，强制模式）、`npm run release`（发版助手）。
+  `npm run ci`（上述全部 + 回填脚本自测 + 面板/页面冒烟，共 8 步，与 selftest.yml、release.yml 共用同一份清单）、`npm run smoke`（两种浏览器冒烟，强制模式）、`npm run release`（发版助手）。
 - 两种浏览器冒烟共用 `tools/browser.mjs` 探测浏览器（`FX_BROWSER` → 常见安装路径 → PATH，Windows 也支持），
   找不到浏览器时默认**跳过**（退出码 0）；加 `--require-browser`（或设 `FX_REQUIRE_BROWSER=1`）则改为失败——
   CI 用的就是强制模式，防止「没装浏览器 → 静默跳过 → 假绿」。
 - `selftest.mjs` 会校验 README / CHANGELOG / 脚本注释里写死的自检断言数、page-smoke 断言数与 README 版本徽章是否与 `@version` 一致。
-  改了这些数字必须同步，否则测试会直接指出缺哪个字符串；它还会校验 `@updateURL` / `@downloadURL` 是否为 `@latest`
-  （jsDelivr 按 tag 解析，避开分支缓存）或 `main` 分支的完整 https 直链（默认走 `fastly.jsdelivr.net` 等 jsDelivr 边缘域名，也认 `raw.githubusercontent.com`），以及用户脚本体积不超过 512 KB。
+  改了这些数字必须同步，否则测试会直接指出缺哪个字符串；它还会校验 `@updateURL` / `@downloadURL` 是否为 `@2`
+  （jsDelivr 主版本别名，仍受边缘缓存影响）或 `main` 分支的完整 https 直链（默认走 `fastly.jsdelivr.net` 等 jsDelivr 边缘域名，也认 `raw.githubusercontent.com`），以及用户脚本体积不超过 512 KB。
 - 手动冒烟：装脚本 → 打开任意 `*.faxuanyun.com` 页面 → 面板能建起来、按钮与快捷键正常。
 
 ## 更新日志与版本号
@@ -48,7 +49,7 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
 单文件、纯前端、**无构建步骤**，改完直接安装即可。上面命令块里每条工具的职责：
 
 - `tools/selftest.mjs` 在最小 DOM / 油猴打桩下加载脚本，跑的就是面板「自检」按钮调用的同一批用例；
-  它还会校验 `@-metadata` 是否完整、`@downloadURL` / `@updateURL` 是否是 `@latest`（jsDelivr）或 `main` 分支的完整 https 直链且两者一致（只校验字符串，不联网）、脚本体积是否超出 512 KB 预算、
+  它还会校验 `@-metadata` 是否完整、`@downloadURL` / `@updateURL` 是否是 `@2`（jsDelivr 主版本别名）或 `main` 分支的完整 https 直链且两者一致（只校验字符串，不联网）、脚本体积是否超出 512 KB 预算、
   脚本里的 `CONNECT_HOSTS` 常量和头部 `@connect` 白名单是否一一对应、
   README 徽章 / 脚本文案里写明的断言数是否与真实用例数一致，以及 **README 版本徽章是否与 `@version` 一致**（数字和版本写死都会过期）。
 - `tools/panel-smoke.mjs` 找不到浏览器时默认**跳过**（退出码 0）；
@@ -132,16 +133,17 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 ├── .gitattributes
 ├── .editorconfig                 # 编辑器行为（统一 LF/缩进；CSV 与图片例外）
 ├── .nvmrc                        # Node 22（与 CI 一致）
-├── package.json                  # 元数据 + npm run check / smoke / release 快捷命令
+├── package.json                  # 元数据 + npm run check / ci / smoke / release 快捷命令
 ├── .github/
 │   ├── dependabot.yml            # 自动升级 GitHub Actions
 │   ├── ISSUE_TEMPLATE/           # issue 模板（bug 报告 + 安全引导）
 │   ├── pull_request_template.md  # PR 自查清单
 │   └── workflows/
-│       ├── selftest.yml          # CI：元数据校验 + 内置自检 + 数据/工作流检查 + 面板冒烟 + 页面适配冒烟
+│       ├── selftest.yml          # CI：语法 + 内置自检 + 数据/工作流 + 合并/面板/页面冒烟（统一 npm run ci）
 │       ├── release.yml           # 推送 v* tag 时自动建 Release、上传 .user.js + .sha256，并做更新链校验
 │       ├── auto-merge.yml        # Dependabot 依赖升级 PR：自检全绿后自动合并
-│       └── backfill-sha256.yml   # 手动触发 / 每月巡检：给缺少 .sha256 的旧 Release 补校验文件
+│       ├── backfill-sha256.yml   # 手动触发 / 每月巡检：给缺少 .sha256 的旧 Release 补校验文件
+│       └── backfill-release-notes.yml  # 手动触发：把旧 Release 说明里的 raw/main 安装链换成 tag 级 jsDelivr 链接
 ├── docs/                         # README 顶部预览图与 GitHub 社交预览图（panel.webp、social-preview-*.webp）
 ├── data/
 │   ├── README.md                 # 题库快照的命名规范与提交规则
@@ -151,11 +153,15 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 ├── tests/
 │   └── fixtures/                 # 页面适配冒烟的 6 个脱敏 fixture（单选/多选/判断/答题卡/成绩/无总题数）
 └── tools/
+    ├── check-syntax.mjs          # user.js 与全部 tools/*.mjs 的语法检查
     ├── selftest.mjs              # 无依赖自检（元数据 + 190 项断言）
     ├── check-data.mjs            # 题库快照与文档数字一致性校验（--fix 可自动修）
     ├── merge-bank.mjs            # 多份题库导出合并（--emit-snapshot 生成 data/ 快照）
+    ├── merge-smoke.mjs           # 合并工具冒烟（冲突 / 幂等 / 公式消毒，17 项检查）
     ├── check-workflows.mjs       # GitHub Actions 配置静态检查
+    ├── ci.mjs                    # 统一门禁：语法→自检→数据→工作流→回填自测→合并→面板→页面
     ├── release.mjs               # 本地发版助手（校验 → 测试 → 打 tag）
+    ├── backfill-release-notes.mjs # 旧 Release 说明安装链回填（--dry-run / --self-test）
     ├── browser.mjs               # 浏览器探测与 headless 启动（两种冒烟共用）
     ├── _harness.mjs              # 页面内 GM_* 打桩与假百度接口（两种冒烟共用）
     ├── panel-smoke.mjs           # 真实浏览器面板冒烟测试（40 项），CI 用强制模式

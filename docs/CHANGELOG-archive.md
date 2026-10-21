@@ -102,7 +102,7 @@
 
 ---
 
-更早的版本记录（v2.0.0 – v2.0.10）见 [CHANGELOG-archive.md](CHANGELOG-archive.md)。
+以下即更早的版本记录（v2.0.0 – v2.0.10）。
 
 ## v2.0.10
 
@@ -134,7 +134,7 @@
 
 ---
 
-更早的版本记录（v2.0.0 – v2.0.9）见 [CHANGELOG-archive.md](CHANGELOG-archive.md)。
+以下即更早的版本记录（v2.0.0 – v2.0.9）。
 
 ---
 

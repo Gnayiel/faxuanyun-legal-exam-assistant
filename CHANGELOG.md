@@ -46,13 +46,18 @@
   innerHTML 约定改为「静态骨架可用，动态数据一律 textContent」。
 - **CI 双车道**：Node 22 跑完整 9 步（含浏览器冒烟），Node 24 跑快速 6 步，check-run 名称保持
   `selftest (22)` / `selftest (24)`，避免重复启动两次 Chromium。
+- **自动更新主版本守卫**：`tests/selftest.mjs` 与 `tools/release.mjs --check-ci` 都检查 `@updateURL`
+  的 `@N` 与 `@version` 主版本一致；升级桥必须带显式 `// fx-bridge-to N` 且版本主版本更小。
+  `release.yml` 的镜像提示从实际 URL 提取别名，不再写死 `@2`。
+- **归档与设置文档校准**：移除 `docs/CHANGELOG-archive.md` 指向自身的链接；仓库设置文档把
+  Description / Website / Topics 的当前值与建议值分开，避免把建议写成已配置。
 
 ### 测试
 
 - **AI 通道页面冒烟**：新增两个真实浏览器用例——纯 JSON / JSON 代码块两种响应；解释文字包裹 JSON、
   AI 失败降级百度、强制二源。页面断言 105→135（共 11 个用例）。
 - **导入链路端到端**：`tests/panel-smoke.mjs` 拦截文件选择框，从面板按钮依次导入 JSON 与 CSV，
-  断言落到 `questionBank`；面板断言 40→42。
+  断言落到 `questionBank`；等待改为轮询（最长 5 秒），不再依赖固定 1600ms；面板断言 40→42。
 - **CSV 表头回归**：内置自检新增 3 条（正常六列表头、两列「题目 / 答案」、无表头首行题干含「答案」不被吞），
   内置断言 190→193。
 - **文档配图生成**：新增 `tools/generate-docs-images.mjs` 与 `docs/IMAGE_PIPELINE.md`，发版时用 ffmpeg

@@ -13,7 +13,8 @@
  *   3. 包含远端：origin/main 是 HEAD 的祖先（正式发版会先 git fetch --prune --tags，网络失败降级为警告）
  *
  * 重复发版是安全的：正式发版会先同步远端 tag；如果 tag 已存在，脚本只做提示并退出 0，
- * 不重复打 tag、也不重复跑门禁（release workflow 可以安全重跑，上传用 --clobber 覆盖）。
+ * 不重复打 tag、也不重复跑门禁。release workflow 在「未开启 immutable releases」时可以安全重跑，
+ * 上传用 --clobber 覆盖；开启 immutable releases 后已发布附件不可覆盖，重跑会失败，只能 bump patch 重新发版。
  *
  * 推送 tag 后，GitHub Actions 的 .github/workflows/release.yml 会自动：
  *   复验 tag=@version → npm run ci 统一门禁 → 创建 Release → 上传 .user.js 与同名 .sha256 →
@@ -102,7 +103,32 @@ function verifyVersionAndChangelog() {
     if (!changelogSection.trim()) {
         die(`CHANGELOG.md 的「## v${version}」章节是空的：补上变更内容再发版（空章节会让 Release 说明缺正文）`);
     }
+    verifyUpdateAlias();
     console.log(`✓ 版本号 ${version}，CHANGELOG 有对应章节且非空`);
+}
+
+// 自动更新主版本守卫：@updateURL 的 @N 必须与 @version 的 N 一致。
+// 升级桥 v2.0.22 是唯一例外：版本仍是 2.x，但更新地址先指 @3，并带 // fx-bridge-to 3 标记；
+// 没有这个标记就发布 3.0.0，已装 2.x 的用户永远收不到 3.x 更新。
+function verifyUpdateAlias() {
+    const major = Number(version.split('.')[0]);
+    const alias = (script.match(/^\/\/ @updateURL\s+\S*@(\d+)(?:\/|$)/m) || [])[1];
+    const bridge = Number((script.match(/^\/\/ fx-bridge-to\s+(\d+)\s*$/m) || [])[1] || 0);
+    const bridgeOk = !!alias && bridge === Number(alias) && major < Number(alias);
+    if (!alias) {
+        console.log('ℹ️ @updateURL 未使用 @N 主版本别名（固定 tag / raw），跳过主版本对齐检查');
+        return;
+    }
+    if (Number(alias) === major || bridgeOk) {
+        console.log(`✓ @updateURL 主版本 @${alias} 与 @version ${version} 对齐${bridgeOk ? `（升级桥 → @${bridge}）` : ''}`);
+        return;
+    }
+    const msg = `@updateURL 主版本 @${alias} 与 @version ${version} 不一致：`
+        + (Number(alias) > major
+            ? `要发 bridge 必须加 // fx-bridge-to ${alias}，否则旧用户收不到更新`
+            : `回退主版本会让已装用户收不到更新，请改用新主版本的 bridge`);
+    if (hardMode) die(msg);
+    console.log(`⚠ ${msg}（--dry-run 只警告）`);
 }
 
 // ------------------------------------------------- CI 门禁（release.yml 调用）
@@ -148,7 +174,8 @@ const headSha = tryGit(['rev-parse', 'HEAD']).out;
 if (hasTag && !dryRun) {
     const tagCommit = tryGit(['rev-parse', '-q', '--verify', `refs/tags/${tag}^{commit}`]);
     console.log(`\nℹ️ tag ${tag} 已存在${tagCommit.ok && tagCommit.out ? `（指向 ${tagCommit.out.slice(0, 7)}）` : ''}：跳过测试与打 tag。`);
-    console.log('  发版 workflow 可以安全重跑；要发布新版本请先修改 @version / CHANGELOG 再运行本脚本。');
+    console.log('  未开启 immutable releases 时 workflow 可安全重跑（--clobber 覆盖附件）；');
+    console.log('  开启后附件不可覆盖，重跑会失败；要发布新版本请先修改 @version / CHANGELOG 再运行本脚本。');
     if (!tagCommit.ok || !tagCommit.out) die(`tag ${tag} 存在但解析不出提交，请人工检查`);
     if (headSha && tagCommit.out !== headSha) {
         die(`tag ${tag} 不在当前 HEAD（${tagCommit.out.slice(0, 7)} ≠ ${headSha.slice(0, 7)}）：请改用新版本号；「v*」tag 受保护，不能删除 / 改指向`);

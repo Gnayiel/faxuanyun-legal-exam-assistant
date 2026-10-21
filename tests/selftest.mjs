@@ -107,17 +107,29 @@ ok('downloadURL / updateURL 指向当前文件名（改名后必须同步）',
 // 自动更新链路（C5）：油猴「检查更新」只认 https 直链；downloadURL / updateURL 各指一处时，
 // 不同客户端会从不同地址取更新，行为分叉且难排查，所以两个字段必须完全一致。
 const RAW_FILE = 'faxuanyun-legal-exam-assistant.user.js';
-const UPDATE_URL_PREFIXES = [
-    // 自动更新优先走 jsDelivr：raw.githubusercontent / github.com/raw 在国内多数网络下不可达，
-    // 会让「检查更新」静默失败（这正是 v2.0.12 改地址的原因）。
-    `https://fastly.jsdelivr.net/gh/${REPO}@2/`,
+// 自动更新优先走 jsDelivr：raw.githubusercontent / github.com/raw 在国内多数网络下不可达，
+// 会让「检查更新」静默失败（这正是 v2.0.12 改地址的原因）。
+// 主版本别名只允许数字（@2 / @3）或固定版本（@v2.0.22）；cdn.jsdelivr.net 在国内常被重置，
+// 但用户可能按文档换成 gcore/testingcf，这里一并接受。
+const UPDATE_URL_RE = new RegExp(
+    `^https://(?:fastly|gcore|testingcf|cdn)\\.jsdelivr\\.net/gh/${REPO.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}` +
+    `@(?:\\d+|v\\d+\\.\\d+\\.\\d+)/${RAW_FILE.replace(/\./g, '\\.')}$`
+);
+const RAW_UPDATE_PREFIXES = [
     `https://raw.githubusercontent.com/${REPO}/main/`,
     `https://github.com/${REPO}/raw/main/`,
 ];
-const isUpdateUrl = u => UPDATE_URL_PREFIXES.some(p => u.startsWith(p)) && u.endsWith('/' + RAW_FILE);
-ok('downloadURL / updateURL 是完整 https 直链',
-    isUpdateUrl(one('downloadURL')) && isUpdateUrl(one('updateURL')),
-    `允许：${UPDATE_URL_PREFIXES.join(' 或 ')}${RAW_FILE}`);
+const isUpdateUrl = u => UPDATE_URL_RE.test(u) || RAW_UPDATE_PREFIXES.some(p => u.startsWith(p));
+// 升级桥：v2.0.22 的 @version 仍是 2.x，但 @updateURL 先指向 @3，让旧用户先升到桥，再由桥升 v3。
+// 只允许桥目标等于 @updateURL 的别名，而且 @version 主版本必须更小；普通版本不允许错位。
+const versionMajor = Number(one('version').split('.')[0]);
+const updateAlias = (one('updateURL').match(/@(\d+)(?:\/|$)/) || [])[1];
+const bridgeTo = Number((code.match(/^\/\/ fx-bridge-to\s+(\d+)\s*$/m) || [])[1] || 0);
+const bridgeOk = !!updateAlias && bridgeTo === Number(updateAlias) && versionMajor < Number(updateAlias);
+const aliasOk = !updateAlias || Number(updateAlias) === versionMajor || bridgeOk;
+ok('downloadURL / updateURL 是完整 https 直链且主版本对齐（或带升级桥）',
+    isUpdateUrl(one('downloadURL')) && isUpdateUrl(one('updateURL')) && aliasOk,
+    `允许 jsDelivr @<主版本>/@v<版本> 或 raw main；@version=${one('version')} @updateURL=${one('updateURL')} bridge=${bridgeTo || '无'}`);
 ok('downloadURL 与 updateURL 一致（两个字段不能各指一处）',
     !!one('downloadURL') && one('downloadURL') === one('updateURL'),
     `${one('downloadURL')}  |  ${one('updateURL')}`);

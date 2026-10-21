@@ -63,7 +63,7 @@ jobs:
             printf '\n## 安装 / 更新\n\n'
             printf -- '- 已安装旧版：油猴会按 `@updateURL` 自动检查更新，也可在油猴面板点「检查脚本更新」。\n'
             # 首装链接钉到本 tag 的 jsDelivr 版本：拿到的一定是本 Release 的脚本，
-            # 不会受 main 分支后续提交或 @2 镜像缓存影响。
+            # 不会受 main 分支后续提交或主版本别名镜像缓存影响。
             printf -- '- 首次安装：[安装脚本](https://fastly.jsdelivr.net/gh/%s@%s/faxuanyun-legal-exam-assistant.user.js)\n' "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"
             printf -- '- 附件含 `.user.js` 与本版同名 `.sha256` 校验文件。\n'
             size_bytes="$(wc -c < faxuanyun-legal-exam-assistant.user.js)"
@@ -124,12 +124,13 @@ jobs:
           echo "✓ Release $TAG 已发布：draft=false，附件 $count 个，SHA256 $recomputed 与远端一致"
 
       # 发版门禁 4：自动更新链路。用户点「检查更新」实际读的是 @updateURL 指向的
-      # fastly.jsdelivr.net/gh/<repo>@2/... 文件（不是 main 分支），而 jsDelivr 对 @2
+      # fastly.jsdelivr.net/gh/<repo>@<主版本>/... 文件（不是 main 分支），而 jsDelivr 对
       # 主版本别名也有边缘缓存；因此以 raw main（权威、无长缓存）作为「main 是否已跟上 tag」的判定，
       # 再尽量确认镜像也刷新了。latest Release 同样必须指向本 tag，
       # 否则新装用户拿到旧版、老用户永远被提示「已是最新」。
       # 顺序：先主动 purge jsDelivr 缓存 → 用 raw 判定并重试 → 镜像没刷新只记 warning，
-      # 不把发版卡成红的（重跑 workflow 即可）。
+      # 不把发版卡成红的。未开启 immutable releases 时可以重跑 workflow 再刷一次；
+      # 开启后已发布附件不可覆盖，重跑会在更新 Release 时失败，只能等缓存自然过期或发新 patch。
       - name: 更新链校验（远端 @updateURL / latest tag）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -178,7 +179,10 @@ jobs:
             if [ "${mirror_version#v}" = "${TAG#v}" ]; then
               echo "✓ 镜像 @updateURL 已是 $TAG"
             else
-              echo "::warning::镜像（$script_url）当前版本 ${mirror_version:-取不到}，尚未刷新到 $TAG；@2 边缘缓存最长 12 小时（客户端另可能缓存更久），急着验证请用 @$TAG 固定链接或稍后重跑本 workflow"
+              update_alias="$(printf '%s' "$script_url" | sed -n 's/.*@\([0-9][0-9]*\)\/.*/\1/p')"
+              alias_label=""
+              [ -n "$update_alias" ] && alias_label="@$update_alias "
+              echo "::warning::镜像（$script_url）当前版本 ${mirror_version:-取不到}，尚未刷新到 $TAG；${alias_label}边缘缓存最长 12 小时（客户端另可能缓存更久），急着验证请用 @$TAG 固定链接或稍后重跑本 workflow（immutable releases 开启时不能覆盖附件，只能等缓存过期或发新 patch）"
             fi
           fi
 

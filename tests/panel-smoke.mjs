@@ -215,6 +215,15 @@ ${userscript}
         // 这里不真的弹文件选择框：filePickerHook 拦截 input.click()，把队列里的内容变成 File。
         // 先测 JSON，再测 CSV；两条都只通过面板按钮走，覆盖 importJson / importCsv 的真实入口。
         const bankText = () => JSON.stringify(window.GM_getValue('questionBank', {}) || {});
+        // 导入是异步的（FileReader → importData → flushBank），轮询到目标出现即可，避免固定 sleep 在慢 CI 上偶发失败。
+        const waitFor = async (fn, timeout = 5000, step = 50) => {
+            const end = Date.now() + timeout;
+            while (Date.now() < end) {
+                if (fn()) return true;
+                await sleep(step);
+            }
+            return !!fn();
+        };
         window.__fileQueue.push({
             name: 'panel-import.json',
             type: 'application/json',
@@ -223,8 +232,8 @@ ${userscript}
             } }),
         });
         $('fx-import').click();
-        await sleep(1600);
-        ok('JSON 导入经 FileReader 落库', bankText().includes('导入冒烟JSON题'), bankText().slice(0, 160));
+        const jsonImported = await waitFor(() => bankText().includes('导入冒烟JSON题'));
+        ok('JSON 导入经 FileReader 落库', jsonImported, bankText().slice(0, 160));
 
         window.__fileQueue.push({
             name: 'panel-import.csv',
@@ -232,8 +241,8 @@ ${userscript}
             body: '题目,答案\\n导入冒烟CSV题：行政处罚的听证程序,B\\n',
         });
         $('fx-import').click();
-        await sleep(1600);
-        ok('CSV 导入经 FileReader 落库', bankText().includes('导入冒烟CSV题'), bankText().slice(0, 160));
+        const csvImported = await waitFor(() => bankText().includes('导入冒烟CSV题'));
+        ok('CSV 导入经 FileReader 落库', csvImported, bankText().slice(0, 160));
     } catch (e) {
         R.push({ name: '运行期异常', pass: false, extra: (e && e.stack || String(e)).split('\\n').slice(0, 3).join(' | ') });
     }

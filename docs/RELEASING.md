@@ -121,6 +121,8 @@ Host github.com
 
 因此发布顺序必须是：先推 main（raw 跟上）→ 再推 tag（workflow 建 Release）→ latest 指向新 tag。`@3` 镜像没刷新只会 `::warning::`，不会卡住发版；急着验证时用 `@vx.y.z` 固定链接；未开启 immutable releases 时可稍后重跑 workflow 再刷一次，开启后只能等缓存自然过期。
 
+> 别名元数据与脚本文件是两层缓存：曾出现 `@2/package.json` 已是 2.0.22、`@2/...user.js` 仍返回 2.0.16 的情况。`purge.jsdelivr.net` 不保证一次清掉所有边缘；判断版本以 `@vx.y.z` 的脚本文件为准，或等 `s-maxage`（约 12 小时）自然过期。
+
 ## 失败恢复
 
 | 场景 | 处理 |

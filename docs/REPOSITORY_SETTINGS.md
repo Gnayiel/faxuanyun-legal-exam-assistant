@@ -12,8 +12,8 @@
 | --- | --- | --- |
 | Description | 当前为中英双语长描述（含 “Gansu legal-study exam platform” 与 “甘肃法宣在线学法考试油猴脚本”）；`package.json` 用中文短描述 | 已配置；两者不要求逐字一致，保持中英双语便于搜索 |
 | Website | 当前为 `https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest`；可选再补 Greasy Fork 发布页 | 已配置；没有官方站点时不必编造 |
-| Topics | 当前 8 个：`automation`、`education`、`faxuanyun`、`gansu`、`llm`、`openai`、`tampermonkey`、`userscript`；可补 `legal-exam`、`javascript`、`greasemonkey`、`ai`、`baidu` | 已配置 8 个；建议不超过 12 个，别堆无关热门标签 |
-| Social preview | 上传 `docs/social-preview-light.webp`（深色界面用户可换 dark 版） | 仓库已自带浅/深两张预览图；上传后请在分享卡片里预览确认 |
+| Topics | 当前 8 个：`automation`、`education`、`faxuanyun`、`gansu`、`llm`、`openai`、`tampermonkey`、`userscript`；建议补 `legal-exam`、`javascript`、`greasemonkey`、`ai`、`baidu`（`chinese` 可选） | 已配置 8 个；GitHub 上限 20，按需取舍，别堆无关热门标签 |
+| Social preview | 当前 GitHub 仓库已配置社交预览（OG image 可访问）；如需更换，上传 `docs/social-preview-light.webp`（深色界面用户可换 dark 版） | 仓库已自带浅/深两张预览图；更换后请在分享卡片里预览确认 |
 | Default branch | `main` | 所有 workflow 与文档都按 `main` 写 |
 | Features → Issues | 已开启 | 需要 `bug_report.yml` 模板与 issue 检索 |
 | Features → Discussions | 已开启（Q&A / 使用交流） | 功能建议走 Feature request 模板，使用问题/开放讨论走 Discussions；[SUPPORT.md](../SUPPORT.md) 与 issue 模板的 config 已分流；开启后建议建 `Q&A`、`Announcements` 分类 |

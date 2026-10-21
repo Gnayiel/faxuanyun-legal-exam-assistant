@@ -12,6 +12,7 @@
     "merge-smoke": "node tools/merge-smoke.mjs",
     "ci": "node tools/ci.mjs",
     "smoke": "node tools/panel-smoke.mjs --require-browser && node tools/page-smoke.mjs --require-browser",
+    "docs:images": "node tools/generate-docs-images.mjs",
     "release": "node tools/release.mjs"
   }
 }

@@ -9,11 +9,6 @@ on:
         description: '只预览，不修改（首次建议保持勾选）'
         type: boolean
         default: true
-  # 没有 PAT / 无法在网页点 Run workflow 时，改动这个触发文件即可让 Actions 代跑。
-  # 文件首行是 dry-run 就只预览，否则实际写入。
-  push:
-    branches: [main]
-    paths: ['.github/backfill-notes-trigger']
 
 # 编辑 Release 正文属于 contents 写权限；其余步骤只读
 permissions:
@@ -41,14 +36,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          mode=apply
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
-            mode=dry
-          fi
-          if [ "${{ github.event_name }}" = "push" ] && grep -q '^dry-run' .github/backfill-notes-trigger 2>/dev/null; then
-            mode=dry
-          fi
-          if [ "$mode" = "dry" ]; then
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
             echo "模式：dry-run（只打印，不写）"
             node tools/backfill-release-notes.mjs --dry-run
           else

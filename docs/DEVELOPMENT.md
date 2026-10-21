@@ -22,7 +22,7 @@
 ```text
 .
 ├── faxuanyun-legal-exam-assistant.user.js   # 唯一运行时代码（单文件，无构建）
-├── package.json                             # 命令入口（test / check / ci / smoke / release / docs:images）
+├── package.json                             # 命令入口（test / check / check:external / ci / smoke / release / docs:images）
 ├── tests/                                   # 可执行测试与夹具
 │   ├── selftest.mjs                         # vm 内置自检 + 文档数字校验
 │   ├── merge-smoke.mjs                      # 题库合并冒烟
@@ -37,6 +37,7 @@
 │   ├── check-docs.mjs                       # 文档相对链接与锚点检查
 │   ├── check-data.mjs                       # 题库快照 / 文档数字一致性
 │   ├── check-workflows.mjs                  # GitHub Actions 静态检查
+│   ├── check-external-links.mjs              # 文档外链可达性检查
 │   ├── merge-bank.mjs                       # 题库合并实现
 │   ├── release.mjs                          # 本地发版助手
 │   └── generate-docs-images.mjs             # 重绘 README 配图

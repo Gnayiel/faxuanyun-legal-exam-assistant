@@ -25,6 +25,7 @@
 - **仓库 Topics 补全**：仓库 Topics 从 8 个扩到 14 个（补 `legal-exam`、`javascript`、`greasemonkey`、`ai`、`baidu`、`chinese`），便于按考试/脚本/中文场景检索。
 - **发版 workflow 权限拆分**：`release.yml` 拆成只读 `verify` job（tag/版本/CHANGELOG 校验 + `npm run ci`）与最小写权限 `release` job（校验和、构建来源证明、Release 上传、回读与更新链）；release job 不再安装 Node，checkout 改为浅克隆。
 - **外链检查**：新增 `tools/check-external-links.mjs` 与 `npm run check:external`，扫描文档外链并分级报告 403/429 与硬失败；默认不进门禁，发版前可用 `--strict` 人工复核。
+- **配置与文档小修**：开发目录树补上 `check-external-links.mjs` 与 `check:external`；Dependabot 标签改用仓库实际存在的 `github_actions`；CONTRIBUTING 的功能建议入口与 Feature request 模板统一。
 
 ## v3.0.0
 

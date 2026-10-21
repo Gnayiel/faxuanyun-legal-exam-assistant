@@ -62,7 +62,7 @@ npm run ci      # 8 步统一门禁，含两个真实浏览器冒烟
 ## 报告问题
 
 - 普通 bug：用仓库的 [issue 模板](.github/ISSUE_TEMPLATE/bug_report.yml)
-- 功能建议：先到 [Discussions](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/discussions) 讨论，确认方向后再开 issue / PR
+- 功能建议：优先用 [功能建议模板](.github/ISSUE_TEMPLATE/feature_request.yml)；方向不确定时先到 [Discussions](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/discussions) 讨论
 - 安全问题、泄露的 Key：走 [SECURITY.md](SECURITY.md)，不要公开贴
 - 使用问题与求助：见 [SUPPORT.md](SUPPORT.md)
 - 参与讨论请遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)

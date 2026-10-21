@@ -13,7 +13,7 @@
 
 ---
 
-## 未发布
+## v2.0.21
 
 ### 修复
 
@@ -23,6 +23,7 @@
 ### 验证方式
 
 - `npm run ci` 8 步全过：selftest 190/190、check-data 299 题、merge-smoke 17/17、panel 40/40、**103 项断言全部通过**。
+- `node tools/release.mjs --check-ci v2.0.21` 通过。
 
 ## v2.0.20
 

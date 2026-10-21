@@ -149,7 +149,7 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 │   ├── faxuanyun-legal-exam-bank-20261020.csv    # 随仓库分发的 299 题快照（6 列）
 │   └── faxuanyun-legal-exam-bank-20261020.json   # 同上，字段完整版
 ├── tests/
-│   └── fixtures/                 # 页面适配冒烟的 6 个脱敏 fixture（单选/多选/判断/答题卡/成绩/无总题数）
+│   └── fixtures/                 # 页面适配冒烟的 8 个脱敏 fixture（单选/多选/判断/答题卡/成绩/无总题数/跨页持久化/停止重启）
 └── tools/
     ├── check-syntax.mjs          # user.js 与全部 tools/*.mjs 的语法检查
     ├── selftest.mjs              # 无依赖自检（元数据 + 190 项断言）

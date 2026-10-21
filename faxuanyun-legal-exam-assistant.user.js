@@ -1868,7 +1868,8 @@
             };
             delete wb[oldKey]; pendingWrongDeletes.add(oldKey); addTombstone('wrong', oldKey); clearTombstone('wrong', nk);
         }
-        dirty = true; bankVer++;
+        dirty = true;
+        bankIndexAdd(nk, b[nk]);
         return nk;
     }
 
@@ -1965,7 +1966,8 @@
             e.ok++; e.hit++; e.us = TS();
         }
         dropWrongFor(stem);                       // 判定答对了，这题的错题记录该清掉（两个键都清）
-        dirty = true; bankVer++;
+        dirty = true;
+        bankIndexAdd(k, b[k]);
         return conflict ? 2 : saved;
     }
 
@@ -1996,7 +1998,8 @@
         }
         // 用户自己选了，说明这题的错项记录不该再拦它（否则下次回答会被排除法吃掉）
         dropWrongFor(stem);
-        dirty = true; bankVer++;
+        dirty = true;
+        bankIndexAdd(k, b[k]);
         return true;
     }
 

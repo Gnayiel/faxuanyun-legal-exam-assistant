@@ -33,7 +33,7 @@ README 已链接架构、开发、发版、仓库设置与支持文档；改仓�
 - **Artifact and log retention**：默认即可；发版附件放在 Release，不占 Actions 制品配额。
 - **Self-hosted runners**：不使用；workflow 固定 `ubuntu-24.04`。
 
-注意：`auto-merge.yml` 声明了 `contents: write`，用于对 Dependabot PR 执行 squash 合并；若组织策略限制写权限，这个自动合并会失败，但不影响「自检」与发版。是否保留自动合并属于维护者选择。
+注意：`auto-merge.yml` 声明了 `contents: write`，用于在 Dependabot PR 的**全部 checks** 通过后执行 squash 合并；它不依赖 required checks。若组织策略限制写权限，这个自动合并会失败，但不影响「自检」与发版。是否保留自动合并属于维护者选择。
 
 ## 分支与 tag 保护（Rulesets 建议）
 
@@ -64,7 +64,7 @@ README 已链接架构、开发、发版、仓库设置与支持文档；改仓�
 
 - **Merge 方式**：只保留 `Squash merging`，关闭 merge commit 与 rebase merging，保持 `main` 线性、每个 PR 一个提交。
 - **Automatically delete head branches**：开启。
-- **Allow auto-merge**：开启（Dependabot PR 在「自检」通过后由 `auto-merge.yml` squash 合并；该 workflow 只处理 `dependabot[bot]` 的 PR）。
+- **Allow auto-merge**：开启（Dependabot PR 的全部 checks 通过后由 `auto-merge.yml` squash 合并；该 workflow 只处理 `dependabot[bot]` 的 PR，不依赖 required checks）。
 - **Releases → Enable immutable releases**（若仓库可见此选项）：建议开启，防止已发布附件被替换；开启后发版前检查要更严格，因为修正只能靠发新版本。
 - **Releases → latest**：保持由 GitHub 自动指向最新非预发布 Release；发版 workflow 会校验 latest 指向当前 tag。
 - **Tag 保护**：见上一节 `protect-release-tags`。

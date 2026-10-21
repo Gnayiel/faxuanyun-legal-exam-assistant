@@ -68,6 +68,22 @@
 - `npm run ci` 9 步全过：selftest 193/193、check-data 299 题、merge-smoke 17/17、panel 42/42（**42 项断言全部通过**）、page 135/135（**135 项断言全部通过**）。
 - `node tests/page-smoke.mjs --require-browser` 单独复跑：135/135（11 个用例）。
 
+## v2.0.22
+
+**2026-10-21**
+
+### 变更
+
+- **自动更新升级桥**：在 v2.0.21 基础上合入 3 项未发布修复（CSV 表头、百度跟进提示、强制二源），并把
+  `@downloadURL` / `@updateURL` 从 `@2` 切到 `@3`，在头部加 `// fx-bridge-to 3`。已装 2.x 的用户先升到本版，
+  再由本版自动升到 3.x；`tests/selftest.mjs` 与 `node tools/release.mjs --check-ci` 都识别这个唯一例外，
+  普通版本的主版本错位会直接失败。
+
+### 验证方式
+
+- `npm run ci` 9 步全过：selftest 193/193、check-data 299 题、merge-smoke 17/17、panel 42/42（**42 项断言全部通过**）、page 135/135（**135 项断言全部通过**）。
+- `node tools/release.mjs --check-ci v2.0.22` 通过。
+
 ## v2.0.21
 
 ### 修复

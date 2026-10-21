@@ -40,21 +40,22 @@ jobs:
           if [ "$author" != "dependabot[bot]" ]; then
             echo "PR #$number 不是 Dependabot 开的，跳过"; exit 0
           fi
-          # workflow_run 只保证「自检」这一条已经结束，其他必填 check 可能仍在跑。
-          # gh pr checks 在「有必填 check 未完成」时退出码是 8：等它跑完再合并，
+          # workflow_run 只保证「自检」这一条已经结束，其他 check 可能仍在跑。
+          # 不用 --required：当前仓库没有 required checks，--required 没有可靠的等待对象。
+          # 这里等待该 PR 的全部 checks；gh pr checks 在「有 check 未完成」时退出码是 8，
           # 其他非零退出码直接判失败，绝不能把「检查还没跑完」当成绿色合并。
           attempt=1
-          until gh pr checks "$number" --repo "$GITHUB_REPOSITORY" --required --fail-fast; do
+          until gh pr checks "$number" --repo "$GITHUB_REPOSITORY" --fail-fast; do
             code=$?
             if [ "$code" -ne 8 ]; then
-              echo "::error::PR #$number 的必填检查失败（gh pr checks 退出码 $code）"
+              echo "::error::PR #$number 的检查失败（gh pr checks 退出码 $code）"
               exit "$code"
             fi
             if [ "$attempt" -ge 10 ]; then
-              echo "::error::等待 PR #$number 的必填检查超时（10 次 × 15 秒）"
+              echo "::error::等待 PR #$number 的检查超时（10 次 × 15 秒）"
               exit 8
             fi
-            echo "必填检查仍在进行（第 $attempt/10 次），15 秒后重试…"
+            echo "检查仍在进行（第 $attempt/10 次），15 秒后重试…"
             sleep 15
             attempt=$((attempt + 1))
           done

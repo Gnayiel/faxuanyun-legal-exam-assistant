@@ -35,13 +35,13 @@
 
 ## 本地流程
 
-推荐用发版助手，把“前置检查 → 统一门禁 → 打本地 tag”串起来：
+推荐用发版助手，把“前置检查 → 统一门禁 → 打本地 tag”串起来。推送 main 时用 `HEAD:main`，这样从祖先提交发升级桥也不会误推本地 `main`：
 
 ```bash
 # 1) 提交并先推 main（release.yml 会校验 raw main 已经是本版）
 git add faxuanyun-legal-exam-assistant.user.js package.json README.md CHANGELOG.md docs/
 git commit -m "release: vx.y.z - 一句话说明"
-git push origin main
+git push origin HEAD:main
 
 # 2) 本地打 tag：同步远端 tag、版本单调、工作区干净、跑 npm run ci，然后打 annotated tag
 node tools/release.mjs
@@ -60,7 +60,7 @@ git push origin vx.y.z
 约束：
 
 - **先推 main，再推 tag**。`release.yml` 会用 raw main 判断“main 是否已跟上 tag”，main 落后时发版会红。
-- `release.mjs` 只打本地 tag，**不 push**；它唯一的联网动作是带 20 秒超时的 `git fetch`。
+- `release.mjs` 只打本地 tag，**不 push**；它唯一的联网动作是带 20 秒超时的 `git fetch`。打印的推送命令按当前 HEAD 生成 `git push origin HEAD:main`，从祖先提交发升级桥时不会误推本地 `main`。
 - 一次只推一个 tag。`git push --tags` 会把本地遗留的旧 tag 一起推上去，可能触发多次发版或推送错误版本。
 - 重复执行是安全的：如果 tag 已存在，`release.mjs` 只提示并退出 0，不会重复打 tag 或重复跑门禁；workflow 也可以重跑，但附件用 `--clobber` 覆盖**只在未开启 immutable releases 时成立**，开启后见下面第 4、5 步与回滚策略。
 - 不要跳过门禁。`--skip-tests` 只用于明确的本地调试；CI 仍会跑全套，带着失败打 tag 只会得到红色 Release。
@@ -112,12 +112,14 @@ Host github.com
 
 | 入口 | 地址 | 特点 |
 | --- | --- | --- |
-| 油猴自动更新 | `@updateURL` / `@downloadURL`：`https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@2/faxuanyun-legal-exam-assistant.user.js` | `@2` 主版本别名；边缘缓存最长约 12 小时，客户端还可能缓存更久 |
-| 固定版本安装 | `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@vx.y.z/faxuanyun-legal-exam-assistant.user.js` | 钉死到某个 tag；不受 `@2` 缓存和 main 后续提交影响，适合排障与首发验证 |
+| 油猴自动更新 | `@updateURL` / `@downloadURL`：`https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@3/faxuanyun-legal-exam-assistant.user.js` | `@3` 主版本别名（v2.0.22 升级桥起；此前为 `@2`）；边缘缓存最长约 12 小时，客户端还可能缓存更久 |
+| 固定版本安装 | `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@vx.y.z/faxuanyun-legal-exam-assistant.user.js` | 钉死到某个 tag；不受 `@3` 缓存和 main 后续提交影响，适合排障与首发验证 |
 | 权威版本判定 | `https://raw.githubusercontent.com/Gnayiel/faxuanyun-legal-exam-assistant/main/faxuanyun-legal-exam-assistant.user.js` | main 的 raw 文件，无长缓存；发版门禁以它判断 main 是否已跟上 tag |
 | Release 附件 | Releases 页的 `.user.js` 与 `.sha256` | 离线安装与校验；下载后可用 `.sha256` 复算 |
 
-因此发布顺序必须是：先推 main（raw 跟上）→ 再推 tag（workflow 建 Release）→ latest 指向新 tag。`@2` 镜像没刷新只会 `::warning::`，不会卡住发版；急着验证时用 `@vx.y.z` 固定链接，或稍后重跑 workflow。
+> **v2.0.22 升级桥**：脚本 `@version` 仍是 2.0.22，但 `@updateURL` / `@downloadURL` 已指 `@3`，并带 `// fx-bridge-to 3`。发布顺序是先发 v2.0.22（让 2.x 用户先升到桥），再发 v3.0.0；`tests/selftest.mjs` 与 `node tools/release.mjs --check-ci` 都校验这个例外，普通版本的主版本错位会直接失败。桥从祖先提交发布时，先 `git checkout <bridge-commit>` 再运行 `node tools/release.mjs`：它按当前 HEAD 生成 `git push origin HEAD:main`，不会把本地 `main`（可能已是 v3）误推上去。
+
+因此发布顺序必须是：先推 main（raw 跟上）→ 再推 tag（workflow 建 Release）→ latest 指向新 tag。`@3` 镜像没刷新只会 `::warning::`，不会卡住发版；急着验证时用 `@vx.y.z` 固定链接；未开启 immutable releases 时可稍后重跑 workflow 再刷一次，开启后只能等缓存自然过期。
 
 ## 失败恢复
 
@@ -128,7 +130,7 @@ Host github.com
 | 本地门禁失败 | 修代码后重新提交；不要带着红灯打 tag |
 | Release 已创建，但“验证 Release”失败 | 先按报错修（附件数、校验和、latest）；然后在 Actions 里重跑同一 tag 的 workflow。未开启 immutable releases 时上传步骤用 `--clobber` 可覆盖；开启后不能覆盖，只能修知识性说明或发新 patch |
 | raw main 版本未跟上 tag | 确认 main 已包含本版脚本并推送；workflow 会重试 6 次（每次间隔 20 秒），仍失败则重跑 |
-| `@2` 镜像仍旧版 | 属正常缓存延迟；用固定 `@vx.y.z` 链接验证，或等待/重跑 workflow |
+| `@3` 镜像仍旧版 | 属正常缓存延迟；用固定 `@vx.y.z` 链接验证，或等待缓存过期；未开启 immutable releases 时可重跑 workflow，开启后只能等 |
 | latest Release 不是本 tag | 到 Releases 页把 `vx.y.z` 设为 latest，再重跑 workflow 的更新链步骤 |
 | tag 打错但已经推送 | **不要删除或强推移动已推 tag**。发一个更高的 patch 版本；`protect-release-tags` 会阻止删除/改指向 |
 | 确需重打已推 tag（极端情况） | 需管理员临时停用 `protect-release-tags`，删除 Release 与 tag 后重新打，再恢复规则；优先选择“发新 patch”，避免用户更新链断裂 |
@@ -151,7 +153,7 @@ Host github.com
    ```
 
 4. 在一个干净的浏览器配置里用固定版本链接安装，确认油猴显示 `@version` 为 `x.y.z`，考试页能正常出面板。
-5. 已安装旧版的浏览器里点「检查脚本更新」：`@2` 缓存未过期时可能仍提示最新；可先用 `@vx.y.z` 验证，或等待缓存过期后重试。
+5. 已安装旧版的浏览器里点「检查脚本更新」：`@3` 缓存未过期时可能仍提示最新；可先用 `@vx.y.z` 验证，或等待缓存过期后重试。
 6. 需要排查自动更新时，让用户附上面板「导出诊断包」的 JSON（已脱敏，不含 API Key）。
 
 ## 回滚策略

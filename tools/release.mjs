@@ -3,9 +3,10 @@
  * 本地发版助手：把「前置检查 → 跑测试 → 打 tag」串成一条命令。
  *
  *   node tools/release.mjs                  # 同步远端 tag → 前置检查 → 统一门禁 → 打本地 tag，并打印推送命令
+ *                                          # 推送说明按当前 HEAD 生成 HEAD:main，从祖先提交发桥也不会误推本地 main
  *   node tools/release.mjs --dry-run        # 只检查（前置检查降级为警告）、不创建 tag、不联网
  *   node tools/release.mjs --skip-tests     # 跳过统一门禁（不推荐；CI 里还会再跑一遍）
- *   node tools/release.mjs --check-ci <tag> # CI 发版门禁：tag 必须等于 @version，且 CHANGELOG 有非空章节
+ *   node tools/release.mjs --check-ci <tag> # CI 发版门禁：tag=@version、CHANGELOG 非空、@updateURL 主版本对齐（桥除外）
  *
  * 前置检查（正式发版时是硬门禁；--dry-run 下只在输出里告警，方便在脏工作区离线预检）：
  *   1. 工作区干净：git status --porcelain 为空
@@ -282,7 +283,7 @@ if (!skipTests) {
 
 if (dryRun) {
     console.log(`\n--dry-run：前置检查只报告不阻断，未创建 tag。当前${hasTag ? '已有' : '没有'} tag ${tag}`);
-    console.log(`正式发版预计打印的命令：git push origin main && git push origin ${tag}`);
+    console.log(`正式发版预计打印的命令：git push origin HEAD:main && git push origin ${tag}`);
     process.exit(0);
 }
 
@@ -291,6 +292,6 @@ if (dryRun) {
 run('git', ['tag', '-a', tag, '-m', tag]);
 console.log(`\n✓ 已创建本地 tag ${tag}`);
 console.log(`\n下一步（由人工推送；推送后 release.yml 自动发版）：`);
-console.log(`  git push origin main && git push origin ${tag}`);
+console.log(`  git push origin HEAD:main && git push origin ${tag}`);
 console.log(`  只推这一版 tag：一次推所有 tag 容易把没测过的历史 tag 也推上去。`);
 console.log(`  然后在 Actions 里确认「发版」workflow 变绿，Release 自动出现。`);

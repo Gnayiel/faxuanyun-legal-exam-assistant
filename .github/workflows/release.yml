@@ -175,14 +175,20 @@ jobs:
 
           # 3) 镜像侧：尽量确认 @updateURL 也能取到本版；镜像缓存未刷新只警告（用户侧会自动过期）
           if [ -n "$script_url" ] && [ "$script_url" != "$authoritative" ]; then
-            mirror_version="$(read_version "$script_url")"
-            if [ "${mirror_version#v}" = "${TAG#v}" ]; then
-              echo "✓ 镜像 @updateURL 已是 $TAG"
+            update_alias="$(printf '%s' "$script_url" | sed -n 's/.*@\([0-9][0-9]*\)\/.*/\1/p')"
+            tag_major="${TAG#v}"
+            tag_major="${tag_major%%.*}"
+            if [ -n "$update_alias" ] && [ "$update_alias" -gt "$tag_major" ]; then
+              echo "ℹ️ 升级桥：@$update_alias 镜像要等对应主版本发布后才存在，本版跳过镜像校验（bridge 正常行为）"
             else
-              update_alias="$(printf '%s' "$script_url" | sed -n 's/.*@\([0-9][0-9]*\)\/.*/\1/p')"
-              alias_label=""
-              [ -n "$update_alias" ] && alias_label="@$update_alias "
-              echo "::warning::镜像（$script_url）当前版本 ${mirror_version:-取不到}，尚未刷新到 $TAG；${alias_label}边缘缓存最长 12 小时（客户端另可能缓存更久），急着验证请用 @$TAG 固定链接或稍后重跑本 workflow（immutable releases 开启时不能覆盖附件，只能等缓存过期或发新 patch）"
+              mirror_version="$(read_version "$script_url")"
+              if [ "${mirror_version#v}" = "${TAG#v}" ]; then
+                echo "✓ 镜像 @updateURL 已是 $TAG"
+              else
+                alias_label=""
+                [ -n "$update_alias" ] && alias_label="@$update_alias "
+                echo "::warning::镜像（$script_url）当前版本 ${mirror_version:-取不到}，尚未刷新到 $TAG；${alias_label}边缘缓存最长 12 小时（客户端另可能缓存更久），急着验证请用 @$TAG 固定链接或稍后重跑本 workflow（immutable releases 开启时不能覆盖附件，只能等缓存过期或发新 patch）"
+              fi
             fi
           fi
 

@@ -2,19 +2,23 @@
 /**
  * 本地发版助手：把「前置检查 → 跑测试 → 打 tag」串成一条命令。
  *
- *   node tools/release.mjs                  # 三项前置硬门禁 + 跑测试 + 打本地 tag，并打印推送命令
+ *   node tools/release.mjs                  # 同步远端 tag → 前置检查 → 统一门禁 → 打本地 tag，并打印推送命令
  *   node tools/release.mjs --dry-run        # 只检查（前置检查降级为警告）、不创建 tag、不联网
- *   node tools/release.mjs --skip-tests     # 跳过测试（不推荐；CI 里还会再跑一遍）
+ *   node tools/release.mjs --skip-tests     # 跳过统一门禁（不推荐；CI 里还会再跑一遍）
  *   node tools/release.mjs --check-ci <tag> # CI 发版门禁：tag 必须等于 @version，且 CHANGELOG 有非空章节
  *
- * 三项前置检查（正式发版时是硬门禁；--dry-run 下只在输出里告警，方便在脏工作区离线预检）：
+ * 前置检查（正式发版时是硬门禁；--dry-run 下只在输出里告警，方便在脏工作区离线预检）：
  *   1. 工作区干净：git status --porcelain 为空
  *   2. 版本单调：@version 大于现有 tag 的最高版本
- *   3. 包含远端：origin/main 是 HEAD 的祖先（正式发版会先 git fetch，网络失败降级为警告）
+ *   3. 包含远端：origin/main 是 HEAD 的祖先（正式发版会先 git fetch --prune --tags，网络失败降级为警告）
+ *
+ * 重复发版是安全的：正式发版会先同步远端 tag；如果 tag 已存在，脚本只做提示并退出 0，
+ * 不重复打 tag、也不重复跑门禁（release workflow 可以安全重跑，上传用 --clobber 覆盖）。
  *
  * 推送 tag 后，GitHub Actions 的 .github/workflows/release.yml 会自动：
- *   复验 tag=@version → 再跑门禁 → 创建 Release → 上传 .user.js 与同名 .sha256 → 复算校验和。
- * 本脚本只在正式发版时打本地 tag；不 push、不联网（唯一的 fetch 有 20 秒超时保护）。
+ *   复验 tag=@version → npm run ci 统一门禁 → 创建 Release → 上传 .user.js 与同名 .sha256 →
+ *   下载回来复算校验和 → 校验更新链。本脚本只在正式发版时打本地 tag；不 push、不联网
+ *   （唯一的 fetch 有 20 秒超时保护）。
  */
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -120,12 +124,38 @@ if (ciIdx !== -1) {
 verifyVersionAndChangelog();
 
 const tag = `v${version}`;
+
+// 先同步远端 tag：否则「远端已有、本地没有」的 tag 会被漏判，脚本会在本地重复创建同名 tag，
+// 推送时才被远端拒绝。正式发版才联网；--dry-run 完全离线。
+let fetchOk = null;
+if (!dryRun) {
+    console.log('\n[同步远端] git fetch --prune --tags origin');
+    const fetched = tryGit(['fetch', '--prune', '--tags', 'origin'], { timeout: 20000 });
+    fetchOk = fetched.ok;
+    if (fetched.ok) console.log('  ✓ 已同步远端分支与 tag（20 秒超时）');
+    else console.log(`  ⚠ git fetch 失败（网络/权限问题，降级使用本地引用）：${errText(fetched.err)}`);
+}
+
 let hasTag = false;
 try {
     execFileSync('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}`], { cwd: ROOT, stdio: 'ignore' });
     hasTag = true;
 } catch { }
 const headSha = tryGit(['rev-parse', 'HEAD']).out;
+
+// tag 已存在 = 这一版已经发过：不再重复打 tag，也不再重复跑门禁（避免「重跑一次就多等十分钟」）。
+// 只做一致性提示：如果 tag 不在 HEAD 上，说明版本号用错或 tag 被移动过，必须人工确认后再发版。
+if (hasTag && !dryRun) {
+    const tagCommit = tryGit(['rev-parse', '-q', '--verify', `refs/tags/${tag}^{commit}`]);
+    console.log(`\nℹ️ tag ${tag} 已存在${tagCommit.ok && tagCommit.out ? `（指向 ${tagCommit.out.slice(0, 7)}）` : ''}：跳过测试与打 tag。`);
+    console.log('  发版 workflow 可以安全重跑；要发布新版本请先修改 @version / CHANGELOG 再运行本脚本。');
+    if (!tagCommit.ok || !tagCommit.out) die(`tag ${tag} 存在但解析不出提交，请人工检查`);
+    if (headSha && tagCommit.out !== headSha) {
+        die(`tag ${tag} 不在当前 HEAD（${tagCommit.out.slice(0, 7)} ≠ ${headSha.slice(0, 7)}）：请改用新版本号；「v*」tag 受保护，不能删除 / 改指向`);
+    }
+    console.log(`  ✓ 本地 tag 已在 HEAD（${headSha.slice(0, 7)}），退出码 0（未创建新 tag）`);
+    process.exit(0);
+}
 
 // 三项前置检查：正式发版是硬门禁；--dry-run 只警告，保证「脏工作区 + 离线」也能预检。
 const problems = [];
@@ -185,10 +215,10 @@ if (!tagList.ok) {
 step(3, '包含 origin/main');
 if (dryRun) {
     console.log('  ℹ️ --dry-run 不执行 git fetch（不联网；本地 origin/main 引用可能过期）');
+} else if (fetchOk) {
+    console.log('  ℹ️ 已在开始时 git fetch --prune --tags（20 秒超时）');
 } else {
-    const fetched = tryGit(['fetch', '--prune', 'origin'], { timeout: 20000 });
-    if (fetched.ok) console.log('  ℹ️ 已 git fetch --prune origin（20 秒超时）');
-    else console.log(`  ⚠ git fetch 失败（网络/权限问题，降级使用本地 origin/main 引用）：${errText(fetched.err)}`);
+    console.log('  ⚠ 开始时 git fetch 失败，降级使用本地 origin/main 引用（可能过期）');
 }
 const baseRef = tryGit(['rev-parse', '--verify', '-q', 'origin/main']);
 if (!baseRef.ok || !baseRef.out) {
@@ -207,18 +237,20 @@ if (problems.length) {
 }
 
 // ---------------------------------------------------------------------- 测试
+// 与 CI / selftest.yml / release.yml 共用同一个门禁，避免「本地跑的是旧清单、CI 跑的是新清单」。
+// 任一非零退出都中止发版：尤其是面板 / 页面冒烟缺浏览器时要报错，而不是打印一句「已跳过」继续打 tag。
 if (!skipTests) {
-    console.log('\n[1/4] 内置自检 + 文档数字');
-    run(process.execPath, ['tools/selftest.mjs']);
-    console.log('\n[2/4] 数据 / 文档一致性');
-    run(process.execPath, ['tools/check-data.mjs']);
-    console.log('\n[3/4] 工作流静态检查');
-    run(process.execPath, ['tools/check-workflows.mjs']);
-    console.log('\n[4/4] 面板冒烟（没有浏览器会跳过）');
-    try { run(process.execPath, ['tools/panel-smoke.mjs']); }
-    catch { console.log('  ℹ️ 面板冒烟没有可用浏览器，已跳过（CI 会用真实 Edge 跑）'); }
+    console.log('\n[测试] 统一门禁 tools/ci.mjs（语法 / 自检 / 数据 / 工作流 / 题库合并 / 面板 / 页面）');
+    try {
+        run(process.execPath, ['tools/ci.mjs']);
+    } catch {
+        console.error('\n✗ 统一门禁未通过：已中止，未创建 tag。');
+        console.error('  修复失败项后重跑；只想做前置预检可以用 --dry-run。');
+        process.exit(1);
+    }
+    console.log('✓ 统一门禁通过');
 } else {
-    console.log('ℹ️ --skip-tests：已跳过测试');
+    console.log('ℹ️ --skip-tests：已跳过统一门禁（CI 里还会再跑一遍）');
 }
 
 if (dryRun) {
@@ -228,11 +260,9 @@ if (dryRun) {
 }
 
 // ---------------------------------------------------------------- 创建 tag + 推送说明
-if (hasTag) console.log(`\nℹ️ tag ${tag} 已存在，未重复创建`);
-else {
-    run('git', ['tag', '-a', tag, '-m', tag]);
-    console.log(`\n✓ 已创建本地 tag ${tag}`);
-}
+// 能走到这里的只有「正式发版 + tag 不存在」；tag 已存在的情况在上面已经退出 0。
+run('git', ['tag', '-a', tag, '-m', tag]);
+console.log(`\n✓ 已创建本地 tag ${tag}`);
 console.log(`\n下一步（由人工推送；推送后 release.yml 自动发版）：`);
 console.log(`  git push origin main && git push origin ${tag}`);
 console.log(`  只推这一版 tag：一次推所有 tag 容易把没测过的历史 tag 也推上去。`);

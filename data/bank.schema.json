@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/blob/main/data/bank.schema.json",
   "title": "法宣在线题库导出快照",
-  "description": "脚本面板「导出答案库」产出的 JSON 快照结构。给导入外部题库的人一份机器可校验的约定；tools/check-data.mjs 用同一份 schema 校验仓库随附快照。",
+  "description": "脚本面板「导出答案库」产出的 JSON 快照结构。给导入外部题库的人一份机器可校验的约定；tools/check-data.mjs 用同一份 schema 校验仓库随附快照。导入时脚本不校验本文件，只认 schema 字段与 bank / wrong 的结构。",
   "type": "object",
   "required": [
     "format",
@@ -14,30 +14,43 @@
   "additionalProperties": true,
   "properties": {
     "format": {
-      "const": "faxuanyun-legal-exam-bank"
+      "const": "faxuanyun-legal-exam-bank",
+      "description": "文件自述，固定值；导入时不校验它（v1.x 的旧前缀文件也能导入），只看 schema"
     },
     "schema": {
       "type": "integer",
       "enum": [
         2
-      ]
+      ],
+      "description": "数据结构版本，当前为 2。真正决定导入兼容性的是它，不是 format"
     },
     "version": {
       "type": "string",
       "pattern": "^\\d+\\.\\d+\\.\\d+$",
-      "description": "导出时的脚本 @version，仅作溯源"
+      "description": "导出时的脚本 @version，仅作溯源；仓库随附快照是 2026-10-20 导出的 2.0.7"
     },
     "exportedAt": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$",
+      "description": "导出时间，UTC 的 ISO 8601 字符串（由 new Date().toISOString() 生成）"
     },
     "count": {
       "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "description": "bank 的条目数（错题记录 wrong 不计入）"
     },
     "bank": {
       "type": "object",
+      "description": "题库：键是归一化题干的指纹，值是条目",
       "additionalProperties": {
         "$ref": "#/definitions/entry"
+      }
+    },
+    "wrong": {
+      "type": "object",
+      "description": "错题记录：键与 bank 相同，没有错题时为 {}",
+      "additionalProperties": {
+        "$ref": "#/definitions/wrongEntry"
       }
     }
   },
@@ -46,14 +59,17 @@
       "type": "object",
       "required": [
         "q",
-        "a"
+        "t",
+        "s",
+        "a",
+        "l"
       ],
       "additionalProperties": true,
       "properties": {
         "q": {
           "type": "string",
           "minLength": 1,
-          "description": "题干"
+          "description": "完整题干"
         },
         "t": {
           "type": "string",
@@ -62,58 +78,93 @@
             "multi",
             "judge"
           ],
-          "description": "题型"
+          "description": "题型：单选 / 多选 / 判断"
         },
         "s": {
           "type": [
             "string",
             "null"
           ],
-          "description": "作答时页面上的选项摘要（判断题可为空）"
+          "description": "科目名。仓库快照里是「学法考试」或「甘肃省国家工作人员学法考试」；缺省时脚本按「甘肃省国家工作人员学法考试」补齐"
         },
         "a": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "正确答案的选项内容数组（如 [\"中国特色社会主义\"]；判断题是 [\"对\"] 或 [\"错\"]）。只有字母答案的旧数据为 null"
+        },
+        "l": {
+          "type": "string",
+          "description": "正确答案字母，与 a 逐项对应（a 非 null 时 l.length === a.length；判断题 对/错 分别对应 A/B，兼容旧数据的 1/0）。只有选项内容、不知道字母时为空串"
+        },
+        "src": {
+          "type": "string",
+          "description": "答案来源：exam（作答/交卷）/ import / legacy / user 等"
+        },
+        "by": {
+          "type": "string",
+          "description": "记录者；值为 user 表示用户手动改过的答案，导入时优先级最高"
+        },
+        "ts": {
+          "type": "integer",
+          "description": "首次入库时间戳（毫秒）"
+        },
+        "us": {
+          "type": "integer",
+          "description": "最近使用时间戳（毫秒），0 表示尚未使用"
+        },
+        "hit": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "命中次数"
+        },
+        "ok": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "验证答对次数"
+        },
+        "bad": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "答错次数"
+        },
+        "cft": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "答案冲突次数（累计值，不是置信度；两源答案不一致时累加）"
+        }
+      }
+    },
+    "wrongEntry": {
+      "type": "object",
+      "required": [
+        "q",
+        "w",
+        "tried"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "q": {
+          "type": "string",
+          "description": "题干；兼容旧记录时可能为空串"
+        },
+        "w": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "正确答案：单选取一个字母，多选取多个，判断为 对/错 字面"
+          "description": "答错时累计的错误选项内容，用于后续排除法"
         },
-        "l": {
-          "type": "string",
-          "description": "上次判错时记下的错误选项字母",
-          "maxLength": 8
-        },
-        "src": {
-          "type": "string",
-          "description": "答案来源：exam / ai / baidu / user 等"
-        },
-        "by": {
-          "type": "string",
-          "description": "记录者（手动作答时为用户标识）"
-        },
-        "ts": {
-          "type": "integer",
-          "description": "首次记录时间戳（毫秒）"
-        },
-        "us": {
-          "type": "integer",
-          "description": "最近一次使用时间戳（毫秒）"
-        },
-        "hit": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "ok": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "bad": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "cft": {
-          "type": "number",
-          "description": "最近一次候选置信度（0~1）"
+        "tried": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "已失败的多选组合文本（如 \"A+B\"），同一组合不会重复尝试"
         }
       }
     }

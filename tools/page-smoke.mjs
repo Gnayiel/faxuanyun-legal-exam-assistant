@@ -19,11 +19,12 @@
  *   --require-browser  找不到浏览器时失败（退出码 2）而不是跳过
  *                      对应环境变量 FX_REQUIRE_BROWSER=1；CI 用它防止「没装浏览器 → 静默跳过 → 假绿」。
  *   FX_BROWSER         指定浏览器（绝对路径或 PATH 里的命令名），见 ./browser.mjs。
- *   FX_PAGE_SMOKE_DUMP 设置后把每个用例的页面与 DOM 落盘到 /tmp，便于排查。
+ *   FX_PAGE_SMOKE_DUMP 设置后把每个用例的页面与 DOM 落盘到系统临时目录，便于排查。
  *
  * 退出码：0 通过 / 1 断言失败 / 2 环境问题（没有浏览器、浏览器启动失败、页面没跑出结果）。
  */
 import { readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findBrowser, runHeadless } from './browser.mjs';
@@ -37,11 +38,36 @@ const REQUIRE_BROWSER = process.argv.includes('--require-browser') || process.en
 const FIXTURES = join(ROOT, 'tests', 'fixtures');
 const DUMP = process.env.FX_PAGE_SMOKE_DUMP === '1' || !!process.env.FX_PAGE_SMOKE_DUMP;
 
-// 六个用例的断言总数（README 徽章 / CHANGELOG 验证方式都写这个数）。
+// 七个用例的断言总数（README 徽章 / CHANGELOG 验证方式都写这个数）。
 // 每个用例在 CASES 里另有 expectCount；父进程会核对运行时 total 与这里的常量一致，
 // tools/selftest.mjs 也会数这一行并检查 README / CHANGELOG 是否同步，避免改了 fixture
 // 却忘记更新文档。改断言时先改这里，再跑一遍确认运行时总数一致。
-const EXPECTED_ASSERTIONS = 72;
+const EXPECTED_ASSERTIONS = 88; // 72 + 16（本地题库精确命中用例）
+
+// 与用户脚本完全一致的题干归一化 / 主键算法：给「本地题库」用例预置键，保证命中的是
+// 精确键（而不是旧记录 / 模糊匹配），从而能断言 bankHow === 'exact'。
+function normStem(s) {
+    return String(s || '')
+        .replace(/^\s*\d{1,3}\s*[、.．)）]\s*/, '')
+        .replace(/[（(]\s*(单选|多选|判断)题?\s*[）)]/g, '')
+        .replace(/\s+/g, '')
+        .toLowerCase()
+        .replace(/[，,。.；;：:！!？?“”"'‘’（）()【】\[\]《》〈〉、\-—_~·…|｜]/g, '');
+}
+function hash32(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return (h >>> 0).toString(16).padStart(8, '0') + str.length.toString(36);
+}
+const fpKey = stem => '#' + hash32(normStem(stem));
+
+const BANK_STEM_1 = '1、限制人身自由的行政处罚权，只能由（ ）行使。';
+const BANK_STEM_2 = '2、行政诉讼中，对被诉行政行为的合法性承担举证责任的是（ ）。';
+const BANK_KEY_1 = fpKey(BANK_STEM_1);
+const BANK_KEY_2 = fpKey(BANK_STEM_2);
 
 // 浏览器探测复用了 panel-smoke 抽出来的 ./browser.mjs（FX_BROWSER → 常见安装路径 → PATH）。
 const BROWSERS = findBrowser();
@@ -184,6 +210,39 @@ function driverScript(cfg) {
       ok('总分缺失时分数行不拼「/ 总分」', has(/🎯 分数 80 分 · 正确率 80%（4\\/5）/) && !has(/分数 80 \\/ /), tail());
       ok('总分缺失时不做「分数推算题数」交叉校验', !has(/分数与答题卡对不上/), tail());
       ok('题库统计正常（空库 0 题）', has(/📊 题库现有 0 题/), tail());
+    } else if (CFG.scenario === 'bank') {
+      ok('页面作答记录器就位（fixture 脚本已注入）', Array.isArray(window.__picks));
+      await waitFor(function () { return has(/答题完成|已答满|⛔ 已停止|已是最后一题/); }, '答题流程结束');
+      for (var b = 0; b < 200 && !has(/答题完成|已停止/); b++) await sleep(25);
+      collect();
+      var B = CFG.expect, b1 = B.q1, b2 = B.q2;
+      ok('页面就绪后自动开始答题', has(/页面就绪，开始答题/), tail());
+      ok('从页面题型统计推断出总题数 2', has(new RegExp(B.totalRe)), tail());
+      ok('第 1 题题干与题型识别（' + b1.typeLabel + '）', has(new RegExp('第1题（' + b1.typeLabel + '）：[^|]*' + b1.stemPart)), tail());
+      ok('第 1 题本地题库精确命中（不查百度）', has(/📚 题库命中（精确·脚本）：B/), tail());
+      var bchecked1 = window.__picks && window.__picks[0] ? window.__picks[0].checked.slice().sort().join('') : '';
+      ok('第 1 题页面选中态正确（' + b1.answer + '）', bchecked1 === b1.answer.split('').sort().join(''), '实际选中：' + bchecked1);
+      var bsess = window.__store.get('pendingSession');
+      var bhist = bsess && bsess.history ? bsess.history : [];
+      ok('第 1 题作答记录命中方式为 exact 且键正确',
+        !!bhist[0] && bhist[0].bankHow === 'exact' && bhist[0].bankKey === B.keys[0],
+        bhist[0] ? JSON.stringify({ how: bhist[0].bankHow, key: bhist[0].bankKey }) : '没有 pendingSession');
+      ok('已切换到第 2 题', has(/已切到第 2 题/), tail());
+      ok('第 2 题题干与题型识别（' + b2.typeLabel + '）', has(new RegExp('第2题（' + b2.typeLabel + '）：[^|]*' + b2.stemPart)), tail());
+      ok('第 2 题本地题库精确命中（不查百度）', has(/📚 题库命中（精确·脚本）：B/), tail());
+      var bchecked2 = currentChecked();
+      ok('第 2 题页面选中态正确（' + b2.answer + '）', bchecked2 === b2.answer.split('').sort().join(''), '实际选中：' + bchecked2);
+      ok('第 2 题作答记录命中方式为 exact 且键正确',
+        !!bhist[1] && bhist[1].bankHow === 'exact' && bhist[1].bankKey === B.keys[1],
+        bhist[1] ? JSON.stringify({ how: bhist[1].bankHow, key: bhist[1].bankKey }) : '没有 pendingSession');
+      var bnet = window.__fxNet || [];
+      ok('全程零联网（题库精确命中，没有调用百度）', bnet.length === 0, bnet.slice(0, 3).join(' | '));
+      var bhistOk = bhist.length === 2 && bhist[0].letters === b1.answer && bhist[1].letters === b2.answer
+        && bhist[0].type === b1.saveType && bhist[1].type === b2.saveType;
+      ok('作答记录共 2 条且答案 / 题型正确', bhistOk,
+        bhist.length ? JSON.stringify(bhist.map(function (h) { return { n: h.qNum, letters: h.letters, type: h.type }; })) : '没有 pendingSession');
+      ok('最后一题判定与收尾文案正确',
+        has(/已是最后一题（已答 2\\/2 题）/) && has(/答题完成！共答 2 题，请检查后点击交卷/), tail());
     } else {
       ok('页面作答记录器就位（fixture 脚本已注入）', Array.isArray(window.__picks));
       // 考试页是「页面就绪后自动开始」的（面板初始化的就绪探测会调 mainLoop），不点按钮
@@ -258,6 +317,38 @@ const CASES = [
             totalRe: '总题数[:：]\\s*2',
             q1: { typeLabel: '单选', stemPart: '限制人身自由的行政处罚权', answer: 'B', saveType: 'single', pickedHas: ['公安机关'] },
             q2: { typeLabel: '单选', stemPart: '举证责任', answer: 'B', saveType: 'single', pickedHas: ['被告'] },
+        },
+    },
+    {
+        name: '本地题库精确命中：不联网、作答记录带 bankKey / bankHow',
+        case: 'bank',
+        file: 'exam-single.html',
+        budgetMs: 40000,
+        scenario: 'bank',
+        expectCount: 16,
+        store: {
+            answerMode: 'baidu',
+            autoCloseSec: 0,
+            bankSchema: 2,
+            questionBank: {
+                [BANK_KEY_1]: {
+                    q: BANK_STEM_1, t: 'single', s: '学法考试',
+                    a: ['公安机关'], l: 'B', src: 'exam', by: '',
+                    ts: 1, us: 0, hit: 0, ok: 0, bad: 0, cft: 0,
+                },
+                [BANK_KEY_2]: {
+                    q: BANK_STEM_2, t: 'single', s: '学法考试',
+                    a: ['被告'], l: 'B', src: 'exam', by: '',
+                    ts: 1, us: 0, hit: 0, ok: 0, bad: 0, cft: 0,
+                },
+            },
+        },
+        answers: [],
+        expect: {
+            totalRe: '总题数[:：]\\s*2',
+            q1: { typeLabel: '单选', stemPart: '限制人身自由的行政处罚权', answer: 'B', saveType: 'single', pickedHas: ['公安机关'] },
+            q2: { typeLabel: '单选', stemPart: '举证责任', answer: 'B', saveType: 'single', pickedHas: ['被告'] },
+            keys: [BANK_KEY_1, BANK_KEY_2],
         },
     },
     {
@@ -355,8 +446,8 @@ for (const c of CASES) {
         const run = runHeadless(BROWSERS, html, { prefix: 'fx-page-smoke-', budgetMs: c.budgetMs });
         dom = run.dom;
         if (DUMP) {
-            writeFileSync(join('/tmp', 'fx-page-smoke-' + c.file + '.html'), html, 'utf8');
-            writeFileSync(join('/tmp', 'fx-page-smoke-' + c.file + '.dom.html'), dom, 'utf8');
+            writeFileSync(join(tmpdir(), 'fx-page-smoke-' + c.file + '.html'), html, 'utf8');
+            writeFileSync(join(tmpdir(), 'fx-page-smoke-' + c.file + '.dom.html'), dom, 'utf8');
         }
     } catch (e) {
         fatal++;

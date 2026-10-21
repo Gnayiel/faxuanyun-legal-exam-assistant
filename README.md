@@ -1,12 +1,12 @@
 # 甘肃省国家工作人员学法考试平台自动答题助手
 
-[![version](https://img.shields.io/badge/version-2.0.15-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.16-blue)](CHANGELOG.md)
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
-[![self-test](https://img.shields.io/badge/self--test-181%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
+[![self-test](https://img.shields.io/badge/self--test-190%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
 [![panel--smoke](https://img.shields.io/badge/panel--smoke-40%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
-[![page--smoke](https://img.shields.io/badge/page--smoke-72%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
+[![page--smoke](https://img.shields.io/badge/page--smoke-88%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-4.0%2B-black)](https://www.tampermonkey.net/)
 
 <p align="center">
@@ -17,7 +17,7 @@
 用于 **法宣在线**（`*.faxuanyun.com`）学法考试平台的 Tampermonkey 用户脚本。
 单文件、无构建、无第三方依赖：结构化题库 + 站点适配层 + AI / 百度双通道查答案 + 内置自检。
 
-<p align="center"><img src="docs/panel.png" alt="脚本面板：模式、节奏、题库与本场、日志与自检" width="300"></p>
+<p align="center"><img src="docs/panel.webp" alt="脚本面板：模式、节奏、题库与本场、日志与自检" width="300"></p>
 
 > [!WARNING]
 > **本项目仅供个人学习与研究使用。** 自动答题可能违反考试平台的使用规则，
@@ -64,10 +64,9 @@
   自己没打开的标签页时，日志会提示手动关闭，脚本不重复尝试
 - **面板**：可拖拽、一键收起（收成一条写着自己名字的窄条）、**按钮按用途分类折叠**、分类标题带实时状态摘要、
   快捷键、Shadow DOM 隔离站点样式（面板样式不污染页面，页面样式也不会打乱面板）、日志分级与导出、题库导入导出
-- **内置自检**：181 项纯函数断言，面板一键运行；不联网、不读写题库数据
-- **多标签页写保护**：落盘前先读盘合并、用 3 秒短时写锁串行化两个标签页的写入，再用「墓碑」确保删除不会被旧副本搬回来
-- **同场双页提醒**：同一场考试在第二个标签页打开时会提示「只留一个标签页」，避免两页记录分叉
-- **手动对账兜底**：成绩页识别不出答题卡时，面板「题库与本场 → 手动对账」可按 `1-8=对, 9=错, 10=未答` 手填，照样走对账 / 写库 / 错题清理
+- **内置自检**：190 项纯函数断言，面板一键运行；不联网、不读写题库数据
+- **多标签页保护**：多开标签页时先后落盘不会互相覆盖，删掉的条目不会被旧副本搬回来；同一场考试请只留一个标签页
+- **手动对账兜底**：答题卡识别不出时按题号手填对错，照常走对账 / 入库 / 错题清理（用法见 [常见问题](#常见问题)）
 
 ## 安装
 
@@ -80,8 +79,8 @@
      [`faxuanyun-legal-exam-assistant.user.js`](faxuanyun-legal-exam-assistant.user.js) 再点 **Raw**。
    - 国内多数网络下 github.com / raw.githubusercontent.com 不通，改用 jsDelivr 固定版本直链（把 `vX.Y.Z`
      换成 [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 里的最新标签，
-     例如 `v2.0.15`）——地址与内容一一对应，装到的一定是那个版本：
-     `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@v2.0.15/faxuanyun-legal-exam-assistant.user.js`
+     例如 `v2.0.16`）——地址与内容一一对应，装到的一定是那个版本：
+     `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@v2.0.16/faxuanyun-legal-exam-assistant.user.js`
    - 想省事、不介意可能装到稍旧一版时，可用 jsDelivr 的 `@latest` 直链（由 CDN 缓存决定当前指向，可能滞后一版）：
      `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@latest/faxuanyun-legal-exam-assistant.user.js`
    - 上述都不通时，用 `gcore.jsdelivr.net` / `testingcf.jsdelivr.net` 替换主机名；`cdn.jsdelivr.net` 在国内多被重置。
@@ -124,15 +123,23 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
 
 ## 更新与自动更新
 
+> [!IMPORTANT]
+> **还在用 ≤ v2.0.12 的旧版？必须手动重装一次，自动更新才会恢复。** 那些版本的 `@updateURL`
+> 指向 `cdn.jsdelivr.net`，该域名在国内多数网络下连接被重置（实测已不可达），油猴每次检查更新都会
+> 静默失败。按 [安装](#安装) 用 Release 资产或 `@v2.0.16` 固定链接覆盖安装一次即可：脚本身份不变，
+> 题库与设置都保留；装到 v2.0.13 及以上后，新的 `@updateURL` 才会接管后续更新。
+
 脚本头部已经写好 `@updateURL` / `@downloadURL`，都指向本仓库**最新 tag** 上这个脚本的
 **jsDelivr 镜像**（`fastly.jsdelivr.net/gh/Gnayiel/...@latest/...`）——换成镜像是因为
 `raw.githubusercontent.com` 在国内多数网络下不可达，会让「检查更新」静默失败。
-**用户装好一版之后不需要再做任何事**，后续版本由油猴自动更新。
+**v2.0.13 起，装好一版之后不需要再做任何事**，后续版本由油猴自动更新。
 
 > 为什么用 `@latest` 而不是 `@main`：jsDelivr 对**分支**路径的边缘缓存很长（最长 12 小时），
 > 发版后手动 purge 也常常刷不掉，会出现「Release 已经是新版、镜像还停在几个版本前」的空窗。
-> `@latest` 按 tag 解析，缓存窗口明显更短（同一次发版实测：`@main` 落后 3 个版本时 `@latest` 只落后 1 个），
-> 但仍不是即时生效——想要「按版本固定、立刻可读」可以用 `@vX.Y.Z` 形式的 tag 直链。
+> `@latest` 按 tag 解析，缓存窗口明显更短（同一次发版实测：`@main` 落后 3 个版本时 `@latest` 只落后 1 个）。
+> 但它**仍受边缘缓存影响，不承诺即时**：发版后通常要数小时才在 `fastly` / `gcore` / `testingcf`
+> 三个边缘陆续刷新（2026-10-21 实测：`v2.0.15` 已发布，三个边缘的 `@latest` 都还停在 `2.0.14`）。
+> 想立刻拿到指定版本，用 `@vX.Y.Z` 固定链接——新 tag 的固定链接在三个边缘都是立即生效的。
 
 ### 用户侧：油猴怎么更新
 
@@ -144,12 +151,13 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
 - **数据不丢**：更新是「同一个脚本」的原地替换，身份由 `@name` + `@namespace` 决定，
   题库、错题记录、AI 设置、面板位置都保留。只有改 `@name` / `@namespace` 才会被当成新脚本
   （v2.0.0 就是这么一次，迁移见上一节）。
-- **更新失败的兜底**：自动更新走 jsDelivr，若它也不通（CDN 故障 / 网络限制），
-  自动检查会静默失败（不会损坏数据）。可以换网络后重试；也可以到
+- **更新失败的兜底**：自动更新走 jsDelivr，若它也不通（CDN 故障 / 网络限制 / 边缘还没刷新），
+  检查会静默失败（不会损坏数据）。可以换网络后重试，或等几小时再查；也可以到
   [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 下载该版本的
-  `.user.js` 附件，或直接下载仓库里的文件，拖进浏览器窗口安装——
+  `.user.js` 附件，或直接用上面 `@vX.Y.Z` 固定链接安装——
   同一脚本的新版本会覆盖旧版本，效果与自动更新一致，数据同样不丢。
   GitHub 被拦截时也可以直接让维护者把该版本发给你（与本仓库文件一致、可对 SHA256），拖进浏览器安装即可。
+  排查更新问题时，可附上面板「日志与自检 → 导出诊断包」生成的 JSON。
 
 ## 使用
 
@@ -165,8 +173,8 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
 | 收起 / 展开 | 常驻顶栏。一个按钮：收成一条写着自己名字的窄条（还能拖动），再点一下还原 |
 | **答题模式与节奏** | AI智能 / 百度搜索（选主查询通道，另一条作为备源）；二源（默认关，打开后每题都追加第二个来源交叉验证）；节奏（慢速 3~6 秒 / 标准 1~3 秒 / 快速 0.3~0.8 秒）；交卷（手动默认，答完只提示 ／ 自动，需谨慎）；调试（输出更详细的日志）。摘要显示当前模式与节奏 |
 | **接口设置** | AI 设置（接口地址 / API Key / 模型名，保存前逐项校验）；「Key 仅本次会话」勾选后 Key 不落盘（刷新后需重填）；测试连接。摘要显示接口是否已配置 |
-| **题库与本场** | 导出 / 导入答案库（见 [导入 / 导出](#导入--导出)）；解析成绩（交卷后手动再解析一次）；手动对账（答题卡识别不出时按 `题号=对/错/未答` 手填，走同一套入库流程）；关闭页（成绩解析/入库完成后自动关闭本页的秒数，默认 8 秒，可切 8/15/30/不关，倒计时中再点一下取消）；清空本场（丢弃本场记录）。摘要显示题库题数与已答数 |
-| **日志与自检** | 清空 / 复制 / 导出日志（最多留 300 行）；自检（跑内置断言）。摘要显示日志行数 |
+| **题库与本场** | 导出 / 导入答案库（见 [导入 / 导出](#导入--导出)）；导出争议题（题库里被标记过错误/争议的条目与两源冲突记录，导出 JSON 供人工复核）；解析成绩（交卷后手动再解析一次）；手动对账（答题卡识别不出时按题号手填对错，详见 [常见问题](#常见问题)）；关闭页（成绩解析/入库完成后自动关闭本页的秒数，默认 8 秒，可切 8/15/30/不关，倒计时中再点一下取消）；清空本场（丢弃本场记录）。摘要显示题库题数与已答数 |
+| **日志与自检** | 清空 / 复制 / 导出日志（最多留 300 行）；自检（跑内置断言）；导出诊断包（版本、UA、页面地址（不含查询串）、选择器命中、配置、请求统计、存储占用与最近 300 行日志；已脱敏，不含 API Key）。摘要显示日志行数 |
 
 收起时分类标题右侧的摘要是活的：切模式、改节奏、答了几题、写了几行日志都会即时刷新，
 不展开也能看到关键状态；展开后摘要让位给按钮（按钮自己带状态）。
@@ -265,6 +273,23 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
   另外 v2.0.2 起，交卷后退回「选择考试」列表页不会再被误判成成绩页空转解析（旧版会红字提示「确认停在结果页」）。
 - **从 v1.x 升级后题库是空的？** 这是预期行为（`@namespace` 变了），按
   [升级到 v2.0.0](#升级到-v200) 用 `.json` 导入一次即可。
+- **自动更新一直不生效？** 按顺序排查：① 看面板标题栏的 `@version` 是否低于期望版本；
+  ② 还在 v2.0.12 及更早版本时，旧的 `@updateURL` 指向已不可达的 `cdn.jsdelivr.net`，必须按
+  [安装](#安装) 手动覆盖安装一次（题库与设置保留）；③ v2.0.13 起走 `@latest`，受边缘缓存影响，
+  发版后通常要数小时才陆续刷新，不保证即时，想立刻用新版就改用 `@vX.Y.Z` 固定链接手动装；
+  ④ 在油猴管理面板点「检查更新」强制查一次，更新后刷新考试页；⑤ 仍不行就下载 Release 里的
+  `.user.js` 覆盖安装，或把「导出诊断包」的 JSON 附到 issue 里。
+- **API Key 怎么申请、填哪家？** 脚本不提供 Key、也不代理请求：AI 模式需要你自己在任一家
+  OpenAI 兼容服务商注册并创建 API Key（例如 DeepSeek 开放平台，接口地址
+  `https://api.deepseek.com/v1/chat/completions`、模型名 `deepseek-chat`）。在面板
+  「接口设置 → AI 设置」填好接口地址 / Key / 模型名并保存，再点「测试连接」。
+  脚本头部 `@connect` 已内置 [AI 接口配置](#ai-接口配置) 列出的那些域名，用其它服务商时
+  需要自行补一行 `// @connect 你的域名`。不想配 Key 就把模式切到「百度搜索」，不需要任何 Key。
+- **导入答案库失败 / 只导入了一部分？** 先看面板日志：导入结束会写明新增 / 补齐 / 归并 /
+  答案冲突 / 无法导入各多少条，并列出前 5 条失败原因（含行号与原文）。常见原因：JSON 不是脚本
+  认识的结构（完整备份、`{bank, wrong}`、数组、`{题干: 答案}` 字典之一）、CSV 表头或列数对不上、
+  答案超出选项范围、选项内容里带 `;` 或 `+` 被当成多选拆项（此时改用 JSON）。自己看不出时，
+  点「导出诊断包」把 JSON 和原文件一起发 issue；诊断包已脱敏，不含 API Key。
 
 ## 已知限制
 
@@ -284,8 +309,9 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
   等你人工核对。
 - **争议题只记录、不自动改**：两个来源都高置信但分歧时记入争议列表（面板可导出人工复核），
   不会自动挑一个写进题库。
-- **多标签页**：落盘有 3 秒短锁 + 读盘合并 + 墓碑（删除记录的墓碑持久 7 天，每 10 次落盘或超过 500 条时清理过期项，旧标签页不会把已删条目写回），
-  先后落盘不会互相覆盖；但同一场考试同时在两个标签页作答仍会产生分叉记录（脚本会检测到并提醒，建议只留一个标签页）。
+- **多标签页**：写保护只保证先后落盘不互相覆盖（3 秒短锁 + 读盘合并 + 墓碑，墓碑持久 7 天、
+  每 10 次落盘或超过 500 条时清理过期项）；同一场考试同时在两个标签页作答仍会产生分叉记录，
+  脚本检测到会提醒，建议只留一个标签页。
 - **自动关闭本页受浏览器限制**：脚本只能关闭「自己打开的」标签页；考试页是你自己点开时，
   `window.close()` 可能被浏览器拒绝。被拒绝时脚本不会反复重试，也不会擅自跳走页面，
   只在日志与通知里提示手动关闭。
@@ -302,22 +328,6 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 
 ## 更新记录
 
-当前版本 **v2.0.14**（2026-10-21）：内部工程化收口，行为不变
+当前版本 **v2.0.16**（2026-10-21）：修复成绩页误判与答题卡判色、补齐导入回滚与诊断包脱敏、加固发版流程与数据契约。
 
-- 变更：内置自检按主题拆成 8 组（仍是 181 项断言）、两份浏览器冒烟的油猴打桩合并成 `tools/_harness.mjs`、`package.json` 补 `version` 并纳入自检
-- 修复：30 处静默 `catch {}` 改为 `safeWarn()`，存储配额满或隐私模式禁用 storage 时日志里会留一条「⚠ … 已跳过」，不再无声失灵
-- 新增：`data/bank.schema.json`，`check-data` 用它校验随仓库分发的题库快照
-
-v2.0.13（2026-10-21）：自动更新改用国内实测可达的 jsDelivr 边缘域名（fastly）
-
-- 修复：`@downloadURL` / `@updateURL` 从 `cdn.jsdelivr.net` 换成 `fastly.jsdelivr.net` —— 实测 `cdn.jsdelivr.net` 在国内被重置（`ERR_CONNECTION_RESET`），换域名后同一路径可用；`gcore` / `testingcf` 两个边缘域名同样可用，可手动替换
-- 说明：三个 jsDelivr 边缘域名内容一致，缓存共用；若某天 `fastly` 也不通，把 `fastly` 换成 `gcore` 或 `testingcf` 再手动装一次即可（自动更新地址随脚本走）
-
-v2.0.12（2026-10-21）：自动更新改走 jsDelivr，答题过程中题库定时落盘
-
-- 变更：`@downloadURL` / `@updateURL` 改指 jsDelivr 镜像（`raw.githubusercontent.com` 在国内多数网络下不可达，旧地址会让自动更新静默失败）；安装说明把镜像提到推荐位
-- 变更：每答一题尝试落盘一次，节流到最少 20 秒写一次（新增 `CONFIG.bankFlushMinInterval`）；以前只在导入 / 对账 / 页面关闭时落盘，浏览器崩溃或被系统回收会丢掉这一轮新学的答案与命中统计
-- 修复：删掉从未被调用的 `getTotalQ()`；去掉与 `*://*.faxuanyun.com/*` 完全重复的 `@match *://gs.faxuanyun.com/*`
-- 杂项：仓库地址大小写统一为 `Gnayiel`（`@namespace` 不动，它是脚本身份）；`CHANGELOG.md` 只留最近三个版本，更早归档到 [CHANGELOG-archive.md](CHANGELOG-archive.md)
-
-完整清单见 [CHANGELOG.md](CHANGELOG.md)，更早版本在 [CHANGELOG-archive.md](CHANGELOG-archive.md)。
+每一项改动的说明与验证方式见 [CHANGELOG.md](CHANGELOG.md)，更早版本在 [CHANGELOG-archive.md](CHANGELOG-archive.md)。

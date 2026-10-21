@@ -121,6 +121,43 @@ ok('CSV 与 JSON 题型分布一致',
     `csv=${JSON.stringify(csvType)} json=${JSON.stringify(typeCount)}`);
 ok('错误记录为空（随仓库快照不放错题）', wrongN === 0, `${wrongN} 条`);
 
+// CSV 是给人看 / 给 Excel 的导出，最容易出现「JSON 改了、CSV 没同步」。逐行按顺序比对，
+// 而不是只比题型分布——题干、答案、题型任何一列漂移都要在 CI 里暴露。
+const stripLeadApostrophe = s => String(s === null || s === undefined ? '' : s).replace(/^'/, '');
+const csvAnswerOf = e => (Array.isArray(e.a) && e.a.length ? e.a.join('; ') : (e.l || ''));
+const rowIssues = [];
+body.forEach((r, i) => {
+    const e = entries[i];
+    if (!e) { rowIssues.push(`第 ${i + 2} 行：JSON 没有对应条目`); return; }
+    const csvQ = stripLeadApostrophe(r[2]).trim();
+    if (csvQ !== String(e.q || '').trim()) rowIssues.push(`第 ${i + 2} 行题干不一致`);
+    const csvA = stripLeadApostrophe(r[3]).trim();
+    const jsonA = String(csvAnswerOf(e)).trim();
+    if (csvA !== jsonA) rowIssues.push(`第 ${i + 2} 行答案不一致（CSV=${csvA} JSON=${jsonA}）`);
+    if (String(r[1]).trim() !== (LABEL[e.t] || '')) rowIssues.push(`第 ${i + 2} 行题型不一致`);
+});
+ok('CSV 与 JSON 逐行一致（题干 / 答案 / 题型）', rowIssues.length === 0, rowIssues.slice(0, 3).join(' | '));
+
+// Excel / WPS 公式注入：以 = + - @ 或 TAB/CR 开头的单元格可能被执行。
+// 导出工具会在前面加一个单引号消毒；这里同时接受「已消毒」与「本来安全」的单元格。
+const FORMULA_PREFIX = /^[=+\-@\t\r]/;
+const riskyFormula = v => {
+    const s = String(v === null || v === undefined ? '' : v);
+    return s.startsWith("'") ? false : FORMULA_PREFIX.test(s);
+};
+const riskyCells = [];
+body.forEach((r, i) => {
+    for (const col of [2, 3, 4]) {
+        if (riskyFormula(r[col])) riskyCells.push(`第 ${i + 2} 行第 ${col + 1} 列`);
+    }
+});
+ok('CSV 无未消毒的公式前缀（= + - @ / TAB / CR）', riskyCells.length === 0, riskyCells.slice(0, 5).join(' | '));
+
+// 扫描器自身的负例：不能保证真实快照里永远没有危险单元格，否则这段检查可能悄悄失效。
+const riskySamples = ['=1+1', '+x', '-x', '@x', '\tx', '\rx'];
+ok('公式前缀扫描负例：危险单元格必须被识别', riskySamples.every(riskyFormula));
+ok('公式前缀扫描负例：前加单引号消毒后不误报', riskySamples.every(v => !riskyFormula("'" + v)));
+
 console.log('\n[3/3] 校验文档里写死的数字');
 const readme = readDoc('README.md');
 const dataReadme = readDoc('data/README.md');
@@ -202,6 +239,7 @@ if (!existsSync(schemaPath)) {
             if (sc.pattern && !new RegExp(sc.pattern).test(val)) errs.push(`${path}: 不匹配 ${sc.pattern}`);
         }
         if (typeof val === 'number' && sc.minimum !== undefined && val < sc.minimum) errs.push(`${path}: ${val} < minimum ${sc.minimum}`);
+        if (typeof val === 'number' && sc.maximum !== undefined && val > sc.maximum) errs.push(`${path}: ${val} > maximum ${sc.maximum}`);
         if (typeOf(val) === 'object') {
             for (const req of sc.required || []) if (!(req in val)) errs.push(`${path}: 缺必填字段 ${req}`);
             const props = sc.properties || {};
@@ -213,7 +251,6 @@ if (!existsSync(schemaPath)) {
         }
         if (typeOf(val) === 'array' && sc.items) val.forEach((x, i) => check(x, sc.items, `${path}[${i}]`));
         if (Array.isArray(sc.oneOf)) {
-            const before = errs.length;
             let matched = 0;
             for (const sub of sc.oneOf) {
                 const mark = errs.length;
@@ -221,13 +258,72 @@ if (!existsSync(schemaPath)) {
                 if (errs.length === mark) matched++;
                 else errs.length = mark;
             }
-            if (!matched) errs.push(`${path}: 不符合 oneOf 任一分支`);
-            errs.length = before === errs.length ? errs.length : errs.length;
+            // oneOf 的语义是「恰好命中一个」：命中 0 个和 2 个都不合法
+            if (matched === 0) errs.push(`${path}: 不符合 oneOf 任一分支`);
+            else if (matched > 1) errs.push(`${path}: 同时符合 ${matched} 个 oneOf 分支（应恰好 1 个）`);
         }
     };
+    // 检查器负例自测：schema 校验退化（pattern 失效、oneOf 分支数错）时必须报警而不是放行。
+    const sampleErrors = (val, sc) => { errs.length = 0; check(val, sc, '$'); return errs.slice(); };
+    ok('schema 负例：类型不符必须报错',
+        sampleErrors({ v: 'x' }, { type: 'object', properties: { v: { type: 'integer' } } }).length > 0);
+    ok('schema 负例：枚举外的值必须报错', sampleErrors('x', { enum: ['a', 'b'] }).length > 0);
+    ok('schema 负例：pattern 不匹配必须报错',
+        sampleErrors('abc', { type: 'string', pattern: '^\\d+$' }).length > 0);
+    ok('schema 负例：minimum / maximum 越界必须报错',
+        sampleErrors(-1, { type: 'integer', minimum: 0 }).length > 0
+        && sampleErrors(11, { type: 'integer', maximum: 10 }).length > 0);
+    ok('schema 负例：oneOf 两个分支同时命中必须报错',
+        sampleErrors('a', { oneOf: [{ type: 'string' }, { minLength: 1 }] }).length > 0);
+    ok('schema 正例：oneOf 恰好命中一个分支时零错误',
+        sampleErrors('a', { oneOf: [{ type: 'string' }, { type: 'integer' }] }).length === 0);
+
     const snapshot = JSON.parse(readFileSync(join(DATA, jsonName), 'utf8'));
     check(snapshot, schema, '$');
     ok('题库 JSON 通过 data/bank.schema.json 校验', errs.length === 0, errs.slice(0, 5).join('；'));
+
+    // schema 文件由文档维护者演进，未必把 exportedAt / cft / wrong 全写成 required；
+    // 但仓库随附快照必须满足这些语义，否则脚本导入后会拿到坏数据。
+    const isPlainObject = v => !!v && typeof v === 'object' && !Array.isArray(v);
+    const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+    const semanticIssues = (s, bankObj = bank) => {
+        const issues = [];
+        if (typeof s.exportedAt !== 'string' || !s.exportedAt.trim()) {
+            issues.push('exportedAt 缺失');
+        } else if (!ISO_UTC.test(s.exportedAt) || Number.isNaN(Date.parse(s.exportedAt))) {
+            issues.push(`exportedAt 不是 ISO-8601 UTC：${s.exportedAt}`);
+        }
+        if (!isPlainObject(s.wrong)) {
+            issues.push('wrong 不是对象');
+        } else {
+            for (const [k, w] of Object.entries(s.wrong)) {
+                if (!isPlainObject(w)) { issues.push(`wrong[${k}] 不是对象`); continue; }
+                if (w.q !== undefined && typeof w.q !== 'string') issues.push(`wrong[${k}].q 不是字符串`);
+                for (const f of ['w', 'tried']) {
+                    if (w[f] !== undefined && (!Array.isArray(w[f]) || !w[f].every(x => typeof x === 'string'))) {
+                        issues.push(`wrong[${k}].${f} 不是字符串数组`);
+                    }
+                }
+                if (w.w === undefined && w.tried === undefined) issues.push(`wrong[${k}] 既没有 w 也没有 tried`);
+            }
+        }
+        for (const [k, e] of Object.entries(bankObj || {})) {
+            if (!isPlainObject(e)) { issues.push(`bank[${k}] 不是对象`); continue; }
+            if (e.cft !== undefined && (!Number.isInteger(e.cft) || e.cft < 0)) {
+                issues.push(`bank[${k}].cft 应为非负整数（实际 ${JSON.stringify(e.cft)}）`);
+            }
+        }
+        return issues;
+    };
+    const semanticBad = semanticIssues(
+        { exportedAt: 'not-a-date', wrong: [], bank: { k: { cft: -1 } } },
+        { k: { cft: -1 } },
+    );
+    ok('快照语义负例：坏 exportedAt / wrong / cft 必须被抓出',
+        semanticBad.length >= 3, `只抓到 ${semanticBad.length} 项：${semanticBad.slice(0, 3).join('；')}`);
+    const semantic = semanticIssues(snapshot);
+    ok('快照语义约束（exportedAt 为 ISO-8601 / cft 非负整数 / wrong 结构）',
+        semantic.length === 0, semantic.slice(0, 5).join('；'));
 }
 
 console.log(failed === 0 ? '\n全部通过。\n' : `\n${failed} 项未通过。\n`);

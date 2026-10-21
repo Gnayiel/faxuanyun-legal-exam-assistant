@@ -210,8 +210,13 @@ writeFileSync(outPath, jsonText);
 // 与面板「导出答案库」同一套 CSV 格式，抽出来供 --csv 与 --emit-snapshot 复用
 function writeBankCsv(target) {
     const header = ['序号,题型,题目,正确答案,错误选项,来源'];
+    // Excel / WPS 会把以 = + - @ 或 TAB/CR 开头的单元格当公式执行；导入题库时也可能被当成公式。
+    // 只在 CSV 输出层前加一个单引号消毒（Excel 视为纯文本），JSON 保持原文——脚本导入题库时
+    // 选项内容要与页面文本精确匹配，不能带这个引号。
+    const FORMULA_PREFIX = /^[=+\-@\t\r]/;
     const csvCell = v => {
-        const s = String(v === null || v === undefined ? '' : v);
+        let s = String(v === null || v === undefined ? '' : v);
+        if (FORMULA_PREFIX.test(s)) s = "'" + s;
         return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
     const entries = Object.values(merged).sort((a, b) => (LABEL[a.t] || '').localeCompare(LABEL[b.t] || '') || a.q.localeCompare(b.q));

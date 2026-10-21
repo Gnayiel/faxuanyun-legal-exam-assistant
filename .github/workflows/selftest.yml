@@ -17,8 +17,13 @@ concurrency:
 
 jobs:
   selftest:
+    # Node 22 是 engines 下限，Node 24 是当前最新 LTS；两边都跑，避免只在某个版本可用的 API 溜进工具链。
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['22', '24']
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       # 第三方 action 全部 pin 到 commit SHA（行尾注释是版本号）；
       # 升级由 .github/dependabot.yml 自动开 PR 完成。
@@ -30,40 +35,10 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node-version }}
 
-      # 工具脚本语法检查：一个手滑的全角引号就能让发版门禁脚本直接编译失败（v2.0.10 曾踩到）
-      - name: 工具脚本语法检查
-        run: |
-          for f in faxuanyun-legal-exam-assistant.user.js tools/*.mjs; do
-            node --check "$f"
-          done
-          echo "工具脚本语法检查通过"
-
-      # 元数据校验 + 脚本内置的 181 项断言，无第三方依赖
-      - name: 内置自检
-        run: node tools/selftest.mjs
-
-      # 随仓库分发的题库快照与 README / data/README 里的数字必须一致
-      - name: 数据与文档一致性
-        run: node tools/check-data.mjs
-
-      # 工作流配置静态检查：action 必须 pin SHA、权限最小化、脚本路径存在
-      - name: 工作流静态检查
-        run: node tools/check-workflows.mjs
-
-      # 题库合并工具冒烟：同一份快照合并两次结果幂等
-      - name: 题库合并工具冒烟
-        run: |
-          node tools/merge-bank.mjs data/faxuanyun-legal-exam-bank-*.json -o /tmp/merged.json --quiet
-          node -e "const a=require('/tmp/merged.json');if(!a.count||a.count!==Object.keys(a.bank).length)process.exit(1);console.log('合并结果',a.count,'题')"
-
-      # GitHub runner 自带 Edge / Chrome；--require-browser 让「找不到浏览器」直接失败，
-      # 避免面板冒烟被静默跳过、CI 假绿。
-      - name: 面板冒烟测试
-        run: node tools/panel-smoke.mjs --require-browser
-
-      # 页面适配冒烟：在 tests/fixtures/ 的脱敏考试页 / 成绩页上验证站点适配层
-      # （题干、选项、题型、题数、按钮、作答选中态、成绩解析）。
-      - name: 页面适配冒烟测试
-        run: node tools/page-smoke.mjs --require-browser
+      # 统一门禁：语法检查、内置断言、数据/文档一致性、工作流检查、题库合并冒烟、
+      # 面板冒烟与页面适配冒烟。与本地 `npm run ci`、release.yml 共用同一份步骤清单，
+      # 不再手抄；--require-browser 让缺浏览器时直接失败而不是静默跳过。
+      - name: 统一门禁（npm run ci）
+        run: npm run ci

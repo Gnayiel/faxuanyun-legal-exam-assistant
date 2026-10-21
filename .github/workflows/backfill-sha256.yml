@@ -41,5 +41,12 @@ jobs:
             gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir "$tmp"
             ( cd "$tmp" && sha256sum "$name" > "$name.sha256" )
             gh release upload "$tag" "$tmp/$name.sha256" --repo "$GITHUB_REPOSITORY"
-            rm -rf "$tmp"
+            # 上传成功后下载回来复算：确认远端 .sha256 与远端附件内容一致，而不是只相信
+            # 上传接口的「成功」——历史上出现过资产内容与记录对不上的情况。
+            verify=$(mktemp -d)
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern "$name" --pattern "$name.sha256" --dir "$verify"
+            ( cd "$verify" && sha256sum -c "$name.sha256" )
+            echo "$tag: .sha256 上传后复算通过"
+            rm -rf "$tmp" "$verify"
           done

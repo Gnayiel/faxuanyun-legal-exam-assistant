@@ -18,17 +18,17 @@
 ## 本地验证（提交前必跑）
 
 ```bash
-node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 181 项断言 + 文档数字校验，不联网
+node tools/selftest.mjs                      # 校验 @-metadata + 跑脚本内置的 190 项断言 + 文档数字校验，不联网
 node tools/check-workflows.mjs               # GitHub Actions 配置静态检查（pin SHA / 权限 / 脚本路径）
 node tools/release.mjs --dry-run             # 本地发版助手：版本与 CHANGELOG 校验 + 跑测试 + 打 tag 预演
 node tools/check-data.mjs                    # 题库快照与 README / data/README 的数字是否一致，并按 data/bank.schema.json 校验格式
 node tools/merge-bank.mjs data/*.json -o /tmp/merged.json   # 题库合并工具冒烟（幂等）
 node tools/panel-smoke.mjs --require-browser # 真实浏览器面板冒烟（40 项断言）
-node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟（72 项断言）
+node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟（88 项断言）
 ```
 
-- 装了 Node 之后也可以用 `package.json` 里的快捷命令：`npm run check`（自检 + 数据 + 工作流）、
-  `npm run smoke`（两种浏览器冒烟，强制模式）、`npm run release`（发版助手）；命令内容与上面完全一致。
+- 装了 Node 之后也可以用 `package.json` 里的快捷命令：`npm run check`（语法 + 自检 + 数据 + 工作流 + 题库合并冒烟）、
+  `npm run ci`（上述全部 + 面板/页面冒烟，与 selftest.yml、release.yml 共用同一份清单）、`npm run smoke`（两种浏览器冒烟，强制模式）、`npm run release`（发版助手）。
 - 两种浏览器冒烟共用 `tools/browser.mjs` 探测浏览器（`FX_BROWSER` → 常见安装路径 → PATH，Windows 也支持），
   找不到浏览器时默认**跳过**（退出码 0）；加 `--require-browser`（或设 `FX_REQUIRE_BROWSER=1`）则改为失败——
   CI 用的就是强制模式，防止「没装浏览器 → 静默跳过 → 假绿」。
@@ -55,7 +55,7 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
   加 `--require-browser`（或设 `FX_REQUIRE_BROWSER=1`）则直接失败，CI 用的就是强制模式，
   避免「没装浏览器 → 静默跳过 → 假绿」。也可以用 `FX_BROWSER=/path/to/chrome` 指定浏览器（`tools/browser.mjs` 统一探测，支持 PATH 与 Windows 常见路径）。
 - `tools/page-smoke.mjs` 把脚本装进 `tests/fixtures/` 下的脱敏考试页 / 成绩页 fixture，在真实 Chromium 内核里
-  走一遍「识题 → 作答 → 交卷 → 对账」链路，共 72 项断言；同样支持 `--require-browser` 强制模式（CI 必跑），
+  走一遍「识题 → 作答 → 交卷 → 对账」链路，共 88 项断言；同样支持 `--require-browser` 强制模式（CI 必跑），
   `FX_PAGE_SMOKE_DUMP=1` 可导出页面快照辅助排查。
 - `tools/check-data.mjs` 校验 `data/` 下最新的题库快照：JSON / CSV 成对、条数与题型分布自洽、
   且与 README / `data/README.md` 里写死的数字一致——改快照或改文档时能第一时间发现数字漂移；
@@ -142,7 +142,7 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 │       ├── release.yml           # 推送 v* tag 时自动建 Release、上传 .user.js + .sha256，并做更新链校验
 │       ├── auto-merge.yml        # Dependabot 依赖升级 PR：自检全绿后自动合并
 │       └── backfill-sha256.yml   # 手动触发 / 每月巡检：给缺少 .sha256 的旧 Release 补校验文件
-├── docs/                         # README 顶部预览图与 GitHub 社交预览图（panel.png、social-preview-*.webp）
+├── docs/                         # README 顶部预览图与 GitHub 社交预览图（panel.webp、social-preview-*.webp）
 ├── data/
 │   ├── README.md                 # 题库快照的命名规范与提交规则
 │   ├── bank.schema.json                          # 题库 JSON 的 schema（check-data 校验用）
@@ -151,7 +151,7 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 ├── tests/
 │   └── fixtures/                 # 页面适配冒烟的 6 个脱敏 fixture（单选/多选/判断/答题卡/成绩/无总题数）
 └── tools/
-    ├── selftest.mjs              # 无依赖自检（元数据 + 181 项断言）
+    ├── selftest.mjs              # 无依赖自检（元数据 + 190 项断言）
     ├── check-data.mjs            # 题库快照与文档数字一致性校验（--fix 可自动修）
     ├── merge-bank.mjs            # 多份题库导出合并（--emit-snapshot 生成 data/ 快照）
     ├── check-workflows.mjs       # GitHub Actions 配置静态检查
@@ -159,7 +159,7 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
     ├── browser.mjs               # 浏览器探测与 headless 启动（两种冒烟共用）
     ├── _harness.mjs              # 页面内 GM_* 打桩与假百度接口（两种冒烟共用）
     ├── panel-smoke.mjs           # 真实浏览器面板冒烟测试（40 项），CI 用强制模式
-    └── page-smoke.mjs            # 真实浏览器页面适配冒烟：6 个 fixture（72 项），CI 必跑
+    └── page-smoke.mjs            # 真实浏览器页面适配冒烟：7 个用例 / 6 份 fixture（88 项），CI 必跑
 ```
 
 从面板「导出答案库」拿到的文件按日期命名，可以直接放进 `data/` 归档；

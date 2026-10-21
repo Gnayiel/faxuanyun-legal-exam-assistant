@@ -1,6 +1,6 @@
 {
   "name": "faxuanyun-legal-exam-assistant",
-  "version": "2.0.15",
+  "version": "2.0.16",
   "private": true,
   "description": "甘肃省国家工作人员学法考试平台（法宣在线）Tampermonkey 用户脚本：本地题库 + AI/百度多源 + 自动答题与成绩对账",
   "license": "MIT",
@@ -8,7 +8,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "node --check faxuanyun-legal-exam-assistant.user.js && node tools/selftest.mjs && node tools/check-data.mjs && node tools/check-workflows.mjs",
+    "check": "node tools/check-syntax.mjs && node tools/selftest.mjs && node tools/check-data.mjs && node tools/check-workflows.mjs && node tools/merge-smoke.mjs",
+    "merge-smoke": "node tools/merge-smoke.mjs",
+    "ci": "node tools/ci.mjs",
     "smoke": "node tools/panel-smoke.mjs --require-browser && node tools/page-smoke.mjs --require-browser",
     "release": "node tools/release.mjs"
   }

@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.15
-// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 181 项内置自检
+// @version      2.0.16
+// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 190 项内置自检
 // @author       Gnayiel
 // @license      MIT
 // @match        *://*.faxuanyun.com/*
+// @match        *://faxuanyun.com/*
 // @noframes
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
@@ -89,7 +90,7 @@
  *   作答策略          多选组合枚举、chooseAnswer 决策、answerCurrent 单题流程
  *   成绩解析          答题卡颜色判定、分数读取、交卷对账入库
  *   考试流程控制      退出原因、暂停等待、倒计时、弹窗、最后一题、mainLoop
- *   内置自检          181 项纯函数断言 + window.__FX_TEST__ 测试钩子
+ *   内置自检          190 项纯函数断言 + window.__FX_TEST__ 测试钩子
  *   面板              UI 构建、分类折叠、拖拽、状态摘要、AI 设置、导入导出与日志按钮
  */
 
@@ -343,7 +344,7 @@
             border-radius: 14px; padding: 10px;
             font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
             font-size: 13px; line-height: 1.45;
-            width: min(300px, calc(100vw - 24px)); max-height: calc(100vh - 24px);
+            width: min(300px, calc(100vw - 24px)); max-height: calc(100vh - 92px);
             display: flex; flex-direction: column;
             box-sizing: border-box;
             box-shadow: 0 18px 48px -12px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
@@ -376,6 +377,13 @@
         /* 窄面板（300px）里 4 枚按钮一行放不下：文字会压到边框、挤进相邻按钮，改 2x2 等宽 */
         #fx-panel .row.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
         #fx-panel .row.grid-2 button { flex: none; }
+        /* 触屏设备把按钮高度抬到 40px：34px 低于可点按的最小目标 */
+        @media (pointer: coarse) { #fx-panel { --fx-btn-h: 40px; } }
+        /* 系统开启「减少动态效果」时不再播放过渡/位移 */
+        @media (prefers-reduced-motion: reduce) {
+            #fx-panel *, #fx-panel button { transition: none !important; animation: none !important; }
+            #fx-panel button:active { transform: none; }
+        }
 
         /* ---------- 标题栏 ---------- */
         #fx-panel .panel-title {
@@ -958,7 +966,8 @@
 
     const inferType = ans => /^[01]$/.test(ans) ? 'judge' : (String(ans).length > 1 ? 'multi' : 'single');
     const sameTexts = (a, b) => {
-        const x = (a || []).slice().sort(), y = (b || []).slice().sort();
+        const arr = x => Array.isArray(x) ? x : (typeof x === 'string' && x ? x.split(/\s*[;；]\s*/) : []);
+        const x = arr(a).slice().sort(), y = arr(b).slice().sort();
         return x.length === y.length && x.every((v, i) => v === y[i]);
     };
 
@@ -1068,6 +1077,11 @@
         saveTombMap('bank');
         saveTombMap('wrong');
     }
+    /** 落盘前重读墓碑：别的标签页刚登记/清掉的墓碑，本页缓存里可能还是旧的 */
+    function refreshTombstones() {
+        tombMem.bank = null;
+        tombMem.wrong = null;
+    }
     /** 从内存副本里删掉墓碑键，返回删除条数（flush 前调用，保证不再写回盘） */
     function dropTombstoned(cache, which) {
         const tombs = tombMap(which);
@@ -1126,7 +1140,11 @@
         const out = {};
         for (const [k, v] of Object.entries(raw || {})) {
             if (typeof v === 'string') out[k] = blankEntry({ q: k, t: inferType(v), l: v, src: 'legacy' });
-            else if (v && typeof v === 'object') out[k] = blankEntry({ ...v, q: v.q || k });
+            else if (v && typeof v === 'object') {
+                // 外部 JSON 可能把 a 写成字符串（如 "A;B"）：归一为数组，避免后续 e.a.join 抛
+                const a = Array.isArray(v.a) ? v.a : (typeof v.a === 'string' && v.a ? splitAns(v.a) : null);
+                out[k] = blankEntry({ ...v, a, q: v.q || k });
+            }
             // 自愈：答案内容里其实存的是字母或判断题的 1/0（属于旧式值），归位到 l 字段
             const e = out[k];
             if (e && !e.l && e.a && e.a.length === 1 && /^([A-Za-z]{1,8}|[01])$/.test(e.a[0])) {
@@ -1166,13 +1184,16 @@
         return wrongCache;
     }
 
-    /** 容量淘汰：低分（答对少/答错多）且久未使用的先删；用户手改的答案最后才淘汰 */
-    function enforceCapacity(b) {
+    /** 容量淘汰：低分（答对少/答错多）且久未使用的先删；用户手改的答案最后才淘汰
+     *  protect：本次导入新增/更新的键，淘汰时优先保留，避免「导入 500 条挤掉 500 条旧题」 */
+    function enforceCapacity(b, protect) {
         const keys = Object.keys(b);
         if (keys.length <= CONFIG.bankMaxEntries) return 0;
         const score = e => (e.ok || 0) * 3 + (e.hit || 0) - (e.bad || 0) * 2;
+        // 0=普通 → 1=本次导入 → 2=用户手改；用户答案永远最后淘汰
+        const rank = k => isUserEntry(b[k]) ? 2 : (protect && protect.has(k) ? 1 : 0);
         keys.sort((x, y) =>
-            (isUserEntry(b[x]) ? 1 : 0) - (isUserEntry(b[y]) ? 1 : 0)
+            rank(x) - rank(y)
             || score(b[x]) - score(b[y])
             || (b[x].us || 0) - (b[y].us || 0));
         const drop = keys.slice(0, keys.length - CONFIG.bankMaxEntries);
@@ -1336,7 +1357,7 @@
      * 以前是先淘汰再合并，刚淘汰的条目立刻被盘上副本搬回来，于是容量上限形同虚设，
      * 「答错删掉库里的错答案」也永远删不掉。
      */
-    let flushRetryTimer = null;
+    let flushRetryTimer = null, flushFailStreak = 0;
     function flushBank() {
         if (!dirty) return;
         // 抢写锁：别的标签页正在落盘时先让路，稍后自动重试（脏标记还在，数据不丢）
@@ -1346,6 +1367,7 @@
             return;
         }
         try {
+            refreshTombstones();   // 另一标签页刚写的墓碑要先读到，否则会把对方删掉的键又搬回来
             if (bankCache) {
                 const foreign = mergeFromStore('questionBank', bankCache, pendingDeletes, 'bank');
                 dropTombstoned(bankCache, 'bank');   // 别的标签页删掉的键：本页也别再写回去（B7）
@@ -1369,14 +1391,23 @@
                 if (fw) log(`🔄 已并入其它标签页写入的 ${fw} 条错题记录（多标签页保护）`);
             }
             dirty = false;
+            flushFailStreak = 0;
         } catch (e) {
-            log(`❌ 题库落盘失败：${(e && e.message) || e}`);   // 墓碑保留，下次重试继续压制旧键
-            notify(`题库写入失败：${(e && e.message) || e}`, 'error');
+            // 配额满/存储异常时不再每 2 秒刷屏：前两次完整提示，之后按指数退避并降频记录
+            flushFailStreak++;
+            const msg = `题库落盘失败：${(e && e.message) || e}`;
+            if (flushFailStreak <= 2) {
+                log(msg + '（将自动重试；若持续失败请在面板导出备份后清理存储）');
+                notify(`题库写入失败：${(e && e.message) || e}（会自动重试）`, 'error');
+            } else if (flushFailStreak % 5 === 0) {
+                log(`⚠ ${msg}（已重试 ${flushFailStreak} 次，仍在退避重试）`);
+            }
         } finally {
             releaseWriteLock();
-            // 写失败/中途又变脏：过一会儿再试一次，避免这次落盘丢了
+            // 写失败/中途又变脏：指数退避重试（2s → 4s → … 最长 30s），避免配额满时疯狂刷日志
             if (dirty && !flushRetryTimer) {
-                flushRetryTimer = setTimeout(() => { flushRetryTimer = null; flushBank(); }, 2000);
+                const delay = Math.min(30000, 2000 * Math.pow(2, Math.min(4, Math.max(0, flushFailStreak - 1))));
+                flushRetryTimer = setTimeout(() => { flushRetryTimer = null; flushBank(); }, delay);
             }
         }
     }
@@ -1780,7 +1811,7 @@
             });
             saved = 1;
         } else {
-            const oldDisp = (e.a && e.a.length ? e.a.join('；') : e.l) || '（空）';
+            const oldDisp = (Array.isArray(e.a) && e.a.length ? e.a.join('；') : (typeof e.a === 'string' && e.a ? e.a : e.l)) || '（空）';
             const sameA = sameTexts(e.a, texts);
             const wasUser = isUserEntry(e);
             if (e.l !== letters || !sameA) {
@@ -1898,6 +1929,7 @@
         const nk = fpKey(stem), lk = pureStem(stem).slice(0, 50);
         const prev = wb[nk] || wb[lk] || blankWrong();
         wb[nk] = {
+            ...prev,                                   // 保留 s/us 等扩展字段，别在迁移旧键时丢掉
             q: pureStem(stem) || prev.q,
             w: prev.w || [],
             tried: [...new Set([...(prev.tried || []), comboText])],
@@ -1915,6 +1947,7 @@
         const nk = fpKey(stem), lk = pureStem(stem).slice(0, 50);
         const prev = wb[nk] || wb[lk] || blankWrong();
         wb[nk] = {
+            ...prev,                                   // 保留 s/us 等扩展字段，别在迁移旧键时丢掉
             q: pureStem(stem) || prev.q,
             w: [...new Set([...(prev.w || []), ...texts])],
             tried: prev.tried || [],
@@ -1933,8 +1966,19 @@
     //   · 另给一份 JSON：字段完整，可无损往返
     //   · 编码自动识别（UTF-8 / UTF-16 / GBK / GB18030 / Big5）
 
-    /** RFC4180 单元格编码：一律加引号，内部引号翻倍，换行保留 */
-    const csvCell = v => `"${String(v === null || v === undefined ? '' : v).replace(/"/g, '""')}"`;
+    /** RFC4180 单元格编码：一律加引号，内部引号翻倍，换行保留
+     *  以 = + - @ 开头的值再加一个前导 '：Excel/WPS 会把裸值当公式执行（CSV 注入）。
+     *  导入时 csvRead 会剥掉这个 '，保证自导自入不串数据。 */
+    const csvCell = v => {
+        let s = String(v === null || v === undefined ? '' : v);
+        if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+        return `"${s.replace(/"/g, '""')}"`;
+    };
+    /** 读回 CSV：只剥掉「防注入前导 '」，正常文本保持原样 */
+    const csvRead = v => {
+        const s = String(v === null || v === undefined ? '' : v);
+        return /^'[=+\-@\t\r]/.test(s) ? s.slice(1) : s;
+    };
 
     /** 通用分隔符解析：引号内的分隔符与换行不当分隔 */
     function parseDelimited(text, delim) {
@@ -2015,6 +2059,9 @@
         }
         if (/多选|多项选择|不定项/.test(q)) return 'multi';
         if (/判断|对错|是否正确|是非/.test(q)) return 'judge';
+        // 答案本身就是「正确/错误/对/错/是/否/√/×」时按判断题处理（旧实现只认 0/1 和字母，
+        // 这类答案会被判成单选，随后按选项文字去匹配「正确」所在的行，题型和字母口径都会乱）
+        if (/^(正确|错误|对|错|是|否|√|×|✓|✗)$/.test(String(ans || '').trim())) return 'judge';
         if (/^[01]$/.test(ans)) return 'judge';
         if (/^[A-Za-z]{1,8}$/.test(ans)) return ans.length > 1 ? 'multi' : 'single';
         return String(ans).split(/\s*[;；]\s*/).filter(Boolean).length > 1 ? 'multi' : 'single';
@@ -2078,6 +2125,7 @@
         if (!parts.length) return 0;
         const prev = wb[key] || blankWrong();
         wb[key] = {
+            ...prev,                                    // 保留 s/us 等扩展字段
             q: q || prev.q,
             w: [...new Set([...(prev.w || []), ...parts.filter(x => !x.includes('+'))])],
             tried: [...new Set([...(prev.tried || []), ...parts.filter(x => x.includes('+'))])],
@@ -2110,15 +2158,22 @@
             if (n >= 6) map.src = 5;                     // 第 6 列是「来源」（导出会多这一列）
         }
         dbg(`分隔符「${delim === '\t' ? 'Tab' : delim}」· 共 ${rows.length} 行 · 列映射 ${JSON.stringify(map)}`);
+        if (rows.length <= start) {
+            return { added: 0, dup: 0, updated: 0, conflict: 0, bad: 0, wrongOnly: 0, errors, userCount: 0, evicted: 0, total: Object.keys(b).length };
+        }
+        // 只有确实解析出数据行后才清墓碑：坏文件/空文件不能把用户「删过」的记录放回来
+        resetTombstones();
 
+        const protect = new Set();
         for (let i = start; i < rows.length; i++) {
             const r = rows[i] || [];
             if (!r.length || r.every(x => !x)) continue;
             const line = i + 1;
-            const q = cleanStem(map.q >= 0 ? r[map.q] : '');
-            const ans = String(map.a >= 0 ? (r[map.a] || '') : '').trim();
-            const wr = map.w >= 0 ? String(r[map.w] || '').trim() : '';
-            const rawSrc = map.src >= 0 ? String(r[map.src] || '').trim() : '';
+            try {
+            const q = cleanStem(csvRead(map.q >= 0 ? r[map.q] : ''));
+            const ans = csvRead(map.a >= 0 ? (r[map.a] || '') : '').trim();
+            const wr = map.w >= 0 ? csvRead(r[map.w] || '').trim() : '';
+            const rawSrc = map.src >= 0 ? csvRead(r[map.src] || '').trim() : '';
             const byUser = /用户|手动|user/i.test(rawSrc);   // 「来源」列标明这条是用户手改的答案
             const chk = validateRow(q, ans, wr);
             if (!chk.ok) { bad++; addErr(line, chk.why, q || r.join(' ')); continue; }
@@ -2139,7 +2194,7 @@
             const exist = findEquivalent(q);
             if (exist) {                                 // 已存在：按合并策略处理
                 const e = b[exist];
-                const oldDisp = (e.a && e.a.length ? e.a.join('/') : e.l) || '（空）';
+                const oldDisp = (Array.isArray(e.a) && e.a.length ? e.a.join('/') : (typeof e.a === 'string' && e.a ? e.a : e.l)) || '（空）';
                 if (normStem(q).length > normStem(e.q || '').length) e.q = q;
                 const hasOld = (e.a && e.a.length) || e.l;
                 const same = incA ? sameTexts(e.a, incA) : String(incL) === String(e.l || '');
@@ -2162,6 +2217,7 @@
                     conflict++;                          // 保留库内那份（来自真实答题结果，可信度更高）
                     addErr(0, `答案与库内不一致（库内 ${oldDisp} ↔ 导入 ${ans}），已保留库内答案`, q);
                 }
+                protect.add(exist);
                 mergeWrong(wb, exist, q, wr);
                 continue;
             }
@@ -2170,10 +2226,18 @@
             if (byUser) userCount++;
             mergeWrong(wb, k, q, wr);
             added++;
+            protect.add(k);
+            } catch (e) {
+                // 单行坏数据（如字段类型异常）只跳过该行：旧实现会让异常冒到调用方，
+                // 前面已改写的条目不再落盘，用户看到「导入失败」但库里已是半套数据（P1）
+                bad++;
+                addErr(line, `该行处理失败：${e.message}`, r.join(' '));
+            }
         }
+        const evicted = enforceCapacity(b, protect);
         dirty = true; bankVer++;
         flushBank();
-        return { added, dup, updated, conflict, bad, wrongOnly, errors, userCount, total: Object.keys(b).length };
+        return { added, dup, updated, conflict, bad, wrongOnly, errors, userCount, evicted, total: Object.keys(b).length };
     }
 
     function exportCsv() {
@@ -2185,11 +2249,12 @@
         for (const [k, e] of Object.entries(b)) {
             i++;
             // 正确答案优先导出「选项内容」，没有内容（旧数据/纯字母导入）才导出字母
-            const ans = (e.a && e.a.length ? e.a.join('; ') : (e.l || ''));
+            const ans = (Array.isArray(e.a) && e.a.length ? e.a.join('; ')
+                : (typeof e.a === 'string' && e.a ? e.a : (e.l || '')));
             const errCell = [...(wb[k]?.w || []), ...(wb[k]?.tried || [])].join('; ');
             if (isUserEntry(e)) userCount++;
             // 选项内容里自带 ; 或 + 时，CSV 往返会被拆成两项（JSON 备份不受影响）
-            if (e.a && e.a.some(t => /[;+；]/.test(t))) riskySep++;
+            if (Array.isArray(e.a) && e.a.some(t => /[;+；]/.test(t))) riskySep++;
             lines.push([i, csvCell(typeName[e.t] || '单选'), csvCell(e.q || ''), csvCell(ans), csvCell(errCell),
                 csvCell(isUserEntry(e) ? '用户' : '脚本')].join(','));
         }
@@ -2265,14 +2330,23 @@
         const parsed = parseBankPayload(obj);
         const srcBank = parsed.bank, srcWrong = parsed.wrong;
         let added = 0, dup = 0, updated = 0, conflict = 0, bad = 0, wrongOnly = 0, userCount = 0;
+        const nSrc = Object.keys(srcBank || {}).length + Object.keys(srcWrong || {}).length;
+        if (!nSrc) {
+            return { added: 0, dup: 0, updated: 0, conflict: 0, bad: 0, wrongOnly: 0, errors, userCount: 0, evicted: 0, total: Object.keys(b).length };
+        }
+        // 解析成功且有数据才清墓碑：坏 JSON / 空备份不能把用户删过的记录放回来
+        resetTombstones();
+        const protect = new Set();
 
         for (const [k, v] of Object.entries(srcBank || {})) {
             if (v === null || v === undefined) continue;
             const plain = typeof v !== 'object';                      // 字典形态：值是答案
+            try {
             // 兼容外部 JSON 常见的中文字段名
             const q = cleanStem(plain ? k : (v.q || v.题干 || v.题目 || v.问题 || ''));
             const rawA = plain ? v
-                : (v.a && v.a.length ? v.a.join('; ') : (v.l || v.答案 || v.正确答案 || ''));
+                : (Array.isArray(v.a) && v.a.length ? v.a.join('; ')
+                    : (typeof v.a === 'string' && v.a ? v.a : (v.l || v.答案 || v.正确答案 || '')));
             const ans = String(rawA || '').trim();
             const byUser = !plain && (v.by === 'user' || v.src === 'user' || /用户|手动/i.test(String(v.来源 || '')));
             const chk = validateRow(q, ans, '');
@@ -2281,10 +2355,10 @@
             const exist = b[k] && b[k].q ? k : findEquivalent(q);
             if (exist) {
                 const e = b[exist];
-                const hasOld = (e.a && e.a.length) || e.l;
+                const hasOld = (Array.isArray(e.a) && e.a.length) || e.l;
                 const incA = /^[A-Za-z]{1,8}$/.test(ans) || /^[01]$/.test(ans) ? null : splitAns(ans);
                 const incL = incA ? '' : ans.toUpperCase();
-                const oldDisp = (e.a && e.a.length ? e.a.join('/') : e.l) || '（空）';
+                const oldDisp = (Array.isArray(e.a) && e.a.length ? e.a.join('/') : (typeof e.a === 'string' && e.a ? e.a : e.l)) || '（空）';
                 const same = incA ? sameTexts(e.a, incA) : String(incL) === String(e.l || '');
                 if (normStem(q).length > normStem(e.q || '').length) e.q = q;
                 if (byUser && !isUserEntry(e)) {          // 导入的是用户答案 → 优先采用
@@ -2302,13 +2376,15 @@
                     conflict++;
                     addErr(0, `答案与库内不一致（库内 ${oldDisp} ↔ 导入 ${ans}），已保留库内答案`, q);
                 }
+                protect.add(exist);
                 continue;
             }
             const isLett = /^[A-Za-z]{1,8}$/.test(ans);
             const isJudge = /^[01]$/.test(ans);
             if (byUser) userCount++;
             // 完整还原条目字段（以前丢 s/us/bad，答案里有内容时连 l 也丢）
-            b[fpKey(q)] = plain
+            const nk = fpKey(q);
+            b[nk] = plain
                 ? blankEntry({
                     q, t: resolveType('', ans, q),
                     a: isLett || isJudge ? null : splitAns(ans),
@@ -2323,6 +2399,11 @@
                     src: v.src || 'import',
                 });
             added++;
+            protect.add(nk);
+            } catch (e) {
+                bad++;
+                addErr(`该条处理失败：${e.message}`, k);
+            }
         }
         for (const [k, v] of Object.entries(srcWrong || {})) {
             if (!v) continue;
@@ -2332,16 +2413,27 @@
             const n = mergeWrong(wb, key, wq, [...(v.w || []), ...(v.tried || [])].join('; '));
             if (n) wrongOnly++;
         }
+        const evicted = enforceCapacity(b, protect);
         dirty = true; bankVer++;
         flushBank();
-        return { added, dup, updated, conflict, bad, wrongOnly, errors, userCount, total: Object.keys(b).length };
+        return { added, dup, updated, conflict, bad, wrongOnly, errors, userCount, evicted, total: Object.keys(b).length };
     }
 
     /** 导入入口：按内容自动判别 CSV / JSON */
     function importData(text) {
         const t = String(text || '').replace(/^\ufeff/, '').trim();
-        resetTombstones();   // 用户主动导入=明确要求这些条目进库：清掉本地遗留墓碑（B7），跨电脑合并语义不变
+        // 超大文件直接拒绝：parseDelimited 是 O(n) 逐字符扫描，几十 MB 的「备份」会把页面卡死
+        const maxImportChars = 5 * 1024 * 1024;
+        if (t.length > maxImportChars) {
+            let total = 0;
+            try { total = Object.keys(ensureBank()).length; } catch (e) { total = 0; }
+            return {
+                added: 0, updated: 0, dup: 0, conflict: 0, bad: 0, wrongOnly: 0, userCount: 0, total,
+                errors: [{ line: 0, why: `文件超过 ${maxImportChars / 1024 / 1024} MB，已拒绝导入（防止页面卡死）`, text: '' }],
+            };
+        }
         clearAnswerCache();  // 导入会改题库：清掉会话答案缓存，避免同一场继续命中导入前的旧答案（v2.0.9）
+        // 墓碑改在 importJson/importCsv 确认解析成功后清：以前坏文件也会清，导致已删记录 7 天后复活
         if (t.startsWith('{') || t.startsWith('[')) {
             // 数组形态以前被换成空 bank 静默丢弃，现在原样交给 importJson
             return importJson(t);
@@ -2353,6 +2445,7 @@
     function reportImport(r) {
         log(`✅ 导入完成：新增 ${r.added} 题${r.updated ? `，补齐答案 ${r.updated} 题` : ''}，重复归并 ${r.dup} 题${r.wrongOnly ? `，错误记录 ${r.wrongOnly} 条` : ''}${r.userCount ? `，其中用户手改答案 ${r.userCount} 题` : ''}`);
         if (r.conflict) log(`⚠️ ${r.conflict} 题答案与库内不一致，已保留库内答案`);
+        if (r.evicted) log(`⚠️ 题库容量已满，淘汰 ${r.evicted} 条低优先级旧题（优先保留本次导入与用户手改答案）`);
         if (r.bad) log(`❌ ${r.bad} 行无法导入`);
         (r.errors || []).slice(0, 5).forEach(e => log(`　${e.line ? `第${e.line}行` : '条目'}：${e.why}${e.text ? `（${e.text}…）` : ''}`));
         if ((r.errors || []).length > 5) log(`　…另有 ${r.errors.length - 5} 条同类问题未列出`);
@@ -2503,6 +2596,15 @@
             const l = shape(frag);
             return l ? { letters: l, conf, why } : null;
         };
+        // 提示词分支专用：非多选出现多个字母时宁可不答，也不能让 shape() 排序后取首字母。
+        // 否则「正确答案：B，A项错误」会被抽成 A（P1）。
+        const shapeKeyed = frag => {
+            const up = [...new Set(String(frag).toUpperCase().replace(/[^A-Z]/g, '').split(''))]
+                .filter(l => letters.includes(l)).sort().join('');
+            if (!up) return null;
+            if (type !== 'multi' && up.length > 1) return null;
+            return up;
+        };
 
         // 1) 判断题：先看有没有明确的答案字母，再按对/错语义判定
         let judgeEchoOnly = false;
@@ -2555,8 +2657,15 @@
         const KEYED = /(?:正确答案|参考答案|标准答案|正确选项|本题答案|答案|应选|选择|选项|判断|结论|选)[是为:：\]】）)］\s]*([A-Za-z](?:[\s,，、/和及与]*[A-Za-z])*)/;
         const keyed = s.match(KEYED);
         if (keyed) {
-            const r = hit(keyed[1], 0.9, '提示词+字母');
-            if (r) return r;
+            // 「正确答案：B，A项错误」的捕获串是「B，A」；末尾字母紧跟 项/个/条/题 时
+            // 它是干扰项描述（A项），不是答案，丢掉后再收敛。
+            let frag = keyed[1];
+            const tail = s.slice(keyed.index + keyed[0].length).replace(/^\s+/, '');
+            if (/^[项个条题]/.test(tail)) {
+                frag = frag.replace(/[A-Za-z](?=[^A-Za-z]*$)/, '');
+            }
+            const kl = shapeKeyed(frag);
+            if (kl) return { letters: kl, conf: 0.9, why: '提示词+字母' };
         }
 
         // 4) 括号形式：（C）【AB】[D]
@@ -2845,24 +2954,61 @@
             try {
                 const t0 = Date.now();
                 last = await new Promise(resolve => {
-                    GM_xmlhttpRequest({
-                        method: o.method || 'GET',
-                        url: o.url,
-                        headers: o.headers,
-                        data: o.data,
-                        timeout,
-                        // R7：大页面在进内存前就按字节上限截断，避免广告页/导航页把整段正文留在内存里
-                        onload: x => resolve({ ok: x.status >= 200 && x.status < 300, status: x.status, text: truncateResponseText(x.responseText || '', responseMaxBytes(o)), err: '' }),
-                        onerror: () => resolve({ ok: false, status: 0, text: '', err: 'network' }),
-                        ontimeout: () => resolve({ ok: false, status: 0, text: '', err: 'timeout' }),
-                    });
+                    let settled = false, handle = null, offAbort = null;
+                    const done = r => {
+                        if (settled) return;
+                        settled = true;
+                        if (offAbort) { try { offAbort(); } catch (e) { /* 移除监听失败不影响结果 */ } }
+                        resolve(r);
+                    };
+                    try {
+                        handle = GM_xmlhttpRequest({
+                            method: o.method || 'GET',
+                            url: o.url,
+                            headers: o.headers,
+                            data: o.data,
+                            timeout,
+                            // R7：大页面在进内存前就按字节上限截断，避免广告页/导航页把整段正文留在内存里
+                            onload: x => {
+                                // 429/503 允许服务端用 Retry-After 指定等待时间，别用固定退避硬撞
+                                let retryAfterMs = 0;
+                                const m = /retry-after:\s*(\d+)/i.exec(String(x.responseHeaders || ''));
+                                if (m) retryAfterMs = Math.min(30000, (+m[1] || 0) * 1000);
+                                done({ ok: x.status >= 200 && x.status < 300, status: x.status, text: truncateResponseText(x.responseText || '', responseMaxBytes(o)), err: '', retryAfterMs });
+                            },
+                            onerror: () => done({ ok: false, status: 0, text: '', err: 'network' }),
+                            ontimeout: () => done({ ok: false, status: 0, text: '', err: 'timeout' }),
+                            onabort: () => done({ ok: false, status: 0, text: '', err: 'aborted' }),
+                        });
+                    } catch (e) {
+                        done({ ok: false, status: 0, text: '', err: 'network' });
+                    }
+                    // 用户点「停止」时可以中止在途请求（o.signal 由调用方传入，没传则行为不变）
+                    if (o.signal && o.signal.addEventListener) {
+                        if (o.signal.aborted) {
+                            try { handle && handle.abort(); } catch (e) { /* 已结束 */ }
+                            done({ ok: false, status: 0, text: '', err: 'aborted' });
+                        } else {
+                            const onAbort = () => {
+                                try { handle && handle.abort(); } catch (e) { /* 已结束 */ }
+                                done({ ok: false, status: 0, text: '', err: 'aborted' });
+                            };
+                            o.signal.addEventListener('abort', onAbort, { once: true });
+                            offAbort = () => o.signal.removeEventListener('abort', onAbort);
+                        }
+                    }
                 });
                 noteReqStat(o.desc, last, Date.now() - t0);   // R11：按来源累计次数/成功/失败/超时/耗时
             } finally { releaseReq(); }
             if (last.ok) return last;
-            const worthRetry = last.err === 'timeout' || last.err === 'network' || last.status >= 500;
+            if (last.err === 'aborted') return last;          // 用户主动停止：不再重试
+            const worthRetry = last.err === 'timeout' || last.err === 'network' || last.status >= 500
+                || (last.status === 429 && !!last.retryAfterMs);   // 429 只在服务端给了 Retry-After 时重试
             if (!worthRetry || i === maxRetry) return last;
-            await sleep(CONFIG.retryBaseMs * Math.pow(2, i));
+            // 指数退避 + 0~200ms 抖动，避免多标签/多来源在同一毫秒重试撞限流
+            const wait = Math.max(last.retryAfterMs || 0, CONFIG.retryBaseMs * Math.pow(2, i))
+                + Math.floor(Math.random() * 200);
+            await sleep(Math.min(wait, 15000));
         }
         return last;
     }
@@ -3110,7 +3256,7 @@
             if (!/class="result|result c-container|c-container/.test(r.text)) {
                 note = '百度未返回搜索结果（可能被跳转或需登录）';
             }
-            text += stripQueryEcho(stripHtml(r.text), queries);
+            text += '\n' + stripQueryEcho(stripHtml(r.text), queries);
             // 跟进前 N 条结果页正文，避免只看标题摘要。
             // 跟进页指向的是站外页面，混着广告/导航页：正文不是这道题就跳过（A5）。
             const links = [...r.text.matchAll(/href="(https?:\/\/(?:www\.)?baidu\.com\/link\?url=[^"]+)"/g)]
@@ -3118,12 +3264,12 @@
                 .slice(0, CONFIG.baiduFollowLinks);
             for (const u of links) {
                 // 跟进页只是补充：不重试，避免一页拖垮整题预算（A6）
-                const pr = await request({ url: u, headers: { 'User-Agent': UA }, desc: '结果页', maxRetry: 0, deadline: ctx.deadline });
+                const pr = await request({ url: u, headers: { 'User-Agent': UA }, desc: '结果页', maxRetry: 0, deadline: ctx.deadline, signal: ctx.signal });
                 if (pr.budgetSpent) { budgetSpent = true; break; }
                 if (!pr.ok || !pr.text) continue;
                 const pageText = stripHtml(pr.text);
                 if (!followPageRelevant(pageText, stem)) { dbg('跳过与本题无关的跟进页（广告/导航）'); continue; }
-                text += stripQueryEcho(pageText, queries);
+                text += '\n' + stripQueryEcho(pageText, queries);   // 两段正文之间留换行，避免边界粘连成假答案
             }
             if (budgetSpent) break;
             if (text.trim().length >= CONFIG.baiduMinChars) break;
@@ -3387,6 +3533,7 @@
     let autoClicking = 0;
     function autoClick(el) {
         autoClicking++;
+        noteSiteOp();          // 真实点击都算一次页面写操作：多选一题点多次时限速才有意义
         try { el.click(); } finally { autoClicking--; }
     }
 
@@ -3829,10 +3976,11 @@
     async function answerCurrent() {
         const stem = getStem();
         if (!stem) { log('未找到题干'); return { ok: false, reason: 'no-stem' }; }
-        const opts = getOptions();
+        let opts = getOptions();
         if (!opts.length) { log('未找到选项'); return { ok: false, reason: 'no-options' }; }
 
         const qNum = getQNum(), type = getType();
+        const sigBefore = questionSignature();
         log(`📝 第${qNum || '?'}题（${type === 'multi' ? '多选' : type === 'judge' ? '判断' : '单选'}）：${stem.slice(0, 30)}...`);
         updateStatus(`答题中：第 ${qNum || '?'} 题`);
 
@@ -3903,6 +4051,23 @@
             } else {
                 log('⚠️ 各来源均未给出可用答案，转排除/随机兜底');
             }
+        }
+
+        // 联网等待（AI/百度可能十几秒）后页面可能已翻题或重渲染：旧实现继续用旧 opts 点选，
+        // 会把上一题的答案点到新题上并写错记录。这里复核签名与选项节点（P1）。
+        if (questionSignature() !== sigBefore) {
+            log('⚠️ 等待答案期间题目已切换，本题放弃记录');
+            return { ok: false, reason: 'stale-question' };
+        }
+        if (!opts.every(o => o.input && o.input.isConnected)) {
+            const fresh = getOptions();
+            const same = fresh.length === opts.length
+                && fresh.map(o => o.text).join('\u0001') === opts.map(o => o.text).join('\u0001');
+            if (!same) {
+                log('⚠️ 等待答案期间选项已重渲染，本题放弃记录');
+                return { ok: false, reason: 'stale-question' };
+            }
+            opts = fresh;
         }
 
         // 作答决策：候选 → 排除法 → 多选组合序列
@@ -3998,10 +4163,18 @@
     const isGreenish = c => !!c && c[1] > c[0] + CONFIG.greenDelta && c[1] > c[2] + CONFIG.greenDelta && c[1] > 80;
     const isReddish = c => !!c && c[0] > c[1] + CONFIG.greenDelta && c[0] > c[2] + CONFIG.greenDelta && c[0] > 80;
     const isGrayish = c => !!c && Math.max(...c) - Math.min(...c) < 24;
+    const STATE_CLASS_RE = /unans|notanswer|weida|blank|no-answer|correct|wrong|right|error|incorrect|success|green|red|cuo|fail|dui|pass|ok-answer/i;
     const classOf = el => {
         const c = el && el.className;
         const s = c && c.baseVal !== undefined ? c.baseVal : c;    // SVG 的 className 是对象
-        return `${s || ''} ${(el && el.parentElement && el.parentElement.className) || ''}`;
+        let parent = '';
+        if (el && el.parentElement) {
+            const pc = el.parentElement.className;
+            const ps = pc && pc.baseVal !== undefined ? pc.baseVal : pc;
+            // 父容器只取「状态类」，避免 layout / 主题类污染整片格子
+            if (ps && STATE_CLASS_RE.test(String(ps))) parent = String(ps);
+        }
+        return `${s || ''} ${parent}`;
     };
 
     /** 取计算样式：同源 iframe 里的元素要用它自己文档的 window，顶层 window 取不到 */
@@ -4162,16 +4335,18 @@
     function cellVerdict(el, legend) {
         const cls = classOf(el);
         if (/unans|notanswer|weida|blank|no-answer/i.test(cls)) return 'unanswered';
-        if (/correct|right|success|green|dui|pass|ok-answer/i.test(cls)) return 'correct';
+        // 必须先判 wrong：旧实现先判 correct，而 /correct/i 会命中 "incorrect"，
+        // 导致答错的格子被当成答对写进题库（P1）。
         if (/wrong|error|err\b|red|cuo|fail|incorrect/i.test(cls)) return 'wrong';
+        if (/correct|right|success|green|dui|pass|ok-answer/i.test(cls)) return 'correct';
 
-        // 图标 / 文字标记
+        // 图标 / 文字标记（同样先判错误：「不正确」包含「正确」子串）
         const marks = [
             elText(el),
             ...[...el.querySelectorAll('i, em, b, span, svg, img')].map(x => `${elText(x)} ${classOf(x)}`),
         ].join(' ');
+        if (/[×✕✗]|答错|错误|不正确/.test(marks)) return 'wrong';
         if (/[✓✔√]|答对|正确/.test(marks)) return 'correct';
-        if (/[×✕✗]|答错|错误/.test(marks)) return 'wrong';
 
         const st = csOf(el);
         if (!st) return null;
@@ -4187,7 +4362,8 @@
             if (fgHit) return fgHit;
         }
         if (isGreenish(bg) || isGreenish(fg)) return 'correct';
-        if (isReddish(bg)) return 'wrong';
+        // 红字白底也要判错；旧实现只看背景红，漏掉红字皮肤
+        if (isReddish(bg) || isReddish(fg)) return 'wrong';
         if (isGrayish(bg)) return 'unanswered';
         return null;
     }
@@ -4291,6 +4467,19 @@
         return { roots, body: light.body, score: light.score, hasCard: light.hasCard, legend, verdicts };
     }
 
+    /**
+     * 答题卡上是否有「真正的判分结果」。
+     * 旧实现只数格子数量（≥3 个判定），而考试页未作答的灰/白格子会被 cellVerdict 判成
+     * unanswered，于是「正文含答题卡 + 3 个未答格」就能把进行中的考试页误判成成绩页，
+     * 进而 markPendingSubmitted、清掉 pendingSession、甚至尝试 window.close（P0）。
+     * 现在必须至少有一个 correct/wrong，且未答格不能单独凑数。
+     */
+    function hasResultMark(verdicts) {
+        const vals = Object.values(verdicts || {});
+        if (vals.length < 3) return false;
+        return vals.some(v => v === 'correct' || v === 'wrong');
+    }
+
     /** 用快照判断是不是结果页（判断口径与旧版一致，只是不再重复扫描） */
     function isResultPageFrom(body, score, verdicts) {
         const hasCard = /答题卡/.test(body);
@@ -4299,16 +4488,17 @@
         // 光有分数不够：考试列表页每门课都显示「考试成绩：100分」，
         // 旧实现会把它当成成绩页，空转十几次解析后提示「确认停在结果页」——用户以为解析坏了。
         if (score && score.score !== null && (hasCard || /未答|答错|答对/.test(body))) return true;
-        // 答题卡上真的能读出对错（≥3 个题号有判定）
-        return hasCard && Object.keys(verdicts || {}).length >= 3;
+        // 答题卡上必须真的能读出对错，不能只靠未答灰格凑数
+        return hasCard && hasResultMark(verdicts);
     }
 
     /** 这个页面像不像考试结果页（先做便宜判断，必要时才扫答题卡） */
     function isResultPage() {
         const light = resultPageInfo();
         if (lightLooksLikeResult(light)) return true;
-        // 答题卡上真的能读出对错（≥3 个题号有判定）
-        return light.hasCard && Object.keys(collectResult(light.roots)).length >= 3;
+        // 答题卡上必须至少有一个正确/错误判定，且总计 ≥3 格
+        if (!light.hasCard) return false;
+        return hasResultMark(collectResult(light.roots));
     }
 
     /**
@@ -4758,9 +4948,17 @@
      * 时间紧就自动提速，时间到就停下，中途定期提醒。
      * 返回 true 表示本轮该跳过（已经停下）。
      */
+    let remainMissingLogged = false;
     function checkTime() {
         const left = getRemainSec();
-        if (left === null) return false;
+        if (left === null) {
+            // 定时器选择器改版后读不到剩余时间：不能静默当「时间充足」，至少提示一次
+            if (running && !remainMissingLogged) {
+                remainMissingLogged = true;
+                log('ℹ️ 未读取到剩余时间（平台改版或计时器在 iframe 外），本场不启用时间提醒/自动提速；答题流程不受影响');
+            }
+            return false;
+        }
         remainSec = left;
         if (left <= 0 && !timeUp) {
             timeUp = true;
@@ -5172,6 +5370,11 @@
         t('「正确答案：B」判为 B（旧实现判成 A）', () => extractAnswer('正确答案：B', CASE_JUDGE_OPTS, 'judge')?.letters === 'B');
         t('「答案是B」判为 B（旧实现判成 A）', () => extractAnswer('答案是B', CASE_JUDGE_OPTS, 'judge')?.letters === 'B');
         t('「该说法错误，正确答案是B」判为 B', () => extractAnswer('该说法错误，正确答案是B', CASE_JUDGE_OPTS, 'judge')?.letters === 'B');
+        // 曾经把解析里的「A项错误」也当答案字母：「正确答案：B，A项错误」会抽成 A（P1）
+        t('提示词后的解析「正确答案：B，A项错误」只取 B，不把「A项」当答案', () =>
+            extractAnswer('正确答案：B，A项错误', CASE_SINGLE_OPTS, 'single')?.letters === 'B');
+        t('提示词后的解析「答案：B，C项说法错误」只取 B', () =>
+            extractAnswer('答案：B，C项说法错误', CASE_SINGLE_OPTS, 'single')?.letters === 'B');
         t('「该说法正确」判为 A', () => extractAnswer('该说法正确', CASE_JUDGE_OPTS, 'judge')?.letters === 'A');
         t('「该说法错误」判为 B', () => extractAnswer('该说法错误', CASE_JUDGE_OPTS, 'judge')?.letters === 'B');
         t('「是/否」型判断题：答案是「是」→ A', () => extractAnswer('是', CASE_YN_OPTS, 'judge')?.letters === 'A');
@@ -5283,6 +5486,14 @@
             return rows.length === 1 && rows[0][0] === 'line1\nline2';
         });
         t('csvCell 内部引号翻倍', () => csvCell('a"b') === '"a""b"');
+        t('csvCell 对 =/+/-/@ 开头的值加前导 \'，csvRead 剥回（CSV 公式注入防护）', () => {
+            const bad = ['=1+1', '+SUM(A1)', '-2', '@cmd', '\tX', '\rY'];
+            return bad.every(v => {
+                const cell = csvCell(v);                 // 外层引号内是「前导 ' + 原值」
+                return cell.startsWith('"\'') && csvRead(cell.slice(1, -1)) === v;
+            })
+                && csvCell('正常文本') === '"正常文本"' && csvRead('正常文本') === '正常文本';
+        });
         t('分隔符嗅探忽略引号内的分号（自产 CSV 不再被判成分号文件）', () => {
             const csv = '序号,题型,题目,正确答案,错误选项,来源\r\n'
                 + '1,多选,"题目一","A; B; C","错一; 错二; 错三","脚本"\r\n'
@@ -5342,6 +5553,10 @@
         t('题型判定：判断 / 多选 / 单选', () => resolveType('', '1', '下列说法') === 'judge'
             && resolveType('多选题', 'ABC', 'x') === 'multi'
             && resolveType('', 'A', 'x') === 'single');
+        t('题型判定：答案写「正确/错误/对/错/是/否」时按判断题处理（旧实现判成单选）', () => {
+            const words = ['正确', '错误', '对', '错', '是', '否', '√', '×'];
+            return words.every(w => resolveType('', w, '这是一道题') === 'judge');
+        });
 
         // ---------- 题干题量统计写法兼容 ----------
         t('认得出「单选题（共20题）」', () => {
@@ -5451,6 +5666,14 @@
         t('lightLooksLikeResult：「您的分数」/答题结果算成绩页', () =>
             lightLooksLikeResult({ body: '您的分数为 100 分', score: { score: 100, total: 100 }, hasCard: false }) === true
             && lightLooksLikeResult({ body: '答题结果', score: { score: null, total: null }, hasCard: true }) === true);
+        // P0：考试页的答题卡也有 ≥3 个灰格，旧判定把「未答」凑成成绩页并 8 秒后关页
+        t('成绩页判定：3 格全是「未答」不算成绩页（P0）', () =>
+            hasResultMark({ 1: 'unanswered', 2: 'unanswered', 3: 'unanswered' }) === false);
+        t('成绩页判定：≥3 格且至少有 1 个对/错才算成绩页（P0）', () =>
+            hasResultMark({ 1: 'unanswered', 2: 'correct', 3: 'unanswered' }) === true
+            && hasResultMark({ 1: 'wrong', 2: 'wrong', 3: 'wrong' }) === true);
+        t('成绩页判定：不足 3 格时即使有正确也不算（P0）', () =>
+            hasResultMark({ 1: 'correct', 2: 'wrong' }) === false && hasResultMark(null) === false);
 
         t('lockIsStale：无锁/自己的锁可抢，别人的新锁要等，过期锁可抢', () =>
             lockIsStale(null, 1000, 3000, 'me') === true
@@ -5728,6 +5951,15 @@
             requestTimeout(8000, 1000, 1000) === 0
             && requestTimeout(8000, 500, 1000) === 0
             && CONFIG.queryBudgetMs === 20000);
+        t('请求统计：成功/失败/超时与耗时按来源累计（R11）', () => {
+            noteReqStat('__selftest__', { ok: true, status: 200 }, 100);
+            noteReqStat('__selftest__', { ok: false, status: 500 }, 50);
+            noteReqStat('__selftest__', { ok: false, err: 'timeout' }, 30);
+            const st = reqStatsSnapshot()['__selftest__'];
+            delete reqStats['__selftest__'];          // 自检不污染诊断包里的真实请求统计
+            return !!st && st.n === 3 && st.ok === 1 && st.fail === 2
+                && st.timeout === 1 && st.totalMs === 180 && st.avgMs === 60;
+        });
         t('单题网络预算：预算小于两源最坏耗时（否则起不到收敛作用）（A6）', () => {
             const worst = CONFIG.baiduTimeout * (CONFIG.maxRetry + 1) * 2   // 百度 2 入口×重试
                 + CONFIG.baiduTimeout * 2                                    // 跟进页（maxRetry 0）
@@ -6044,6 +6276,18 @@
             const d = buildDiagnostics({ logs }, 1710000000000);
             return d.logs.length === 300 && d.logs[0] === 'L5' && d.logs[299] === 'L304';
         });
+        // 诊断包会被贴到公开 issue：keySalt 等于解码器，日志里的 Key/令牌和 URL 查询串都不该出库
+        t('诊断包：不含 keySalt、URL 去查询串、日志中的 Key/令牌脱敏（R11 隐私）', () => {
+            const d = buildDiagnostics({
+                url: 'https://gs.faxuanyun.com/exam?token=secret123',
+                logs: ['配置 key sk-abcdefgh12345678', 'Header: Bearer abcdefghijklmnop'],
+            }, 1710000000000);
+            const s = JSON.stringify(d);
+            return !('keySalt' in d.config)
+                && d.url === 'https://gs.faxuanyun.com/exam'
+                && d.logs[0].includes('sk-***') && d.logs[1].includes('Bearer ***')
+                && !s.includes('sk-abcdefgh') && !s.includes('secret123');
+        });
 
         // R12
         t('脏数据：e.a 为非数组字符串/undefined/null 时判定不抛错（R12）', () => {
@@ -6183,6 +6427,9 @@
     const STORAGE_KEYS = [
         'questionBank', 'wrongBank', 'pendingSession', 'fx_bank_tombs', 'fx_wrong_tombs',
         'fx_disputes', 'aiKey', 'bankSchema', 'lastReconcileKey',
+        // 设置类小键也算进占用：面板位置/折叠状态、AI 地址与模型等长期驻留的配置
+        'aiUrl', 'aiModel', 'aiKeySessionOnly', 'answerMode', 'speed', 'autoSubmit', 'autoCloseSec',
+        'debug', 'forceCrossCheck', 'complianceAck', 'panelPos', 'panelState', 'panelGroups',
     ];
 
     /**
@@ -6275,26 +6522,33 @@
         const i = input || {};
         const cfg = {};
         for (const [k, v] of Object.entries(CONFIG)) {
-            if (typeof v === 'function') continue;
+            if (typeof v === 'function' || k === 'keySalt') continue;   // 混淆盐不进诊断包，否则等于公开解码器
             cfg[k] = v;
         }
         const sel = {};
         for (const [k, v] of Object.entries(i.sel || {})) sel[k] = !!v;
         const lines = Array.isArray(i.logs) ? i.logs.slice(-300) : [];
         const t = new Date(+now || Date.now());
+        // 诊断包可能被贴到公开 issue：日志里的 Key/令牌先脱敏，查询串也去掉（考场链接可能带标识）
+        const redact = s => String(s)
+            .replace(/\b(sk-[A-Za-z0-9_-]{8,})/g, 'sk-***')
+            .replace(/\b(Bearer\s+)[A-Za-z0-9._-]{8,}/gi, '$1***')
+            .replace(/([?&](?:key|token|api_key|access_token)=)[^&\s]{4,}/gi, '$1***');
+        let url = String(i.url || '');
+        try { const u = new URL(url); url = u.origin + u.pathname; } catch { url = url.split('?')[0].split('#')[0]; }
         return {
             file: `fx-diagnostics-${timeStamp(t)}.json`,
             generatedAt: t.toISOString(),
             version: VERSION,
             ua: String(i.ua || ''),
-            url: String(i.url || ''),
+            url,
             sel,
             config: cfg,
             requestStats: i.requestStats && typeof i.requestStats === 'object' ? i.requestStats : {},
             storage: i.storage && typeof i.storage === 'object' ? i.storage : { totalBytes: 0, byKey: {} },
             counts: i.counts && typeof i.counts === 'object' ? i.counts : {},
             tombstones: i.tombstones && typeof i.tombstones === 'object' ? i.tombstones : {},
-            logs: lines.map(x => String(x)),
+            logs: lines.map(x => redact(x)),
         };
     }
 
@@ -6446,8 +6700,12 @@
             p.style.top = c.y + 'px';
         } else {
             p.style.left = 'auto';
-            p.style.top = '80px';
             p.style.right = '15px';
+            // 默认 top:80 只适合高视口：矮窗口（笔记本分屏/手机横屏）要按实际高度上移，
+            // 否则 max-height 虽能滚动，面板底部仍会被视口切掉（P2）
+            const h = p.offsetHeight || 0;
+            const vh = window.innerHeight || docEl().clientHeight || 768;
+            p.style.top = Math.min(80, Math.max(8, vh - h - 8)) + 'px';
         }
     }
 
@@ -6525,6 +6783,8 @@
     }
 
     function createPanel() {
+        // 幂等：两个管理器实例/重复注入时只保留一个面板，避免双份 DOM 与双份主循环
+        if (document.getElementById('fx-panel-host')) return;
         const host = document.createElement('div');
         host.id = 'fx-panel-host';
         const shadow = host.attachShadow ? host.attachShadow({ mode: 'open' }) : null;
@@ -6553,7 +6813,7 @@
                 <button id="fx-toggle" title="收起 / 展开面板">收起</button>
             </div>
             <div class="fx-content" id="fx-content">
-                <div class="notice" id="fx-notice" role="status" aria-live="polite" style="display:none;"><span id="fx-notice-text"></span></div>
+                <div class="notice" id="fx-notice" role="status" aria-live="polite" tabindex="0" aria-label="提示，按回车或空格关闭" style="display:none;"><span id="fx-notice-text"></span></div>
                 ${groupHtml('mode', `
                     <div class="row">
                         <button class="mode-btn ${CONFIG.answerMode === 'ai' ? 'active' : ''}" data-mode="ai" aria-pressed="${CONFIG.answerMode === 'ai' ? 'true' : 'false'}">AI智能</button>
@@ -6591,7 +6851,7 @@
                         <button id="fx-disputes-export">导出争议题</button>
                     </div>
                     <div class="row">
-                        <button id="fx-autoclose" aria-pressed="${CONFIG.autoCloseSec ? 'true' : 'false'}">关闭页：${CONFIG.autoCloseSec ? CONFIG.autoCloseSec + ' 秒' : '不关'}</button>
+                        <button id="fx-autoclose" aria-pressed="${CONFIG.autoCloseSec ? 'true' : 'false'}">关闭页：${CONFIG.autoCloseSec ? CONFIG.autoCloseSec + 's' : '不关'}</button>
                         <button id="fx-clear-session">清空本场</button>
                         <button id="fx-manual-reconcile">手动对账</button>
                     </div>
@@ -6661,6 +6921,13 @@
                 log('✅ 已确认使用须知，之后不再提示');
             }
             hideNotice();
+        };
+        // 提示条也要能用键盘关（合规须知的「确认」以前只能鼠标点）
+        $('fx-notice').onkeydown = e => {
+            if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                e.preventDefault();
+                $('fx-notice').click();
+            }
         };
 
         // 模式：两个按钮互斥
@@ -6914,7 +7181,7 @@
             const tb = tombMap('bank'), tw = tombMap('wrong');
             const data = buildDiagnostics({
                 ua: typeof navigator !== 'undefined' ? navigator.userAgent : '',
-                url: typeof location !== 'undefined' ? String(location.href || '') : '',
+                url: typeof location !== 'undefined' ? String(location.origin + location.pathname) : '',
                 sel: selHitReport(),
                 requestStats: reqStatsSnapshot(),
                 storage: currentStorageFootprint(),
@@ -7080,12 +7347,17 @@
         const b = $('fx-autoclose');
         if (!b) return;
         if (autoCloseLeft > 0) {
-            b.textContent = `关闭页：${autoCloseLeft} 秒（点击取消）`;
+            // 倒计时文案要短：所在行还有「清空本场/手动对账」两枚按钮，长文案会压到相邻按钮
+            b.textContent = `取消 ${autoCloseLeft}s`;
+            b.title = '点击取消自动关闭';
+            b.setAttribute('aria-label', `取消 ${autoCloseLeft} 秒后自动关闭本页`);
             b.classList.add('active');
             b.setAttribute('aria-pressed', 'true');
             return;
         }
-        b.textContent = CONFIG.autoCloseSec ? `关闭页：${CONFIG.autoCloseSec} 秒` : '关闭页：不关';
+        b.textContent = CONFIG.autoCloseSec ? `关闭页：${CONFIG.autoCloseSec}s` : '关闭页：不关';
+        b.title = '交卷解析完成后自动关闭本页的倒计时（点击切换档位）';
+        b.removeAttribute('aria-label');
         b.classList.toggle('active', !!CONFIG.autoCloseSec);
         b.setAttribute('aria-pressed', String(!!CONFIG.autoCloseSec));
     }

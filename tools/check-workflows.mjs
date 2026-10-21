@@ -30,6 +30,13 @@ const DIR = join(ROOT, '.github', 'workflows');
 const SHA_PIN = /^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/;
 // 整行注释必须是「# vX.Y.Z」：前面可以没 v，但 # 之后只能有版本号和空白。
 const VERSION_COMMENT = /^#\s*v?\d+(?:\.\d+){1,2}\s*$/i;
+// GitHub Actions 的权限项白名单：写错键名或值（如 contents: admin）不会报错，只会静默失效。
+const PERMISSION_KEYS = new Set([
+    'actions', 'attestations', 'checks', 'contents', 'deployments', 'discussions', 'id-token',
+    'issues', 'models', 'packages', 'pages', 'pull-requests', 'repository-projects',
+    'security-events', 'statuses',
+]);
+const PERMISSION_VALUES = new Set(['read', 'write', 'none']);
 
 let failed = 0;
 const ok = (name, cond, extra = '') => {
@@ -40,6 +47,44 @@ const ok = (name, cond, extra = '') => {
 };
 
 const isLocalAction = url => url.startsWith('./') || url.startsWith('../');
+
+/** 解析顶层 permissions: 块，返回内联写法或逐项键值。 */
+function parsePermissions(text) {
+    const lines = text.split(/\r?\n/);
+    const idx = lines.findIndex(l => /^permissions:\s*(.*)$/.test(l));
+    if (idx === -1) return { found: false, inline: '', entries: [] };
+    const inline = (lines[idx].match(/^permissions:\s*(.*)$/) || [])[1].trim();
+    const entries = [];
+    if (!inline) {
+        for (let i = idx + 1; i < lines.length; i++) {
+            const line = lines[i];
+            if (/^\S/.test(line)) break;               // 下一个顶层键，块结束
+            const m = line.match(/^\s+([A-Za-z0-9_-]+):\s*(\S+)\s*(?:#.*)?$/);
+            if (m) entries.push({ key: m[1], value: m[2] });
+        }
+    }
+    return { found: true, inline, entries };
+}
+
+/** 统计 jobs: 下的 job 数（两个空格缩进的键）。 */
+function countJobs(text) {
+    const lines = text.split(/\r?\n/);
+    const idx = lines.findIndex(l => /^jobs:\s*$/.test(l));
+    if (idx === -1) return 0;
+    let n = 0;
+    for (let i = idx + 1; i < lines.length; i++) {
+        if (/^\S/.test(lines[i])) break;
+        if (/^ {2}[A-Za-z0-9_-]+:\s*$/.test(lines[i])) n++;
+    }
+    return n;
+}
+
+/** 收集所有 cron 表达式，去掉引号与行尾注释。 */
+function parseCrons(text) {
+    return [...text.matchAll(/cron:\s*['"]?([^'"\n#]+?)['"]?\s*(?:#.*)?$/gm)]
+        .map(m => m[1].trim())
+        .filter(Boolean);
+}
 
 /**
  * 解析 workflow 文本里的 action 引用。
@@ -75,9 +120,34 @@ function checkWorkflow(text, { fileExists = p => existsSync(join(ROOT, p)) } = {
     const add = (key, label, cond, extra = '') => results.push({ key, label, cond: !!cond, extra });
 
     add('name', '有 name', /^name:\s*\S+/m.test(text));
+    add('on', '有 on 触发条件', /^on\s*:/m.test(text));
     add('runs-on', '有 runs-on', /^\s*runs-on:\s*\S+/m.test(text));
     add('permissions', '有 permissions（最小权限）', /^permissions:/m.test(text));
     add('timeout', '有 timeout-minutes（防止无限卡住）', /timeout-minutes:\s*\d+/m.test(text));
+    add('jobs', 'jobs 下至少有一个 job', countJobs(text) > 0, `jobs=${countJobs(text)}`);
+    add('tabs', '缩进没有 TAB（YAML 只允许空格）', !/^\t/m.test(text));
+
+    // cron 必须是 5 段（分 时 日 月 周）：写错段数 GitHub 会直接拒绝整份 workflow
+    const crons = parseCrons(text);
+    add('cron', crons.length === 0 ? '没有 cron 表达式（无需校验）' : '所有 cron 都是 5 段（分 时 日 月 周）',
+        crons.every(c => c.split(/\s+/).length === 5),
+        crons.filter(c => c.split(/\s+/).length !== 5).join(' | '));
+
+    // permissions 键名/值写错时 GitHub 不会报错，只会静默忽略；write-all 则等于把权限拉到最大
+    const perms = parsePermissions(text);
+    const badPerms = [];
+    if (perms.found) {
+        if (perms.inline) {
+            if (perms.inline !== 'read-all') badPerms.push(`permissions: ${perms.inline}`);
+        } else {
+            if (!perms.entries.length) badPerms.push('permissions 块为空');
+            for (const p of perms.entries) {
+                if (!PERMISSION_KEYS.has(p.key) || !PERMISSION_VALUES.has(p.value)) badPerms.push(`${p.key}: ${p.value}`);
+            }
+        }
+    }
+    add('permissions-values', 'permissions 只含合法权限项（read / write / none）', badPerms.length === 0, badPerms.join(', '));
+    add('permissions-write-all', 'permissions 不使用 write-all', !/\bwrite-all\b/.test(text));
 
     // 第三方 action 必须 pin SHA；本地相对路径 action（./xxx）不受限
     const actions = parseActions(text);
@@ -167,6 +237,26 @@ function runSelfTest() {
 
     const noRunsOn = good.replace('    runs-on: ubuntu-24.04\n', '');
     ok('负例：缺 runs-on 会被抓出', hasFail(run(noRunsOn, alwaysExists), 'runs-on'));
+
+    const noOn = good.replace('on:\n  push:\n', '');
+    ok('负例：缺 on 触发条件会被抓出', hasFail(run(noOn, alwaysExists), 'on'));
+
+    const badCron = good.replace('on:\n  push:', 'on:\n  schedule:\n    - cron: "0 3 * *"');
+    ok('负例：cron 不是 5 段会被抓出', hasFail(run(badCron, alwaysExists), 'cron'));
+
+    const tabbed = good.replace('    timeout-minutes: 5', '\ttimeout-minutes: 5');
+    ok('负例：TAB 缩进会被抓出', hasFail(run(tabbed, alwaysExists), 'tabs'));
+
+    const noJobs = good.replace('jobs:\n  t:\n', '');
+    ok('负例：jobs 下没有 job 会被抓出', hasFail(run(noJobs, alwaysExists), 'jobs'));
+
+    const writeAll = good.replace('permissions:\n  contents: read', 'permissions: write-all');
+    ok('负例：permissions: write-all 会被抓出',
+        hasFail(run(writeAll, alwaysExists), 'permissions-write-all'));
+
+    const badPerm = good.replace('permissions:\n  contents: read', 'permissions:\n  contents: admin\n  foo: read');
+    ok('负例：permissions 非法键/值会被抓出',
+        hasFail(run(badPerm, alwaysExists), 'permissions-values'));
 
     const missingScript = good.replace('tools/check-data.mjs', 'tools/not-here.mjs');
     ok('负例：引用不存在的本地脚本会被抓出',

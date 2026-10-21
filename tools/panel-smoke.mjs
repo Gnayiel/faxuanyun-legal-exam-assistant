@@ -111,11 +111,11 @@ ${userscript}
             && $('fx-crosscheck').getAttribute('aria-pressed') === 'true'
             && window.GM_getValue('forceCrossCheck', null) === true,
             $('fx-crosscheck').textContent + ' / ' + JSON.stringify(window.GM_getValue('forceCrossCheck', null)));
-        ok('关闭页按钮默认 8 秒档', $('fx-autoclose').textContent === '关闭页：8 秒', $('fx-autoclose').textContent);
+        ok('关闭页按钮默认 8 秒档', $('fx-autoclose').textContent === '关闭页：8s', $('fx-autoclose').textContent);
         $('fx-autoclose').click();
         await sleep(10);
         ok('关闭页按钮点击切到 15 秒并落盘',
-            $('fx-autoclose').textContent === '关闭页：15 秒' && window.GM_getValue('autoCloseSec', null) === 15,
+            $('fx-autoclose').textContent === '关闭页：15s' && window.GM_getValue('autoCloseSec', null) === 15,
             $('fx-autoclose').textContent + ' / ' + JSON.stringify(window.GM_getValue('autoCloseSec', null)));
 
         // ---- 新增控件：仅会话 Key / 手动对账 ----

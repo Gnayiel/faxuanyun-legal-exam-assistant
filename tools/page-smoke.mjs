@@ -42,7 +42,7 @@ const DUMP = process.env.FX_PAGE_SMOKE_DUMP === '1' || !!process.env.FX_PAGE_SMO
 // 每个用例在 CASES 里另有 expectCount；父进程会核对运行时 total 与这里的常量一致，
 // tools/selftest.mjs 也会数这一行并检查 README / CHANGELOG 是否同步，避免改了 fixture
 // 却忘记更新文档。改断言时先改这里，再跑一遍确认运行时总数一致。
-const EXPECTED_ASSERTIONS = 103; // 88 + 8（跨页持久化 2+6）+ 7（停止/重启竞态）
+const EXPECTED_ASSERTIONS = 105; // 88 + 8（跨页持久化 2+6）+ 7（停止/重启竞态）+ 2（按钮缓存 DOM 版本）
 
 // 与用户脚本完全一致的题干归一化 / 主键算法：给「本地题库」用例预置键，保证命中的是
 // 精确键（而不是旧记录 / 模糊匹配），从而能断言 bankHow === 'exact'。
@@ -305,6 +305,28 @@ function driverScript(cfg) {
         bhist.length ? JSON.stringify(bhist.map(function (h) { return { n: h.qNum, letters: h.letters, type: h.type }; })) : '没有 pendingSession');
       ok('最后一题判定与收尾文案正确',
         has(/已是最后一题（已答 2\\/2 题）/) && has(/答题完成！共答 2 题，请检查后点击交卷/), tail());
+      // P3：验证按钮缓存只对按钮相关 DOM 变化失效；考试页倒计时每秒刷新普通文本，不应重建整表。
+      var cacheV0 = window.__FX_TEST__.buttonCacheVersion();
+      var clock = document.createElement('span');
+      clock.textContent = '00:01';
+      document.body.appendChild(clock);
+      await sleep(40);
+      var cacheV1 = window.__FX_TEST__.buttonCacheVersion();
+      if (clock.firstChild) clock.firstChild.data = '00:02';
+      await sleep(40);
+      var cacheV2 = window.__FX_TEST__.buttonCacheVersion();
+      ok('倒计时文本刷新不重建按钮缓存', cacheV1 === cacheV0 && cacheV2 === cacheV1,
+        'domVer ' + cacheV0 + '→' + cacheV1 + '→' + cacheV2);
+      var probe = document.createElement('button');
+      probe.textContent = '缓存探针';
+      document.body.appendChild(probe);
+      await sleep(40);
+      var cacheV3 = window.__FX_TEST__.buttonCacheVersion();
+      probe.textContent = '缓存探针 2';
+      await sleep(40);
+      var cacheV4 = window.__FX_TEST__.buttonCacheVersion();
+      ok('按钮文本变化会重建按钮缓存', cacheV3 > cacheV2 && cacheV4 > cacheV3,
+        'domVer ' + cacheV2 + '→' + cacheV3 + '→' + cacheV4);
     } else {
       ok('页面作答记录器就位（fixture 脚本已注入）', Array.isArray(window.__picks));
       // 考试页是「页面就绪后自动开始」的（面板初始化的就绪探测会调 mainLoop），不点按钮
@@ -387,7 +409,7 @@ const CASES = [
         file: 'exam-single.html',
         budgetMs: 40000,
         scenario: 'bank',
-        expectCount: 16,
+        expectCount: 18,
         store: {
             answerMode: 'baidu',
             autoCloseSec: 0,

@@ -6651,6 +6651,7 @@
             storageFootprint, storageOverLimit, buildDisputesExport, buildDiagnostics,
             purgeTombstones, filterTombstoned, addTombKey, clearTombKey,
             dayStamp, timeStamp, bankFileNames, logFileName, parseBankPayload,
+            buttonCacheVersion: () => domVer,
             selfTestCases, runSelfTest,
         };
         // 写库/发请求的内部函数一律不挂到 window。

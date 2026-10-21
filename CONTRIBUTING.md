@@ -25,7 +25,7 @@ node tools/check-workflows.mjs               # GitHub Actions 配置静态检查
 node tools/merge-smoke.mjs                   # 题库合并冒烟（冲突 / 幂等 / 公式消毒，17 项检查）
 node tools/backfill-release-notes.mjs --self-test   # 旧 Release 说明回填脚本离线自测
 node tools/panel-smoke.mjs --require-browser # 真实浏览器面板冒烟（40 项断言）
-node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟（103 项断言）
+node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟（105 项断言）
 ```
 
 - 装了 Node 之后也可以用 `package.json` 里的快捷命令：`npm run check`（语法 + 自检 + 数据 + 工作流 + 题库合并冒烟）、
@@ -56,7 +56,7 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
   加 `--require-browser`（或设 `FX_REQUIRE_BROWSER=1`）则直接失败，CI 用的就是强制模式，
   避免「没装浏览器 → 静默跳过 → 假绿」。也可以用 `FX_BROWSER=/path/to/chrome` 指定浏览器（`tools/browser.mjs` 统一探测，支持 PATH 与 Windows 常见路径）。
 - `tools/page-smoke.mjs` 把脚本装进 `tests/fixtures/` 下的脱敏考试页 / 成绩页 fixture，在真实 Chromium 内核里
-  走一遍「识题 → 作答 → 交卷 → 对账」链路，共 103 项断言；同样支持 `--require-browser` 强制模式（CI 必跑），
+  走一遍「识题 → 作答 → 交卷 → 对账」链路，共 105 项断言；同样支持 `--require-browser` 强制模式（CI 必跑），
   `FX_PAGE_SMOKE_DUMP=1` 可导出页面快照辅助排查。
 - `tools/check-data.mjs` 校验 `data/` 下最新的题库快照：JSON / CSV 成对、条数与题型分布自洽、
   且与 README / `data/README.md` 里写死的数字一致——改快照或改文档时能第一时间发现数字漂移；
@@ -163,7 +163,7 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
     ├── browser.mjs               # 浏览器探测与 headless 启动（两种冒烟共用）
     ├── _harness.mjs              # 页面内 GM_* 打桩与假百度接口（两种冒烟共用）
     ├── panel-smoke.mjs           # 真实浏览器面板冒烟测试（40 项），CI 用强制模式
-    └── page-smoke.mjs            # 真实浏览器页面适配冒烟：9 个用例 / 8 份 fixture（103 项），CI 必跑
+    └── page-smoke.mjs            # 真实浏览器页面适配冒烟：9 个用例 / 8 份 fixture（105 项），CI 必跑
 ```
 
 从面板「导出答案库」拿到的文件按日期命名，可以直接放进 `data/` 归档；

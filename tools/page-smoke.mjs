@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findBrowser, runHeadless } from './browser.mjs';
-import { gmCore, fakeBaidu } from './_harness.mjs';
+import { gmCore, fakeBaidu, fakeAI } from './_harness.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -42,7 +42,7 @@ const DUMP = process.env.FX_PAGE_SMOKE_DUMP === '1' || !!process.env.FX_PAGE_SMO
 // 每个用例在 CASES 里另有 expectCount；父进程会核对运行时 total 与这里的常量一致，
 // tools/selftest.mjs 也会数这一行并检查 README / CHANGELOG 是否同步，避免改了 fixture
 // 却忘记更新文档。改断言时先改这里，再跑一遍确认运行时总数一致。
-const EXPECTED_ASSERTIONS = 105; // 88 + 8（跨页持久化 2+6）+ 7（停止/重启竞态）+ 2（按钮缓存 DOM 版本）
+const EXPECTED_ASSERTIONS = 135; // 105 + 15（AI JSON/代码块）+ 15（AI 解释文字/失败降级/强制二源）
 
 // 与用户脚本完全一致的题干归一化 / 主键算法：给「本地题库」用例预置键，保证命中的是
 // 精确键（而不是旧记录 / 模糊匹配），从而能断言 bankHow === 'exact'。
@@ -92,7 +92,8 @@ const readFixture = name => readFileSync(join(FIXTURES, name), 'utf8');
 function stubScript(cfg) {
     // 打桩拆到 ./_harness.mjs：核心 GM_* + 离线假百度接口，两边冒烟共用同一份实现
     return `${gmCore({ name: 'page-smoke' })}
-${fakeBaidu({ answers: cfg.answers || [], store: cfg.store || {}, delayMs: cfg.delayMs || 0 })}`;
+${fakeBaidu({ answers: cfg.answers || [], store: cfg.store || {}, delayMs: cfg.delayMs || 0 })}
+${fakeAI({ responses: cfg.aiResponses || [], store: cfg.store || {}, delayMs: cfg.aiDelayMs || 0 })}`;
 }
 
 /** 页面内断言驱动：让用户脚本按真实流程自动跑（考试页就绪自动答题 / 成绩页自动解析），从面板日志与页面 DOM 取证据 */
@@ -272,6 +273,41 @@ function driverScript(cfg) {
       ok('总分缺失时分数行不拼「/ 总分」', has(/🎯 分数 80 分 · 正确率 80%（4\\/5）/) && !has(/分数 80 \\/ /), tail());
       ok('总分缺失时不做「分数推算题数」交叉校验', !has(/分数与答题卡对不上/), tail());
       ok('题库统计正常（空库 0 题）', has(/📊 题库现有 0 题/), tail());
+    } else if (CFG.scenario === 'ai') {
+      ok('页面作答记录器就位（fixture 脚本已注入）', Array.isArray(window.__picks));
+      await waitFor(done, '答题流程结束');
+      for (var ai = 0; ai < 200 && !has(/答题完成|已停止/); ai++) await sleep(25);
+      collect();
+      var A = CFG.expect, a1 = A.q1, a2 = A.q2;
+      ok('页面就绪后自动开始答题', has(/页面就绪，开始答题/), tail());
+      ok('从页面题型统计推断出总题数 2', has(new RegExp(A.totalRe)), tail());
+      ok('第 1 题题干与题型识别（' + a1.typeLabel + '）', has(new RegExp('第1题（' + a1.typeLabel + '）：[^|]*' + a1.stemPart)), tail());
+      ok('第 1 题采用 ' + a1.source + ' 答案（' + a1.answer + '）',
+        lines.some(function (t) { return t.indexOf('采用' + a1.source + '答案：' + a1.answer) >= 0; }), tail());
+      var apicks = window.__picks || [];
+      var achecked1 = apicks[0] ? apicks[0].checked.slice().sort().join('') : '';
+      ok('第 1 题页面选中态正确（' + a1.answer + '）', achecked1 === a1.answer.split('').sort().join(''), '实际选中：' + achecked1);
+      ok('已切换到第 2 题', has(/已切到第 2 题/), tail());
+      ok('第 2 题题干与题型识别（' + a2.typeLabel + '）', has(new RegExp('第2题（' + a2.typeLabel + '）：[^|]*' + a2.stemPart)), tail());
+      ok('第 2 题采用 ' + a2.source + ' 答案（' + a2.answer + '）',
+        lines.some(function (t) { return t.indexOf('采用' + a2.source + '答案：' + a2.answer) >= 0; }), tail());
+      var achecked2 = currentChecked();
+      ok('第 2 题页面选中态正确（' + a2.answer + '）', achecked2 === a2.answer.split('').sort().join(''), '实际选中：' + achecked2);
+      var asess = window.__store.get('pendingSession');
+      var ahist = asess && asess.history ? asess.history : [];
+      var ahistOk = ahist.length === 2
+        && ahist[0].letters === a1.answer && ahist[1].letters === a2.answer
+        && ahist[0].type === a1.saveType && ahist[1].type === a2.saveType;
+      ok('作答记录共 2 条且答案 / 题型正确', ahistOk,
+        ahist.length ? JSON.stringify(ahist.map(function (h) { return { n: h.qNum, letters: h.letters, type: h.type }; })) : '没有 pendingSession');
+      var aModes = (window.__fxAIModes || []).join(',');
+      ok('AI 响应形态覆盖：' + A.modes.join(' / '), aModes === A.modes.join(','), '实际：' + aModes);
+      var aAiN = (window.__fxAIRequests || []).length, aBaiduN = (window.__fxNet || []).length;
+      ok('网络请求数符合预期（AI ' + A.aiReqs + ' / 百度 ' + A.baiduReqs + '）',
+        aAiN === A.aiReqs && aBaiduN === A.baiduReqs,
+        '实际 AI=' + aAiN + '，百度=' + aBaiduN + '；' + (window.__fxNet || []).slice(0, 3).join(' | '));
+      ok('最后一题判定与收尾文案正确',
+        has(/已是最后一题（已答 2\\/2 题）/) && has(/答题完成！共答 2 题，请检查后点击交卷/), tail());
     } else if (CFG.scenario === 'bank') {
       ok('页面作答记录器就位（fixture 脚本已注入）', Array.isArray(window.__picks));
       await waitFor(function () { return has(/答题完成|已答满|⛔ 已停止|已是最后一题/); }, '答题流程结束');
@@ -401,6 +437,55 @@ const CASES = [
             totalRe: '总题数[:：]\\s*2',
             q1: { typeLabel: '单选', stemPart: '限制人身自由的行政处罚权', answer: 'B', saveType: 'single', pickedHas: ['公安机关'] },
             q2: { typeLabel: '单选', stemPart: '举证责任', answer: 'B', saveType: 'single', pickedHas: ['被告'] },
+        },
+    },
+    {
+        name: 'AI 模式：纯 JSON / 代码块两种响应，不降级百度',
+        case: 'ai-json',
+        file: 'exam-single.html',
+        budgetMs: 45000,
+        scenario: 'ai',
+        expectCount: 15,
+        store: {
+            answerMode: 'ai', autoCloseSec: 0, aiModel: 'smoke',
+            aiUrl: 'https://api.smoke.test/v1/chat/completions', aiKey: 'sk-smoke-test',
+        },
+        answers: [],
+        aiResponses: [
+            { clue: '限制人身自由的行政处罚权', mode: 'plain', content: '{"answer":"B","confidence":0.92,"reason":"mock"}' },
+            { clue: '举证责任', mode: 'code', content: '{"answer":"B","confidence":0.9,"reason":"mock"}' },
+        ],
+        expect: {
+            totalRe: '总题数[:：]\\s*2',
+            q1: { typeLabel: '单选', stemPart: '限制人身自由的行政处罚权', answer: 'B', saveType: 'single', source: 'AI', pickedHas: ['公安机关'] },
+            q2: { typeLabel: '单选', stemPart: '举证责任', answer: 'B', saveType: 'single', source: 'AI', pickedHas: ['被告'] },
+            modes: ['plain', 'code'], aiReqs: 2, baiduReqs: 0,
+        },
+    },
+    {
+        name: 'AI 模式：解释文字包裹 JSON + AI 失败降级百度 + 强制二源',
+        case: 'ai-cross',
+        file: 'exam-single.html',
+        budgetMs: 50000,
+        scenario: 'ai',
+        expectCount: 15,
+        store: {
+            answerMode: 'ai', autoCloseSec: 0, aiModel: 'smoke', forceCrossCheck: true,
+            aiUrl: 'https://api.smoke.test/v1/chat/completions', aiKey: 'sk-smoke-test',
+        },
+        answers: [
+            { clue: '限制人身自由的行政处罚权', answer: 'B' },
+            { clue: '举证责任', answer: 'B' },
+        ],
+        aiResponses: [
+            { clue: '限制人身自由的行政处罚权', mode: 'explain', content: '{"answer":"B","confidence":0.9,"reason":"mock"}' },
+            { clue: '举证责任', mode: 'error', status: 400 },
+        ],
+        expect: {
+            totalRe: '总题数[:：]\\s*2',
+            q1: { typeLabel: '单选', stemPart: '限制人身自由的行政处罚权', answer: 'B', saveType: 'single', source: 'AI+百度', pickedHas: ['公安机关'] },
+            q2: { typeLabel: '单选', stemPart: '举证责任', answer: 'B', saveType: 'single', source: '百度', pickedHas: ['被告'] },
+            modes: ['explain', 'error'], aiReqs: 2, baiduReqs: 2,
         },
     },
     {
@@ -586,7 +671,7 @@ for (const c of CASES) {
 
         for (const { c: cc, r } of results) {
             if (r.case !== cc.case || r.expectCount !== cc.expectCount || r.total !== cc.expectCount) {
-                throw new Error(`结构化结果与用例声明不符（case=${r.case}，total=${r.total}，expectCount=${r.expectCount}/${cc.expectCount}）`);
+                throw new Error(`结构化结果与用例声明不符（case=${r.case}，total=${r.total}，expectCount=${r.expectCount}/${cc.expectCount}；failed=${JSON.stringify(r.failed || []).slice(0, 1200)}）`);
             }
             pass += r.pass;
             total += r.total;

@@ -34,6 +34,59 @@ HTMLAnchorElement.prototype.click = function () {
 }
 
 /**
+ * 假的 OpenAI 兼容接口（离线）：按题干 clue 返回指定形态的 content。
+ * mode: plain（纯 JSON）/ code（```json 代码块）/ explain（解释文字包裹 JSON）/ error（HTTP 500）。
+ * 包在 fakeBaidu 之上：非 AI 地址原样交给前一个 GM_xmlhttpRequest（百度打桩），
+ * 因此同一个用例可以同时验证「AI 成功」「AI 失败降级百度」「强制二源」。
+ */
+export function fakeAI({ responses = [], store = {}, delayMs = 0 } = {}) {
+    return `(function () {
+  var cfg = ${JSON.stringify({ responses, store, delayMs })};
+  for (var k in cfg.store) window.__store.set(k, cfg.store[k]);
+  var prev = window.GM_xmlhttpRequest;
+  window.__fxAIModes = [];
+  window.__fxAIRequests = [];
+  window.GM_xmlhttpRequest = function (o) {
+    var url = String((o && o.url) || '');
+    if (!/chat\\/completions|api\\.smoke\\.test/.test(url)) return prev.apply(window, arguments);
+    var prompt = '';
+    try {
+      var body = JSON.parse(o.data || '{}');
+      prompt = body.messages && body.messages[0] ? String(body.messages[0].content || '') : '';
+    } catch (e) { prompt = String((o && o.data) || ''); }
+    var hit = null;
+    for (var i = 0; i < cfg.responses.length; i++) {
+      if (prompt.indexOf(cfg.responses[i].clue) >= 0) { hit = cfg.responses[i]; break; }
+    }
+    var mode = hit ? (hit.mode || 'plain') : 'none';
+    window.__fxAIModes.push(mode);
+    window.__fxAIRequests.push({ mode: mode, clue: hit ? hit.clue : '', status: hit ? (hit.status || 200) : 0 });
+    setTimeout(function () {
+      if (!hit || (hit.status || 200) !== 200) {
+        if (o && o.onload) o.onload({
+          status: hit && hit.status ? hit.status : 500,
+          responseText: '{"error":{"message":"mock AI failure"}}',
+        });
+        return;
+      }
+      var content = String(hit.content || '');
+      if (mode === 'code') {
+        var fence = String.fromCharCode(96, 96, 96);
+        content = fence + 'json\\n' + content + '\\n' + fence;
+      } else if (mode === 'explain') {
+        content = '先核对题干与选项。\\n正式答案：' + content + '\\n不要照抄示例。';
+      }
+      if (o && o.onload) o.onload({
+        status: 200,
+        responseText: JSON.stringify({ choices: [{ message: { content: content } }] }),
+      });
+    }, cfg.delayMs || 0);
+    return { abort: function () { } };
+  };
+})();`;
+}
+
+/**
  * 假的百度搜索接口（离线）：按 clue 命中答案，记录每次请求 URL，
  * 供断言「答案来自百度」「没有真的联网」。正文塞够长度的解析文本，模拟真实结果页。
  */

@@ -4,9 +4,9 @@
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
-[![self-test](https://img.shields.io/badge/self--test-190%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
+[![self-test](https://img.shields.io/badge/self--test-193%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
 [![panel--smoke](https://img.shields.io/badge/panel--smoke-40%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
-[![page--smoke](https://img.shields.io/badge/page--smoke-105%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
+[![page--smoke](https://img.shields.io/badge/page--smoke-135%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-4.0%2B-black)](https://www.tampermonkey.net/)
 
 <p align="center">
@@ -64,7 +64,7 @@
   自己没打开的标签页时，日志会提示手动关闭，脚本不重复尝试
 - **面板**：可拖拽、一键收起（收成一条写着自己名字的窄条）、**按钮按用途分类折叠**、分类标题带实时状态摘要、
   快捷键、Shadow DOM 隔离站点样式（面板样式不污染页面，页面样式也不会打乱面板）、日志分级与导出、题库导入导出
-- **内置自检**：190 项纯函数断言，面板一键运行；不联网、不读写题库数据
+- **内置自检**：193 项纯函数断言，面板一键运行；不联网、不读写题库数据
 - **多标签页保护**：多开标签页时先后落盘不会互相覆盖，删掉的条目不会被旧副本搬回来；同一场考试请只留一个标签页
 - **手动对账兜底**：答题卡识别不出时按题号手填对错，照常走对账 / 入库 / 错题清理（用法见 [常见问题](#常见问题)）
 

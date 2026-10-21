@@ -2,7 +2,7 @@
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
 // @version      2.0.21
-// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 190 项内置自检
+// @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 193 项内置自检
 // @author       Gnayiel
 // @license      MIT
 // @match        *://*.faxuanyun.com/*
@@ -90,7 +90,7 @@
  *   作答策略          多选组合枚举、chooseAnswer 决策、answerCurrent 单题流程
  *   成绩解析          答题卡颜色判定、分数读取、交卷对账入库
  *   考试流程控制      退出原因、暂停等待、倒计时、弹窗、最后一题、mainLoop
- *   内置自检          190 项纯函数断言 + window.__FX_TEST__ 测试钩子
+ *   内置自检          193 项纯函数断言 + window.__FX_TEST__ 测试钩子
  *   面板              UI 构建、分类折叠、拖拽、状态摘要、AI 设置、导入导出与日志按钮
  */
 
@@ -2193,7 +2193,14 @@
     function isHeaderRow(r) {
         if (!r || r.length < 2) return false;
         const m = mapColumns(r);
-        return m.q >= 0 && (m.a >= 0 || m.w >= 0 || m.type >= 0);
+        if (m.q < 0) return false;
+        // 至少两个列名命中：无表头 CSV 的题干里即使含“答案”二字，也不能把第一行吞成表头。
+        const hits = [m.idx, m.type, m.q, m.a, m.w, m.src].filter(i => i >= 0).length;
+        if (hits < 2) return false;
+        // 题目列必须本身就像表头标签，而不是整句题干（兼容“题目/题干/问题/question”等常见写法）。
+        const qCell = String(r[m.q] || '').replace(/[\s　]/g, '');
+        if (!/^(题目|题干|问题|question|stem|title|题目内容|题干内容)$/i.test(qCell)) return false;
+        return m.a >= 0 || m.w >= 0 || m.type >= 0;
     }
 
     const TYPE_MAP = {
@@ -3416,7 +3423,7 @@
             `https://www.baidu.com/s?wd=${encodeURIComponent(q + ' 答案')}`,
         ];
         const queries = [q + ' 正确答案', q + ' 答案', q];   // 需要从结果正文里剔除的查询词回显
-        let text = '', note = '', budgetSpent = false;
+        let text = '', note = '', budgetSpent = false, followWarned = false;
         for (const url of entries) {
             const r = await request({ url, headers: { 'User-Agent': UA }, desc: '百度', deadline: ctx.deadline, signal: ctx.signal });
             if (r.budgetSpent) { budgetSpent = true; note = '本题网络预算已用完'; break; }   // 预算耗尽：不换入口、不重试（A6）
@@ -3439,7 +3446,18 @@
                 // 跟进页只是补充：不重试，避免一页拖垮整题预算（A6）
                 const pr = await request({ url: u, headers: { 'User-Agent': UA }, desc: '结果页', maxRetry: 0, deadline: ctx.deadline, signal: ctx.signal });
                 if (pr.budgetSpent) { budgetSpent = true; break; }
-                if (!pr.ok || !pr.text) continue;
+                if (!pr.ok || !pr.text) {
+                    // 跟进页是站外页面，油猴可能因 @connect 只放行 www.baidu.com 而拦截跳转目标；
+                    // 这类失败以前只 dbg，用户会误以为百度没答案。每题提示一次，但不影响摘要作答。
+                    if (!followWarned && !pr.ok) {
+                        followWarned = true;
+                        const why = pr.err === 'network'
+                            ? '网络错误或被 @connect 白名单拦截'
+                            : (failText(pr, '结果页') || '读取失败');
+                        log(`ℹ️ 百度跟进页读取失败（${why}），仅使用搜索摘要作答；不影响本题`);
+                    }
+                    continue;
+                }
                 const pageText = stripHtml(pr.text);
                 if (!followPageRelevant(pageText, stem)) { dbg('跳过与本题无关的跟进页（广告/导航）'); continue; }
                 text += '\n' + stripQueryEcho(pageText, queries);   // 两段正文之间留换行，避免边界粘连成假答案
@@ -3648,7 +3666,8 @@
             return got;
         };
 
-        const sourcePlan = dualSourcePlan(type, forceTwoSources);
+        const forceTwo = forceTwoSources || !!CONFIG.forceCrossCheck;
+        const sourcePlan = dualSourcePlan(type, forceTwo);
         if (sourcePlan === 'parallel') {
             // R6：能提前确定需要次源的场景（强制二源 / 多选），两源并行、共享同一个 deadline。
             // Promise.allSettled 保证单源失败（网络/超时/解析异常）不会影响另一源参与合并。
@@ -3679,7 +3698,7 @@
                     if (Date.now() >= deadline) { budgetSpent = true; break; }
                     continue;
                 }
-                needSecond = forceTwoSources || c.conf < CONFIG.crossCheckBelow || type === 'multi';
+                needSecond = forceTwo || c.conf < CONFIG.crossCheckBelow || type === 'multi';
                 if (Date.now() >= deadline) {
                     budgetSpent = true;
                     notes.push(`⏱ 本题网络预算（${Math.round(budgetMs / 1000)} 秒）已用完，先按已获得的结果作答`);
@@ -5737,6 +5756,10 @@
             return sniffDelim(csv) === ',';
         });
         t('表头识别「来源」列', () => mapColumns(['序号', '题型', '题目', '正确答案', '错误选项', '来源']).src === 5);
+        t('表头识别：正常六列表头', () => isHeaderRow(['序号', '题型', '题目', '正确答案', '错误选项', '来源']) === true);
+        t('表头识别：两列「题目/答案」也认', () => isHeaderRow(['题目', '答案']) === true);
+        t('表头识别：无表头首行题干含“答案”不被吞', () =>
+            isHeaderRow(['1', '这道题目的答案是B', 'B', '公安机关']) === false);
 
         // ---------- 导出文件命名 ----------
         t('答案库文件名带本地日期戳（月、日补零）', () =>
@@ -6639,6 +6662,7 @@
             extractAIAnswer, jsonObjectCandidates, hasJsonObject,
             locateBankEntryForWrong, bankAnswerIsWrongPick, reconcileKey, clearedSessionState, pageShowAction,
             mergeCandidates, chooseAnswer, combosOf, multiCombos, comboKey, parseDelimited, sniffDelim,
+            isHeaderRow, mapColumns,
             csvCell, validateRow, resolveType, isUserEntry, blankEntry, stopReasonText, fuzzyUsable,
             normalizeGroupState, groupBadge, collapseLabel,
             connectRoot, validateApi, cellNumberText, lockIsStale, lightLooksLikeResult,

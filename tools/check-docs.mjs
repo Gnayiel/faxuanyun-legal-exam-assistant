@@ -31,7 +31,6 @@ const ROOT_DOCS = [
     'CODE_OF_CONDUCT.md',
     'CHANGELOG.md',
     'data/README.md',
-    'tests/README.md',
     '.github/pull_request_template.md',
 ];
 const DOCS_DIR = join(ROOT, 'docs');

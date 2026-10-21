@@ -281,7 +281,7 @@ if (!pageConst) {
 // 「数字出现过」，这里再校验「出现在正确的那条命令后面」，并全量扫描文档 / 工作流里的
 // 「N 项断言」，只允许 n / m / PAGE_N 三个真实数字（CHANGELOG 属历史记录，不扫）。
 const allowedNums = new Set([String(n), String(m), String(PAGE_N)]);
-const scanTargets = ['README.md', 'CONTRIBUTING.md', 'SUPPORT.md', 'data/README.md', 'tests/README.md',
+const scanTargets = ['README.md', 'CONTRIBUTING.md', 'SUPPORT.md', 'data/README.md',
     'docs/ARCHITECTURE.md', 'docs/DEVELOPMENT.md', 'docs/RELEASING.md', 'docs/REPOSITORY_SETTINGS.md', 'docs/README.md'];
 try {
     for (const f of readdirSync(join(ROOT, '.github', 'workflows'))) {

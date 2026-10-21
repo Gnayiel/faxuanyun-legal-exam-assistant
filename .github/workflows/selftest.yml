@@ -18,7 +18,7 @@ concurrency:
 jobs:
   selftest:
     # Node 22 是 engines 下限，Node 24 是当前最新 LTS；两边都跑，避免只在某个版本可用的 API 溜进工具链。
-    # 浏览器冒烟与 Node 版本基本无关：22 跑完整 9 步，24 跑快速 6 步（语法/文档/自检/数据/工作流/合并），
+    # 浏览器冒烟与 Node 版本基本无关：22 跑完整 8 步，24 跑快速 6 步（语法/文档/自检/数据/工作流/合并），
     # 既保留双版本兼容性检查，又不重复启动两次 Chromium。
     # 只保留 node-version 一个 matrix 键：check-run 名才会稳定是 selftest (22)/(24)，
     # 加第二个键会让 GitHub 拼成 selftest (22, true)，required checks 就对不上。

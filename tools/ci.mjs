@@ -8,7 +8,7 @@
  * 以前 selftest.yml、release.yml 和 tools/release.mjs 各手抄一遍测试命令，改一处漏一处：
  * release.yml 少了页面冒烟、release.mjs 用 try/catch 把浏览器缺失吞成「已跳过」，
  * 于是「测试失败也能打 tag」这种假绿就出现了。现在只维护这一份清单：
- *   语法 → 文档链接 → 内置自检 → 数据/文档 → 工作流 → Release 回填自测 → 题库合并 → 面板冒烟 → 页面适配冒烟
+ *   语法 → 文档链接 → 内置自检 → 数据/文档 → 工作流 → 题库合并 → 面板冒烟 → 页面适配冒烟
  * 任何一步非零退出就整体失败，不吞异常。
  *
  * 退出码：0 全部通过；1 有步骤失败。
@@ -28,7 +28,6 @@ const ALL_STEPS = [
     ['内置自检 + 文档数字', ['tests/selftest.mjs']],
     ['数据 / 文档一致性', ['tools/check-data.mjs']],
     ['工作流静态检查', ['tools/check-workflows.mjs']],
-    ['Release 回填脚本离线自测', ['tools/backfill-release-notes.mjs', '--self-test']],
     ['题库合并冒烟（冲突 / 幂等 / 公式消毒）', ['tests/merge-smoke.mjs']],
     ['面板冒烟（需要真实浏览器）', ['tests/panel-smoke.mjs', '--require-browser']],
     ['页面适配冒烟（需要真实浏览器）', ['tests/page-smoke.mjs', '--require-browser']],

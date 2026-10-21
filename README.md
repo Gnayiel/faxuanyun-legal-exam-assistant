@@ -1,6 +1,6 @@
 # 甘肃省国家工作人员学法考试平台自动答题助手
 
-[![version](https://img.shields.io/badge/version-2.0.22-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-3.0.0-blue)](CHANGELOG.md)
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
@@ -33,7 +33,7 @@
 
 - [特性](#特性)
 - [安装](#安装)
-- [升级到 v2.0.0](#升级到-v200)
+- [从 v1.x 升级](#从-v1x-升级)
 - [更新与自动更新](#更新与自动更新)
 - [使用](#使用)
 - [答案优先级](#答案优先级)
@@ -75,16 +75,17 @@
 2. 安装脚本，按下面顺序挑一个能用的：
    - **推荐**：到 [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 下载最新版本的
      `.user.js` 附件，拖进浏览器窗口安装。
-     这条永远拿到**最新版**；装好后自动更新走 `@updateURL`（v2.0.22 起为 `@3` 升级桥），后续版本由油猴按自己的检查间隔自动装上。
+     这条永远拿到**最新版**；装好后自动更新走 `@updateURL`（`@3` 主版本别名），后续版本由油猴按自己的检查间隔自动装上。
    - 浏览器里能打开 GitHub 时，也可直接点仓库里的
      [`faxuanyun-legal-exam-assistant.user.js`](faxuanyun-legal-exam-assistant.user.js) 再点 **Raw**。
    - 国内多数网络下 github.com / raw.githubusercontent.com 不通，改用 jsDelivr 固定版本直链（把 `vX.Y.Z`
      换成 [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 里的最新标签，
-     例如 `v2.0.22`）——地址与内容一一对应，装到的一定是那个版本：
-     `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@v2.0.22/faxuanyun-legal-exam-assistant.user.js`
-   - 想省事、不介意 CDN 缓存可能稍滞后时，可用 jsDelivr 的 `@2` 主版本别名直链（当前指向 v2.0.22 升级桥；
-     装上后会按脚本里的 `@updateURL` 自动切到 `@3`，之后由 3.x 接管；实际受边缘缓存影响可能滞后，以固定标签链接为准）：
-     `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@2/faxuanyun-legal-exam-assistant.user.js`
+     例如 `v3.0.0`）——地址与内容一一对应，装到的一定是那个版本：
+     `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@v3.0.0/faxuanyun-legal-exam-assistant.user.js`
+   - 想省事、不介意 CDN 缓存可能稍滞后时，可用 jsDelivr 的 `@3` 主版本别名直链（通常指向最新 3.x；
+     实际受边缘缓存影响可能滞后，以固定标签链接为准）：
+     `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@3/faxuanyun-legal-exam-assistant.user.js`
+   - 还停在 2.x？`@2` 别名仍指向 v2.0.22 升级桥；先装它，之后会自动升到 3.x。
    - 上述都不通时，用 `gcore.jsdelivr.net` / `testingcf.jsdelivr.net` 替换主机名；`cdn.jsdelivr.net` 在国内多被重置。
    - ⚠️ 镜像路径**区分大小写**，请照抄 `Gnayiel`。
 3. 打开考试页面，右上角会出现控制面板
@@ -98,7 +99,7 @@
 装好之后不用再手动跟进：脚本头部带 `@updateURL` / `@downloadURL`，后续版本的自动更新由油猴完成，
 细节见 [更新与自动更新](#更新与自动更新)。
 
-## 升级到 v2.0.0
+## 从 v1.x 升级
 
 v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**：
 
@@ -111,11 +112,11 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
 | 日志导出前缀 | `faxuanyun-exam-log-*` | `faxuanyun-legal-exam-log-*` |
 | 备份 JSON 的 `format` 自述 | `faxuanyun-answer-bank` | `faxuanyun-legal-exam-bank` |
 
-`@namespace` 变了（v1.x 用的是油猴默认值 `http://tampermonkey.net/`），所以油猴把 v2.0.0 当成**全新脚本**：
+`@namespace` 变了（v1.x 用的是油猴默认值 `http://tampermonkey.net/`），所以油猴把 v2.0.0 及以后当成**全新脚本**：
 不会自动继承 v1.x 的数据。升级步骤：
 
 1. 在**旧版**面板「题库与本场」里点「导出答案库」（或「日志与自检 → 导出日志」备份日志）
-2. 安装 v2.0.0
+2. 安装当前版本（v3.0.0 或更新）
 3. 在新版面板「题库与本场」里点「导入答案库」，选刚才导出的 `.json`（换电脑、跨版本都用它，字段一个不少）
 4. 确认题库题数、来源标记都正常后，卸载旧版
 
@@ -133,8 +134,8 @@ v2.0.0 重命名了脚本文件与导出文件前缀，属于**破坏性变更**
 
 脚本头部已经写好 `@updateURL` / `@downloadURL`，都指向本仓库 **3.x 最新 tag** 上这个脚本的
 **jsDelivr 镜像**（`fastly.jsdelivr.net/gh/Gnayiel/...@3/...`）——`@3` 是 jsDelivr 的语义化
-主版本别名。v2.0.22 是**升级桥**：脚本版本仍是 2.x，但先把 `@updateURL` 指向 `@3`，让已装 2.x
-的用户先升到本桥，再由本桥自动升到 3.x；从 3.0.0 起脚本本身也走 `@3`。换成镜像是因为
+主版本别名。v2.0.22 是**升级桥**：脚本版本仍是 2.x，但先把 `@updateURL` 指向 `@3`，
+已装 2.x 的用户会自动升到桥，再由桥升到 3.x；从 3.0.0 起脚本本身也走 `@3`。换成镜像是因为
 `raw.githubusercontent.com` 在国内多数网络下不可达，会让「检查更新」静默失败。
 **v2.0.13 起，装好一版之后不需要再做任何事**，后续版本由油猴自动更新。
 
@@ -275,7 +276,7 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
   实在识别不出来时，用面板「题库与本场 → 手动对账」按 `1-8=对, 9=错, 10=未答` 手填，脚本会走同一套入库流程。
   另外 v2.0.2 起，交卷后退回「选择考试」列表页不会再被误判成成绩页空转解析（旧版会红字提示「确认停在结果页」）。
 - **从 v1.x 升级后题库是空的？** 这是预期行为（`@namespace` 变了），按
-  [升级到 v2.0.0](#升级到-v200) 用 `.json` 导入一次即可。
+  [从 v1.x 升级](#从-v1x-升级) 用 `.json` 导入一次即可。
 - **自动更新一直不生效？** 按顺序排查：① 看面板标题栏的 `@version` 是否低于期望版本；
   ② 还在 v2.0.12 及更早版本时，旧的 `@updateURL` 指向已不可达的 `cdn.jsdelivr.net`，必须按
   [安装](#安装) 手动覆盖安装一次（题库与设置保留）；③ v2.0.22 起走 `@3`（更早的 2.0.13–2.0.21 走 `@2`），受边缘缓存影响，
@@ -322,7 +323,7 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 ## 文档
 
 - [架构说明](docs/ARCHITECTURE.md)：运行时分层、题库数据模型、持久化、答题与对账、测试架构
-- [开发与测试](docs/DEVELOPMENT.md)：环境、命令、9 步统一门禁、测试分层、调试与真机清单
+- [开发与测试](docs/DEVELOPMENT.md)：环境、命令、8 步统一门禁、测试分层、调试与真机清单
 - [发版流程](docs/RELEASING.md)：版本同步、发布前检查、tag / Release、更新链与失败恢复
 - [仓库设置](docs/REPOSITORY_SETTINGS.md)：GitHub 侧需手动确认的 rulesets、Actions、安全与社交预览
 - [文档索引](docs/README.md)：以上文档的入口与适用读者
@@ -340,6 +341,6 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 
 ## 更新记录
 
-当前版本 **v2.0.22**（2026-10-21，升级桥）：在 v2.0.21 基础上合入 3 项修复（CSV 表头、百度跟进提示、强制二源），并把自动更新从 `@2` 切到 `@3`，为 v3.0.0 铺路；v2.0.21 的按钮缓存修复与 v2.0.20 的题库索引保温见 CHANGELOG。
+当前版本 **v3.0.0**（2026-10-21）：仓库级重构版，脚本行为与 v2.0.22 一致（含 3 项修复）；v2.0.22 升级桥负责把 2.x 用户自动带到 3.x，详见 CHANGELOG。
 
 每一项改动的说明与验证方式见 [CHANGELOG.md](CHANGELOG.md)，更早版本在 [更早的版本记录](docs/CHANGELOG-archive.md)。

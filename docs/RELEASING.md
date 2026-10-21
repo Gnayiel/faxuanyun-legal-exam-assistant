@@ -26,7 +26,7 @@
 
 1. **版本与说明就位**：改 `@version`、`package.json`、README 徽章，在 `CHANGELOG.md` 写 `## vx.y.z` 章节（新增 / 变更 / 修复 / 验证方式），验证方式要写真实跑出来的结果。
 2. **配图同步**：`npm run docs:images`，然后打开 `docs/` 下三张图确认版本号与自检数正确。原理见 [docs/IMAGE_PIPELINE.md](IMAGE_PIPELINE.md)。
-3. **统一门禁全绿**：`npm run ci`（9 步，含两个浏览器冒烟）。不要用 `--no-browser` 的结果代替发布前的全量门禁；CI 也不会跳过。
+3. **统一门禁全绿**：`npm run ci`（8 步，含两个浏览器冒烟）。不要用 `--no-browser` 的结果代替发布前的全量门禁；CI 也不会跳过。
 4. **发版门禁自检**：`node tools/release.mjs --check-ci vx.y.z`，确认输出通过。该命令校验 tag 字符串与 `@version` 一致、CHANGELOG 对应章节非空，并打印脚本体积。
 5. **工作区干净**：`git status --porcelain` 为空；本地 `main` 与 `origin/main` 同步，且 `origin/main` 是当前 HEAD 的祖先。
 6. **体积检查**：脚本预算 512 KB，`selftest` 会做硬断言；`release.mjs --check-ci` 会打印实际 KB，接近上限时先确认不是误引入大段数据。
@@ -86,7 +86,7 @@ Host github.com
 | 步骤 | 内容 | 失败后果 |
 | --- | --- | --- |
 | 1. 校验 tag 与版本 / CHANGELOG | `node tools/release.mjs --check-ci "$TAG"`：tag 必须等于 `@version`，CHANGELOG 章节必须非空 | 不创建 Release，tag 保留 |
-| 2. 发版前自检 | `npm run ci`：与本地相同的 9 步统一门禁 | 不创建 Release，tag 保留 |
+| 2. 发版前自检 | `npm run ci`：与本地相同的 8 步统一门禁 | 不创建 Release，tag 保留 |
 | 3. 生成校验和与发布说明 | `sha256sum` 生成同名 `.sha256`；用 `awk` 抽取 CHANGELOG 正文并校验非空；拼装安装/更新、体积（预算 512 KB）与校验和 | 中止，不创建 Release |
 | 4. 创建或更新 Release | `gh release create`，或对已存在的 Release `edit --draft=false` + `upload --clobber`；上传 `.user.js` 与 `.sha256` 两个附件 | Release 可能已存在，修好后重跑；未开启 immutable releases 才可用 `--clobber` 覆盖 |
 | 5. 验证 Release | 回读 `isDraft=false`、附件数为 2、下载附件、`sha256sum -c`、`cmp` 与复算校验和 | 报错并提示重跑；未开启 immutable releases 时附件会被覆盖，开启后只能发新 patch |

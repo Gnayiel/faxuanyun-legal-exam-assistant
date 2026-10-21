@@ -374,5 +374,5 @@ flowchart LR
 - [开发与测试](DEVELOPMENT.md)：本地命令、测试分层、fixtures 维护、常见改动的验证清单。
 - [发布流程](RELEASING.md)：版本号、更新日志、Release 与更新链。
 - [题库数据说明](../data/README.md) 与 [bank.schema.json](../data/bank.schema.json)：快照命名、字段定义与校验规则。
-- [测试说明](../tests/README.md)：各测试脚本的参数、浏览器要求与输出解读。
+- [测试说明](DEVELOPMENT.md#测试分层)：各测试脚本的参数、浏览器要求与输出解读。
 - [配图流水线](IMAGE_PIPELINE.md)：README 配图的生成方式。

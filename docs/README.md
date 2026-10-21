@@ -17,15 +17,11 @@
 | [SECURITY.md](../SECURITY.md) | 报告安全问题的人 | 支持范围、私密报告入口、响应时限、披露约定 |
 | [CHANGELOG.md](../CHANGELOG.md) | 所有人 | 每个版本的变更分类与验证方式；版本号以用户脚本头部 `@version` 为准 |
 | [docs/CHANGELOG-archive.md](CHANGELOG-archive.md) | 所有人 | v2.0.0 – v2.0.14 的历史更新记录归档 |
-
-补充材料：
-
-- [tests/README.md](../tests/README.md)：测试目录说明、测试分层概览与断言数同步点。
-- [data/README.md](../data/README.md)：题库快照的命名、字段、导入导出与隐私注意事项。
+| [data/README.md](../data/README.md) | 题库维护者 | 题库快照的命名、字段、导入导出与隐私注意事项 |
 
 ## 文档维护约定
 
-- **数字要同步**：README 徽章、CHANGELOG、脚本内注释、`tests/README.md` 与 [docs/DEVELOPMENT.md](DEVELOPMENT.md) 里的自检/冒烟数字必须一致；改断言数时按 DEVELOPMENT 的「测试分层」清单逐处更新。
+- **数字要同步**：README 徽章、CHANGELOG、脚本内注释、[docs/DEVELOPMENT.md](DEVELOPMENT.md) 里的自检/冒烟数字必须一致；改断言数时按 DEVELOPMENT 的「测试分层」清单逐处更新。
 - **相对链接必须能打开**：本地文档之间用相对路径（如 `DEVELOPMENT.md`、`../SECURITY.md`），不要写死分支或提交 URL；`node tools/check-docs.mjs` 会检查文件是否存在、`.md` 锚点是否存在。
 - **命令按最终结构写**：测试脚本在 `tests/`，构建/检查工具在 `tools/`；门禁命令以 `package.json` 的 scripts 为准，不要手抄旧路径。
 - **设置类内容标注状态**：GitHub 网页设置无法由代码保证，涉及仓库设置时写“建议/需人工确认”，不要声称已经配置。

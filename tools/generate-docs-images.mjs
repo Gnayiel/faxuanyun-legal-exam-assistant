@@ -81,8 +81,12 @@ function socialFilters(theme) {
     const digitFg = light ? '0x1f2a44' : '0xe7edf7';
     const label = 'v' + version;
     return [
-        text(label, 1110, 59, 11, badgeFg, badgeBg),
-        text(label, 461, 572, 10, footerFg, footerBg),
+        // 版本号长度会随版本变化（2.0.22 → 3.0.0 少一个字符），只盖新文字会
+        // 留下旧版本末位。先用与徽章底色接近的色块清掉整段旧文字，再画新字。
+        fill(1108, 56, 60, 20, badgeBg),
+        text(label, 1110, 59, 11, badgeFg),
+        fill(459, 570, 60, 18, footerBg),
+        text(label, 461, 572, 10, footerFg),
         text(count, 439, 372, 18, digitFg, digitBg),
     ].join(',');
 }
@@ -91,7 +95,9 @@ function socialFilters(theme) {
 function panelFilters() {
     const digits = `${count}/${count}`;
     return [
-        text('v' + version, 458, 51, 21, '0xc7d2e3', '0x1a1f28'),
+        // 同上：先清掉整段旧版本，避免 2.0.22 → 3.0.0 留下末位残影。
+        fill(454, 52, 98, 27, '0x19202b'),
+        text('v' + version, 458, 51, 21, '0xc7d2e3'),
         text(digits, 307, 1032, 20, '0xd8e2d2', '0x0d1117'),
         // 只重写数字后的中文，保留原日志时间戳；字体用中文字体，避免方框。
         draw(cjkFont, '项通过', 410, 1031, 20, '0xd8e2d2', '0x0d1117'),

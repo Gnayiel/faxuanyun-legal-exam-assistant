@@ -13,7 +13,7 @@ README 使用的三张图：
 npm run docs:images
 
 # 或显式指定
-node tools/generate-docs-images.mjs --version 2.0.22 --count 193
+node tools/generate-docs-images.mjs --version 3.0.0 --count 193
 ```
 
 依赖：`ffmpeg`、DejaVu Sans Bold、Droid Sans Fallback（可用 `FX_FONT` / `FX_CJK_FONT` / `FFMPEG` 覆盖路径）。脚本只在本地手动运行，不进入 CI。

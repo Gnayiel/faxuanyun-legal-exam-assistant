@@ -45,7 +45,7 @@ README 已链接架构、开发、发版、仓库设置与支持文档；改仓�
 
 - Target：`main`（默认分支）。
 - 要求通过 pull request 合并；是否要求 1 个 approval 取决于是否有第二维护者——单人仓库可设为 0，但若目标是让 CI 成为服务端门禁，**必须**同时勾选 required status checks。
-- Required checks：`selftest (22)` 与 `selftest (24)`（`selftest.yml` 的 Node 22/24 矩阵；22 跑完整 9 步，24 跑快速 6 步，check-run 名称不变。不要写成 `自检 / selftest (22)`，那只是“workflow 名 / job 名”的展示串，不是 required check 的实际名称）。
+- Required checks：`selftest (22)` 与 `selftest (24)`（`selftest.yml` 的 Node 22/24 矩阵；22 跑完整 8 步，24 跑快速 6 步，check-run 名称不变。不要写成 `自检 / selftest (22)`，那只是“workflow 名 / job 名”的展示串，不是 required check 的实际名称）。
 - 阻止 force push、阻止删除分支。
 - 要求对话解决（Require conversation resolution）后再合并。
 - 允许 bypass：仅仓库 owner，且明确知道在做什么时使用；日常不要绕过。

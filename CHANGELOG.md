@@ -15,7 +15,9 @@
 
 ---
 
-## 未发布
+## v3.0.0
+
+**2026-10-21**
 
 ### 修复
 
@@ -37,20 +39,25 @@
 - **文档链接门禁**：新增 `tools/check-docs.mjs`，检查相对链接、Markdown 标题锚点与 HTML 本地
   `src` / `href`；接入 `npm run check` 与统一门禁。
 - **仓库元数据**：`package.json` 补齐 `author` / `repository` / `homepage` / `bugs` / `keywords`；
-  新增 `.github/CODEOWNERS`（`* @Gnayiel`）与 `tests/README.md`。
+  新增 `.github/CODEOWNERS`（`* @Gnayiel`）；测试目录说明并入 `docs/DEVELOPMENT.md`。
 - **社区模板补全**：新增 `.github/ISSUE_TEMPLATE/feature_request.yml`，`config.yml` 把功能建议、
   使用问题与安全报告分流到不同入口；README / CONTRIBUTING / SUPPORT / 仓库设置文档同步。
 - **仓库状态文档校准**：明确 `protect-main` 当前未启用 required checks、main 仍可直接 push；
   required check 名改为实际的 `selftest (22)` / `selftest (24)`；CodeQL default setup 已启用，
   不再建议另加 `codeql.yml`；补充 immutable releases 下不能 `--clobber` 重跑、只能发新 patch 的说明；
   innerHTML 约定改为「静态骨架可用，动态数据一律 textContent」。
-- **CI 双车道**：Node 22 跑完整 9 步（含浏览器冒烟），Node 24 跑快速 6 步，check-run 名称保持
+- **CI 双车道**：Node 22 跑完整 8 步（含浏览器冒烟），Node 24 跑快速 6 步，check-run 名称保持
   `selftest (22)` / `selftest (24)`，避免重复启动两次 Chromium。
 - **自动更新主版本守卫**：`tests/selftest.mjs` 与 `tools/release.mjs --check-ci` 都检查 `@updateURL`
   的 `@N` 与 `@version` 主版本一致；升级桥必须带显式 `// fx-bridge-to N` 且版本主版本更小。
   `release.yml` 的镜像提示从实际 URL 提取别名，不再写死 `@2`。
 - **归档与设置文档校准**：移除 `docs/CHANGELOG-archive.md` 指向自身的链接；仓库设置文档把
   Description / Website / Topics 的当前值与建议值分开，避免把建议写成已配置。
+- **发布工具与自动合并**：`release.mjs` 的推送提示改为 `git push origin HEAD:main`，从任意提交发版
+  都推当前 HEAD，升级桥不会误推本地 main；Dependabot 自动合并改为等待 PR 的全部 checks，不再依赖
+  required checks。
+- **移除一次性回填工具**：历史 Release 回填已完成，删除 `tools/backfill-release-notes.mjs` 及其
+  CI 自测；统一门禁由 9 步精简为 8 步，`--no-browser` 跳过后两步。
 
 ### 测试
 
@@ -65,7 +72,7 @@
 
 ### 验证方式
 
-- `npm run ci` 9 步全过：selftest 193/193、check-data 299 题、merge-smoke 17/17、panel 42/42（**42 项断言全部通过**）、page 135/135（**135 项断言全部通过**）。
+- `npm run ci` 8 步全过：selftest 193/193、check-data 299 题、merge-smoke 17/17、panel 42/42（**42 项断言全部通过**）、page 135/135（**135 项断言全部通过**）。
 - `node tests/page-smoke.mjs --require-browser` 单独复跑：135/135（11 个用例）。
 
 ## v2.0.22

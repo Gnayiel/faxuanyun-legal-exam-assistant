@@ -70,7 +70,7 @@ node tools/page-smoke.mjs --require-browser  # 真实浏览器页面适配冒烟
   然后按提示推送 `main` 与这一版的 `vX.Y.Z` tag（不要一次推所有 tag），由 `release.yml` 校验 tag 与 `@version` 一致、CHANGELOG 章节非空后自动建 Release，并在发布后回读附件复算 SHA256。
 - 面板里**「自检」（`Alt + T`）**是同一批断言，失败项会逐条写进日志。
 - CI：`.github/workflows/selftest.yml` 在 push 到 `main`、以及每个 PR 上跑上面的检查（含面板冒烟与页面适配冒烟，也可手动触发）；
-  推送 `v*` tag 时 `.github/workflows/release.yml` 自动跑同样的门禁（另加 `merge-bank` 与两种浏览器冒烟）并创建 Release、上传 `.user.js` 与同名 `.sha256`（发布前校验 tag 与 `@version` 一致、CHANGELOG 章节非空；发布后回读 Release 校验附件数与 SHA256，再用 raw 上 `main` 的脚本核对 `@version` 与 latest tag，并主动 purge 一次 jsDelivr 缓存、尽力确认镜像也已刷新）。
+  推送 `v*` tag 时 `.github/workflows/release.yml` 自动跑同样的门禁（另加 `merge-smoke`，其中会调用 `merge-bank`；以及两种浏览器冒烟）并创建 Release、上传 `.user.js` 与同名 `.sha256`（发布前校验 tag 与 `@version` 一致、CHANGELOG 章节非空；发布后回读 Release 校验附件数与 SHA256，再用 raw 上 `main` 的脚本核对 `@version` 与 latest tag，并主动 purge 一次 jsDelivr 缓存、尽力确认镜像也已刷新）。
   环境固定为 `ubuntu-24.04` + Node 22，第三方 action 全部固定到 commit SHA，由 Dependabot 每周开 PR 升级。
 
 改动前请留意两点：

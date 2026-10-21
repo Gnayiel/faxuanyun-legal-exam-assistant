@@ -79,9 +79,10 @@
      [`faxuanyun-legal-exam-assistant.user.js`](faxuanyun-legal-exam-assistant.user.js) 再点 **Raw**。
    - 国内多数网络下 github.com / raw.githubusercontent.com 不通，改用 jsDelivr 固定版本直链（把 `vX.Y.Z`
      换成 [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 里的最新标签，
-     例如 `v2.0.17`）——地址与内容一一对应，装到的一定是那个版本：
+     例如 `v2.0.18`）——地址与内容一一对应，装到的一定是那个版本：
      `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@v2.0.18/faxuanyun-legal-exam-assistant.user.js`
-   - 想省事、不介意 CDN 缓存可能稍滞后时，可用 jsDelivr 的 `@2` 主版本别名直链（当前解析到最新 2.x）：
+   - 想省事、不介意 CDN 缓存可能稍滞后时，可用 jsDelivr 的 `@2` 主版本别名直链（通常指向最新 2.x，
+     实际受边缘缓存影响可能滞后；以固定标签链接为准）：
      `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@2/faxuanyun-legal-exam-assistant.user.js`
    - 上述都不通时，用 `gcore.jsdelivr.net` / `testingcf.jsdelivr.net` 替换主机名；`cdn.jsdelivr.net` 在国内多被重置。
    - ⚠️ 镜像路径**区分大小写**，请照抄 `Gnayiel`。

@@ -1,3 +1,15 @@
+## v2.0.20
+
+### 修复
+
+- **保存答案后保持索引有效**：`saveCorrect()` / `saveUserAnswer()` / `upgradeKey()` 改用 `bankIndexAdd()` 增量更新 12 字前缀索引，不再每次 `bankVer++` 让索引整表失效；自动答题连续作答时不会每题重建索引。
+- **文档**：CONTRIBUTING 的 fixture 说明由 6 个更正为 8 个。
+
+### 验证方式
+
+- `npm run ci` 8 步全过：selftest 190/190、check-data 299 题、merge-smoke 17/17、panel 40/40、**103 项断言全部通过**，check-syntax / check-workflows / 回填脚本自测正常。
+- `node tools/release.mjs --check-ci v2.0.20` 通过。
+
 ## v2.0.19
 
 ### 变更

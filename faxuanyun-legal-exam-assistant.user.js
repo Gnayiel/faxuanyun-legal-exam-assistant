@@ -861,13 +861,33 @@
     }
 
     // 按钮定位缓存：题库/面板轮询会反复找「下一题」「交卷」，每次全页 querySelectorAll
-    // 在大页面上是纯浪费。用 MutationObserver 递增版本号，DOM 一变就重建；定时器文字刷新
-    // 本身也会改 DOM，但按钮数量有限，重建成本远低于每个动作都全页扫描。
+    // 在大页面上是纯浪费。用 MutationObserver 递增版本号，只关心按钮本身的增删/文字变化；
+    // 考试页倒计时每秒刷新的是普通文本，不应让缓存整表作废。
     let domVer = 0, domObserver = null, btnCache = null;
+    function mutationTouchesClickable(m) {
+        try {
+            if (m.type === 'characterData') {
+                const p = m.target && m.target.parentElement;
+                return !!(p && p.closest && p.closest(SEL.clickable));
+            }
+            const target = m.target;
+            if (target && target.nodeType === 1 && target.closest && target.closest(SEL.clickable)) return true;
+            const nodes = [...(m.addedNodes || []), ...(m.removedNodes || [])];
+            for (const n of nodes) {
+                if (!n || n.nodeType !== 1) continue;
+                if ((n.matches && n.matches(SEL.clickable)) || (n.querySelector && n.querySelector(SEL.clickable))) return true;
+            }
+        } catch (e) {
+            return true;   // 节点结构异常时宁可重建，不返回过期缓存
+        }
+        return false;
+    }
     function ensureDomObserver() {
         if (domObserver || typeof MutationObserver === 'undefined') return;
         try {
-            domObserver = new MutationObserver(() => { domVer++; });
+            domObserver = new MutationObserver(list => {
+                if (list.some(mutationTouchesClickable)) domVer++;
+            });
             domObserver.observe(document.documentElement || document, { childList: true, subtree: true, characterData: true });
         } catch (e) {
             domObserver = null;

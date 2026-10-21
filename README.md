@@ -1,6 +1,6 @@
 # 甘肃省国家工作人员学法考试平台自动答题助手
 
-[![version](https://img.shields.io/badge/version-2.0.18-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.19-blue)](CHANGELOG.md)
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
@@ -79,8 +79,8 @@
      [`faxuanyun-legal-exam-assistant.user.js`](faxuanyun-legal-exam-assistant.user.js) 再点 **Raw**。
    - 国内多数网络下 github.com / raw.githubusercontent.com 不通，改用 jsDelivr 固定版本直链（把 `vX.Y.Z`
      换成 [Releases](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest) 里的最新标签，
-     例如 `v2.0.18`）——地址与内容一一对应，装到的一定是那个版本：
-     `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@v2.0.18/faxuanyun-legal-exam-assistant.user.js`
+     例如 `v2.0.19`）——地址与内容一一对应，装到的一定是那个版本：
+     `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@v2.0.19/faxuanyun-legal-exam-assistant.user.js`
    - 想省事、不介意 CDN 缓存可能稍滞后时，可用 jsDelivr 的 `@2` 主版本别名直链（通常指向最新 2.x，
      实际受边缘缓存影响可能滞后；以固定标签链接为准）：
      `https://fastly.jsdelivr.net/gh/Gnayiel/faxuanyun-legal-exam-assistant@2/faxuanyun-legal-exam-assistant.user.js`
@@ -329,6 +329,6 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 
 ## 更新记录
 
-当前版本 **v2.0.18**（2026-10-21）：修复 `A,B` / `A、B` 字母答案在导入与解析链路上的回归；收起态保留「开始/停止」入口；沿用 `@2` 更新别名与运行代际/中止机制。
+当前版本 **v2.0.19**（2026-10-21）：题库等价查找改用 12 字前缀索引，按钮定位接入 DOM 版本缓存，答题卡解析限定容器并保留全页回退；落盘改用 Web Locks（带超时软锁兜底）；新增跨页持久化与停止/重开冒烟。
 
 每一项改动的说明与验证方式见 [CHANGELOG.md](CHANGELOG.md)，更早版本在 [CHANGELOG-archive.md](CHANGELOG-archive.md)。

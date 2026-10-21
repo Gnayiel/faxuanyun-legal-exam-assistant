@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.18
+// @version      2.0.19
 // @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 190 项内置自检
 // @author       Gnayiel
 // @license      MIT
@@ -860,27 +860,58 @@
             ? labels.slice(-3).join('.') : labels.slice(-2).join('.');
     }
 
+    // 按钮定位缓存：题库/面板轮询会反复找「下一题」「交卷」，每次全页 querySelectorAll
+    // 在大页面上是纯浪费。用 MutationObserver 递增版本号，DOM 一变就重建；定时器文字刷新
+    // 本身也会改 DOM，但按钮数量有限，重建成本远低于每个动作都全页扫描。
+    let domVer = 0, domObserver = null, btnCache = null;
+    function ensureDomObserver() {
+        if (domObserver || typeof MutationObserver === 'undefined') return;
+        try {
+            domObserver = new MutationObserver(() => { domVer++; });
+            domObserver.observe(document.documentElement || document, { childList: true, subtree: true, characterData: true });
+        } catch (e) {
+            domObserver = null;
+            safeWarn('按钮缓存 DOM 监听', e);
+        }
+    }
+    function buildButtonCache() {
+        const cand = [], exact = new Map();
+        for (const el of document.querySelectorAll(SEL.clickable)) {
+            // 不在建缓存时过滤 disabled：按钮可能在之后被平台启用（属性变化不触发 childList 观察），
+            // 这里先收进来，实际查找时再判 disabled/可见性。
+            const t = elText(el);
+            if (!t) continue;
+            cand.push({ el, t });
+            if (!exact.has(t)) exact.set(t, []);
+            exact.get(t).push({ el, t });
+        }
+        return { ver: domVer, cand, exact };
+    }
+    function pickButton(cand, exact, labels, exclude) {
+        const blocked = c => exclude.some(x => c.t.includes(x));
+        for (const lb of labels) {
+            const arr = exact.get(lb);
+            if (!arr) continue;
+            for (const c of arr) if (!c.el.disabled && !blocked(c) && isVisible(c.el)) return c.el;
+        }
+        for (const lb of labels) {
+            for (const c of cand) if (!c.el.disabled && !blocked(c) && c.t.includes(lb) && isVisible(c.el)) return c.el;
+        }
+        return null;
+    }
+
     /** 按钮定位：优先文本全等，再退到包含；支持 a / button / input */
     function findButton(labels, exclude = []) {
         // 用 isVisible——固定底栏里的「下一题 / 交卷」会被 offsetParent 判成不可见，
         // 于是脚本报「未找到下一题按钮」提前收工。
-        // 先按文本粗筛、再对候选判可见：isVisible 会触发 layout，页面大时逐个过滤全页元素会明显卡顿。
-        const cand = [];
-        for (const el of document.querySelectorAll(SEL.clickable)) {
-            if (el.disabled) continue;
-            const t = elText(el);
-            if (!t || exclude.some(x => t.includes(x))) continue;
-            cand.push({ el, t });
+        ensureDomObserver();
+        const cacheable = !!domObserver;
+        if (!cacheable) {
+            const fresh = buildButtonCache();
+            return pickButton(fresh.cand, fresh.exact, labels, exclude);
         }
-        for (const lb of labels) {
-            const hit = cand.find(c => c.t === lb && isVisible(c.el));
-            if (hit) return hit.el;
-        }
-        for (const lb of labels) {
-            const hit = cand.find(c => c.t.includes(lb) && isVisible(c.el));
-            if (hit) return hit.el;
-        }
-        return null;
+        if (!btnCache || btnCache.ver !== domVer) btnCache = buildButtonCache();
+        return pickButton(btnCache.cand, btnCache.exact, labels, exclude);
     }
 
     /**
@@ -1358,15 +1389,31 @@
      * 以前是先淘汰再合并，刚淘汰的条目立刻被盘上副本搬回来，于是容量上限形同虚设，
      * 「答错删掉库里的错答案」也永远删不掉。
      */
-    let flushRetryTimer = null, flushFailStreak = 0;
-    function flushBank() {
-        if (!dirty) return;
-        // 抢写锁：别的标签页正在落盘时先让路，稍后自动重试（脏标记还在，数据不丢）
-        if (!acquireWriteLock()) {
-            if (CONFIG.debug) dbg('检测到另一标签页正在写库，稍后重试');
-            if (!flushRetryTimer) flushRetryTimer = setTimeout(() => { flushRetryTimer = null; flushBank(); }, 800);
-            return;
+    let flushRetryTimer = null, flushFailStreak = 0, flushInFlight = false;
+
+    function scheduleFlush(delay) {
+        if (!dirty || flushRetryTimer) return;
+        flushRetryTimer = setTimeout(() => { flushRetryTimer = null; flushBank(); }, delay);
+    }
+
+    function flushBankError(e) {
+        // 配额满/存储异常时不再每 2 秒刷屏：前两次完整提示，之后按指数退避并降频记录
+        flushFailStreak++;
+        const msg = `题库落盘失败：${(e && e.message) || e}`;
+        if (flushFailStreak <= 2) {
+            log(msg + '（将自动重试；若持续失败请在面板导出备份后清理存储）');
+            notify(`题库写入失败：${(e && e.message) || e}（会自动重试）`, 'error');
+        } else if (flushFailStreak % 5 === 0) {
+            log(`⚠ ${msg}（已重试 ${flushFailStreak} 次，仍在退避重试）`);
         }
+    }
+
+    /** 真正的「读盘合并 → 写盘」；调用方必须已持锁（Web Lock 或软锁） */
+    function flushBankNow() {
+        if (!dirty) return;
+        // 先消费当前脏标记，再写盘：写盘期间新产生的作答会把 dirty 重新置 true，
+        // 写完后不能被这里的 dirty=false 覆盖掉（Web Locks 下写盘可能等待，窗口比同步软锁更长）。
+        dirty = false;
         try {
             refreshTombstones();   // 另一标签页刚写的墓碑要先读到，否则会把对方删掉的键又搬回来
             if (bankCache) {
@@ -1391,25 +1438,88 @@
                 pendingWrongDeletes.clear();
                 if (fw) log(`🔄 已并入其它标签页写入的 ${fw} 条错题记录（多标签页保护）`);
             }
-            dirty = false;
             flushFailStreak = 0;
         } catch (e) {
-            // 配额满/存储异常时不再每 2 秒刷屏：前两次完整提示，之后按指数退避并降频记录
-            flushFailStreak++;
-            const msg = `题库落盘失败：${(e && e.message) || e}`;
-            if (flushFailStreak <= 2) {
-                log(msg + '（将自动重试；若持续失败请在面板导出备份后清理存储）');
-                notify(`题库写入失败：${(e && e.message) || e}（会自动重试）`, 'error');
-            } else if (flushFailStreak % 5 === 0) {
-                log(`⚠ ${msg}（已重试 ${flushFailStreak} 次，仍在退避重试）`);
-            }
+            dirty = true;          // 写失败：保留脏标记，交给重试
+            throw e;
+        }
+    }
+
+    /** 持锁写一次；抢不到软锁就排一次短重试（脏标记还在，数据不丢） */
+    function flushBankLocked() {
+        if (!dirty) return;
+        if (!acquireWriteLock()) {
+            if (CONFIG.debug) dbg('检测到另一标签页正在写库，稍后重试');
+            scheduleFlush(800);
+            return;
+        }
+        try {
+            if (dirty) flushBankNow();
         } finally {
             releaseWriteLock();
+        }
+    }
+
+    /**
+     * 落盘：优先用 Web Locks（navigator.locks）做真正的跨标签页互斥；
+     * 不支持时退回带过期时间的软锁。软锁仍是「读-改-写」窗口尽量缩小的尽力而为，
+     * 但 Web Locks 可用时，同一 origin 的 flush 会排队执行，不再依赖时序运气。
+     * 注意：读-改-写仍不是数据库事务；极端情况下（平台存储本身丢写）无法完全避免。
+     */
+    async function flushBank() {
+        if (!dirty || flushInFlight) return;
+        flushInFlight = true;
+        try {
+            const locks = (typeof navigator !== 'undefined' && navigator.locks
+                && typeof navigator.locks.request === 'function') ? navigator.locks : null;
+            if (locks) {
+                // request 的回调返回前锁一直持有；这里同步完成写盘，释放后下一个标签页才进来。
+                // 无头/虚拟时间环境或极端排队时，锁可能长时间不授予；超时后退回软锁，
+                // 保证作答不会因为「等不到锁」而永远不落盘（软锁仍能挡住同时写）。
+                const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+                let lockTimer = null;
+                try {
+                    if (ctrl) {
+                        lockTimer = setTimeout(() => { try { ctrl.abort(); } catch (e) { /* 已结束 */ } }, 1200);
+                        await locks.request('fx-question-bank-write', { signal: ctrl.signal }, () => flushBankLocked());
+                    } else {
+                        await locks.request('fx-question-bank-write', () => flushBankLocked());
+                    }
+                } catch (e) {
+                    if (e && e.name === 'AbortError') {
+                        // 锁已从队列移除，不会再回调；这里补写一次（抢不到软锁会自行排重试）
+                        flushBankLocked();
+                    } else {
+                        throw e;
+                    }
+                } finally {
+                    if (lockTimer) clearTimeout(lockTimer);
+                }
+            } else {
+                flushBankLocked();
+            }
+        } catch (e) {
+            flushBankError(e);
+        } finally {
+            flushInFlight = false;
             // 写失败/中途又变脏：指数退避重试（2s → 4s → … 最长 30s），避免配额满时疯狂刷日志
             if (dirty && !flushRetryTimer) {
                 const delay = Math.min(30000, 2000 * Math.pow(2, Math.min(4, Math.max(0, flushFailStreak - 1))));
-                flushRetryTimer = setTimeout(() => { flushRetryTimer = null; flushBank(); }, delay);
+                scheduleFlush(delay);
             }
+        }
+    }
+
+    /**
+     * 页面关闭/切后台的同步落盘：unload 阶段来不及 await Web Locks，
+     * 只能用软锁抢一次；抢不到就留给下次启动时的合并逻辑，至少不阻塞关闭。
+     */
+    function flushBankSync() {
+        if (!dirty) return;
+        try {
+            flushBankLocked();
+        } catch (e) {
+            flushBankError(e);
         }
     }
 
@@ -1499,6 +1609,7 @@
      * 用于把「同一题因截断长度不同」产生的重复条目归并成一条。
      * 改为「前缀等价 + 唯一命中」——旧实现返回第一个命中，
      * 链式前缀（A⊂B⊂C）时结果取决于键的插入顺序，会把两道题合并到不同目标上。
+     * 用 bankIndex() 的 12 字桶先缩候选：任何前缀等价的题干都必然落在同一桶里。
      */
     function findEquivalent(q) {
         const b = ensureBank();
@@ -1506,14 +1617,32 @@
         if (b[nk]) return nk;
         const nq = normStem(q);
         if (!nq) return null;
+        // 题干不足 12 字时无法用桶覆盖「更长且以它为前缀」的条目；这种情况极少，
+        // 退回全表扫描，保证短题干也能唯一归并。
+        const candidates = nq.length >= IDX_LEN
+            ? (bankIndex().get(nq.slice(0, IDX_LEN)) || [])
+            : Object.keys(b);
         let hit = null, n = 0;
-        for (const [k, e] of Object.entries(b)) {
+        for (const k of candidates) {
+            const e = b[k];
+            if (!e) continue;                    // 索引里可能残留刚被淘汰/改键的旧键
             if (!prefixSame(e.q || k, nq)) continue;
             n++;
             const len = normStem(e.q || k).length;
             if (!hit || len > hit.len) hit = { k, len };
         }
         return n === 1 ? hit.k : null;
+    }
+
+    /** 导入过程中增量维护前缀索引：缓存已建好时把新键补进对应桶，避免逐行重建整个索引 */
+    function bankIndexAdd(key, e) {
+        if (!idxCache || idxVer !== bankVer) return;   // 没有缓存时下次 bankIndex() 自然包含
+        const nq = normStem((e && e.q) || key);
+        if (nq.length < 4) return;
+        const p = nq.slice(0, IDX_LEN);
+        if (!idxCache.has(p)) idxCache.set(p, []);
+        const arr = idxCache.get(p);
+        if (!arr.includes(key)) arr.push(key);
     }
 
     /** 是否是「同一题的不同长度版本」：短的是长的前缀且达到 prefixMatchMin 字（抽出复用） */
@@ -2239,6 +2368,7 @@
             }
             const k = fpKey(q);
             b[k] = blankEntry({ q, t: type, a: incA, l: incL, src: byUser ? 'user' : 'import', by: byUser ? 'user' : '', ok: 0 });
+            bankIndexAdd(k, b[k]);
             if (byUser) userCount++;
             mergeWrong(wb, k, q, wr);
             added++;
@@ -2416,6 +2546,7 @@
                     l: isLett ? lettersOf(ans) : (isJudge ? ans.toUpperCase() : (v.l || '')),
                     src: v.src || 'import',
                 });
+            bankIndexAdd(nk, b[nk]);
             added++;
             protect.add(nk);
             } catch (e) {
@@ -4409,6 +4540,47 @@
     }
 
     /**
+     * 答题卡容器候选：优先只扫这些子树，避免整页几千个节点。
+     * 平台改版/自定义皮肤匹配不到时，collectResult 会回退到全页扫描，功能不变。
+     */
+    const RESULT_CARD_SELECTOR = '.answer-card, .answerCard, .answer_card, .answer-sheet, .answerSheet,'
+        + ' [class*="answer-card"], [class*="answerCard"], [class*="answer_card"],'
+        + ' [id*="answerCard"], [id*="answer-card"], [class*="答题卡"], [id*="答题卡"]';
+
+    function resultCardScopes(roots) {
+        const out = [], seen = new Set();
+        for (const root of roots) {
+            let list;
+            try { list = root.querySelectorAll(RESULT_CARD_SELECTOR); } catch (e) { list = []; }
+            for (const el of list) {
+                if (seen.has(el)) continue;
+                seen.add(el);
+                out.push(el);
+            }
+        }
+        return out;
+    }
+
+    function collectNumberCells(scopes) {
+        const cells = [], seen = new Set();
+        for (const root of scopes) {
+            for (const el of root.querySelectorAll(CONFIG.resultScanSelector)) {
+                // 性能：先用原始 textContent 排除绝大多数非数字节点（长文本 / 空节点），
+                // 只对短文本做归一化与可见性判断，避免整页几千个节点都跑一遍正则。
+                const raw = el.textContent;
+                if (!raw || raw.length > 40) continue;
+                const n = cellNumberText(raw.trim());
+                if (!n) continue;                       // 不是题号格子，排除 "10/10"、分数、页码
+                if (seen.has(el)) continue;
+                if (!isVisible(el)) continue;
+                seen.add(el);
+                cells.push({ el, n });
+            }
+        }
+        return cells;
+    }
+
+    /**
      * 扫答题卡，逐题判定
      * 题号上限提到 500，数字允许 1~3 位，可见性判断也不再只认 offsetParent，
      * 结果落在 { 题号: 'correct' | 'wrong' | 'unanswered' }
@@ -4420,18 +4592,11 @@
         const seen = {};
         const rank = { unanswered: 1, wrong: 2, correct: 3 };
         // 1) 先收集「整段文本就是一个数字」的可见元素（答题卡格子）
-        const cells = [];
-        for (const root of roots) {
-            for (const el of root.querySelectorAll(CONFIG.resultScanSelector)) {
-                // 性能：先用原始 textContent 排除绝大多数非数字节点（长文本 / 空节点），
-                // 只对短文本做归一化与可见性判断，避免整页几千个节点都跑一遍正则。
-                const raw = el.textContent;
-                if (!raw || raw.length > 40) continue;
-                const n = cellNumberText(raw.trim());
-                if (!n) continue;                       // 不是题号格子，排除 "10/10"、分数、页码
-                if (!isVisible(el)) continue;
-                cells.push({ el, n });
-            }
+        const cardScopes = resultCardScopes(roots);
+        let cells = cardScopes.length ? collectNumberCells(cardScopes) : [];
+        if (!cells.length) {
+            if (cardScopes.length) dbg(`答题卡容器内没找到题号格子，回退全页扫描（${cardScopes.length} 个容器）`);
+            cells = collectNumberCells(roots);
         }
         if (!cells.length) {
             dbg(`答题卡扫描：${roots.length} 个文档里没找到题号格子`);
@@ -7539,7 +7704,7 @@
     }
 
     // 页面关闭/切后台时把未落盘的改动写回，避免丢数据
-    const flushOnExit = () => { saveSession(); flushBank(); };
+    const flushOnExit = () => { saveSession(); flushBankSync(); };
     window.addEventListener('beforeunload', flushOnExit);
     window.addEventListener('pagehide', flushOnExit);
     document.addEventListener('visibilitychange', () => { if (document.hidden) flushOnExit(); });

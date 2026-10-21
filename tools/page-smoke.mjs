@@ -188,9 +188,15 @@ function driverScript(cfg) {
       // 自动答题只写 pendingSession；再模拟一次手动作答，让题库落盘后断言只有一条。
       var raceOpt = document.querySelector('input[name="option"][value="A"]');
       if (raceOpt) raceOpt.click();
-      await sleep(500);
+      // 落盘是异步的（Web Locks 需要排队），等脏数据真正写进 GM 存储再断言，避免固定 sleep 竞态。
+      try {
+        await waitFor(function () {
+          return Object.keys(window.__store.get('questionBank') || {}).length > 0;
+        }, '停止/重开后题库落盘', 120);
+      } catch (e) { collect(); }
+      await sleep(100);
       var raceBank = window.__store.get('questionBank') || {};
-      ok('停止/重开只入库一条', Object.keys(raceBank).length === 1, '题库条数：' + Object.keys(raceBank).length);
+      ok('停止/重开只入库一条', Object.keys(raceBank).length === 1, '题库条数：' + Object.keys(raceBank).length + ' | 锁：' + JSON.stringify(window.__store.get('fxWriteLock')) + ' | ' + tail());
       ok('最终页面选中态正确（A）', currentChecked() === 'A', '实际选中：' + currentChecked());
     } else if (CFG.scenario === 'result') {
       ok('成绩页 fixture 就位（分数与弹窗答题卡）', !!document.querySelector('.layui-layer .answer-card'));

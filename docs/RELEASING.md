@@ -30,6 +30,7 @@
 4. **发版门禁自检**：`node tools/release.mjs --check-ci vx.y.z`，确认输出通过。该命令校验 tag 字符串与 `@version` 一致、CHANGELOG 对应章节非空，并打印脚本体积。
 5. **工作区干净**：`git status --porcelain` 为空；本地 `main` 与 `origin/main` 同步，且 `origin/main` 是当前 HEAD 的祖先。
 6. **体积检查**：脚本预算 512 KB，`selftest` 会做硬断言；`release.mjs --check-ci` 会打印实际 KB，接近上限时先确认不是误引入大段数据。
+7. **外链与来源**：`npm run check:external -- --strict` 检查文档外链（需要网络，默认不进门禁）；发版 workflow 会自动为 `.user.js` 生成 GitHub 构建来源证明，发布后在 Release 页可见。
 
 离线预检可以用 `node tools/release.mjs --dry-run`：它只做检查、不创建 tag、不联网，工作区脏时也只告警。
 
@@ -81,21 +82,26 @@ Host github.com
 
 ## release.yml 做什么
 
-推送 `v*` tag 会触发 `.github/workflows/release.yml`（workflow 名「发版」）。它按固定顺序执行：
+推送 `v*` tag 会触发 `.github/workflows/release.yml`（workflow 名「发版」）。workflow 拆成两个 job：
 
-| 步骤 | 内容 | 失败后果 |
-| --- | --- | --- |
-| 1. 校验 tag 与版本 / CHANGELOG | `node tools/release.mjs --check-ci "$TAG"`：tag 必须等于 `@version`，CHANGELOG 章节必须非空 | 不创建 Release，tag 保留 |
-| 2. 发版前自检 | `npm run ci`：与本地相同的 8 步统一门禁 | 不创建 Release，tag 保留 |
-| 3. 生成校验和与发布说明 | `sha256sum` 生成同名 `.sha256`；用 `awk` 抽取 CHANGELOG 正文并校验非空；拼装安装/更新、体积（预算 512 KB）与校验和 | 中止，不创建 Release |
-| 4. 创建或更新 Release | `gh release create`，或对已存在的 Release `edit --draft=false` + `upload --clobber`；上传 `.user.js` 与 `.sha256` 两个附件 | Release 可能已存在，修好后重跑；未开启 immutable releases 才可用 `--clobber` 覆盖 |
-| 5. 验证 Release | 回读 `isDraft=false`、附件数为 2、下载附件、`sha256sum -c`、`cmp` 与复算校验和 | 报错并提示重跑；未开启 immutable releases 时附件会被覆盖，开启后只能发新 patch |
-| 6. 更新链校验 | 主动 purge jsDelivr；以 raw main 为权威重试 6 次 × 20 秒；镜像未刷新只告警；latest Release 必须指向本 tag | raw 未跟上或 latest 不对会红 |
+- `verify`（只读）先跑 tag/版本/CHANGELOG 门禁与完整自检；失败时 `release` 不会启动。
+- `release`（`needs: verify`，只在发布 job 内申请最小写权限）生成校验和、发布 Release、回读校验与更新链检查。
+
+| 步骤 | job | 内容 | 失败后果 |
+| --- | --- | --- | --- |
+| 1. 校验 tag 与版本 / CHANGELOG | verify | `node tools/release.mjs --check-ci "$TAG"`：tag 必须等于 `@version`，CHANGELOG 章节必须非空 | 不创建 Release，tag 保留 |
+| 2. 发版前自检 | verify | `npm run ci`：与本地相同的 8 步统一门禁 | 不创建 Release，tag 保留 |
+| 3. 生成校验和与发布说明 | release | `sha256sum` 生成同名 `.sha256`；用 `awk` 抽取 CHANGELOG 正文并校验非空；拼装安装/更新、体积（预算 512 KB）与校验和 | 中止，不创建 Release |
+| 4. 生成构建来源证明 | release | `actions/attest-build-provenance` 对 `.user.js` 生成 GitHub 构建来源证明（`subject-path`），便于追溯附件由本仓库 workflow 产出 | 中止；不会发布无证明版本 |
+| 5. 创建或更新 Release | release | `gh release create`，或对已存在的 Release `edit --draft=false` + `upload --clobber`；上传 `.user.js` 与 `.sha256` 两个附件 | Release 可能已存在，修好后重跑；未开启 immutable releases 才可用 `--clobber` 覆盖 |
+| 6. 验证 Release | release | 回读 `isDraft=false`、附件数为 2、下载附件、`sha256sum -c`、`cmp` 与复算校验和 | 报错并提示重跑；未开启 immutable releases 时附件会被覆盖，开启后只能发新 patch |
+| 7. 更新链校验 | release | 主动 purge jsDelivr；以 raw main 为权威重试 6 次 × 20 秒；镜像未刷新只告警；latest Release 必须指向本 tag | raw 未跟上或 latest 不对会红 |
 
 权限与并发：
 
-- 整个 workflow 只有 `contents: write`；job 在 `ubuntu-24.04` 上跑，`timeout-minutes: 15`，Node 22。
-- checkout 使用 `fetch-depth: 0` 读完整 tag 历史，并设置 `persist-credentials: false`（这个 job 不需要推代码）。
+- workflow 顶层 `permissions: contents: read`；`verify` job 继承只读；`release` job 显式声明 `contents: write`、`id-token: write`、`attestations: write`，用于创建 Release 与生成来源证明。
+- `verify` job 在 `ubuntu-24.04` 上跑，`timeout-minutes: 20`，Node 22；checkout 用 `fetch-depth: 0` 读完整 tag 历史，并设置 `persist-credentials: false`。
+- `release` job 也在 `ubuntu-24.04` 上跑，`timeout-minutes: 15`；不安装 Node，checkout 用 `fetch-depth: 1` 取 tag 快照，只执行 shell / `gh` / `sha256sum` / `curl`，并设置 `persist-credentials: false`。
 - 全局并发组 `release`，`cancel-in-progress: false`：两个 tag 同时发版会排队，不会互相覆盖 latest 与附件。
 - 所有第三方 action 都 pin 到 40 位 commit SHA，升级由 Dependabot 开 PR。
 
@@ -172,5 +178,5 @@ Host github.com
 - `protect-release-tags`：阻止 `v*` tag 被删除或改指向，是“打错不发新版”的最后一道保险；启用后重打 tag 必须先临时停用。
 - `protect-main`：**当前未启用**，main 允许直接 push；如果以后启用，应要求 PR 与自检通过，避免未过门禁的代码直接进 main。在未启用期间，发版者必须自己保证本地 `npm run ci` 已通过，不能把“CI 绿”当成服务端已拦截。
 - required checks：若启用 `protect-main`，应包含 `selftest (22)` 与 `selftest (24)` 两个实际 check-run 名称；写成 `自检 / selftest (22)` 不会命中。未启用时，这两个 job 仍会跑，但不阻止直接 push。
-- Actions 默认权限为 read、fork PR 不自动跑带 secrets 的 workflow；`release.yml` 自身声明 `contents: write`，其余 workflow 不需要写权限。
+- Actions 默认权限为 read、fork PR 不自动跑带 secrets 的 workflow；`release.yml` 的 `release` job 才声明 `contents: write` 与来源证明所需权限，其余 workflow 不需要写权限。
 - Releases 的 latest 指向、immutable releases（如可用）与附件保留策略。

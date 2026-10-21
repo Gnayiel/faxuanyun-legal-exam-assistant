@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | Description | 当前为中英双语长描述（含 “Gansu legal-study exam platform” 与 “甘肃法宣在线学法考试油猴脚本”）；`package.json` 用中文短描述 | 已配置；两者不要求逐字一致，保持中英双语便于搜索 |
 | Website | 当前为 `https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest`；可选再补 Greasy Fork 发布页 | 已配置；没有官方站点时不必编造 |
-| Topics | 当前 8 个：`automation`、`education`、`faxuanyun`、`gansu`、`llm`、`openai`、`tampermonkey`、`userscript`；建议补 `legal-exam`、`javascript`、`greasemonkey`、`ai`、`baidu`（`chinese` 可选） | 已配置 8 个；GitHub 上限 20，按需取舍，别堆无关热门标签 |
+| Topics | 当前 14 个：`ai`、`automation`、`baidu`、`chinese`、`education`、`faxuanyun`、`gansu`、`greasemonkey`、`javascript`、`legal-exam`、`llm`、`openai`、`tampermonkey`、`userscript` | 已覆盖考试、脚本管理器与中文场景；GitHub 上限 20，不建议再堆无关热门标签 |
 | Social preview | 当前 GitHub 仓库已配置社交预览（OG image 可访问）；如需更换，上传 `docs/social-preview-light.webp`（深色界面用户可换 dark 版） | 仓库已自带浅/深两张预览图；更换后请在分享卡片里预览确认 |
 | Default branch | `main` | 所有 workflow 与文档都按 `main` 写 |
 | Features → Issues | 已开启 | 需要 `bug_report.yml` 模板与 issue 检索 |
@@ -27,7 +27,7 @@ README 已链接架构、开发、发版、仓库设置与支持文档；改仓�
 
 建议在 **Settings → Actions → General** 人工确认：
 
-- **Workflow permissions**：默认选 `Read repository contents and packages permissions`。`release.yml` 在自己的 job 内声明 `contents: write`，不依赖仓库级默认写权限；`selftest.yml` 只需 `contents: read`。
+- **Workflow permissions**：默认选 `Read repository contents and packages permissions`。`release.yml` 的 `verify` job 只读，只有 `release` job 声明 `contents: write`（及来源证明所需的 `id-token` / `attestations`），不依赖仓库级默认写权限；`selftest.yml` 只需 `contents: read`。
 - **Allow GitHub Actions to create and approve pull requests**：关闭。本仓库的 workflow 不创建 PR（Dependabot 的 PR 由 Dependabot 自己开）。
 - **Fork pull request workflows**：保持默认的“需要批准后运行”，且 fork PR 不暴露 secrets——本仓库的 CI 不需要任何 secret。
 - **Artifact and log retention**：默认即可；发版附件放在 Release，不占 Actions 制品配额。

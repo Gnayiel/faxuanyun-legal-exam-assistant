@@ -79,6 +79,7 @@
 | --- | --- | --- |
 | `npm test` | `tests/selftest.mjs` + `tests/merge-smoke.mjs`：内置 193 项断言、17 项合并检查 | 否 |
 | `npm run check` | 语法、文档链接、内置自检、数据一致性、工作流、题库合并共 6 步 | 否 |
+| `npm run check:external` | 扫描文档中的 http(s) 外链并检查可达性；默认只报告，`-- --strict` 时有硬失败才退出 1 | 否（需网络） |
 | `npm run ci` | `node tools/ci.mjs`：与 CI 完全相同的 8 步统一门禁 | 是 |
 | `npm run smoke` | 只跑两个浏览器冒烟（自动带 `--require-browser`） | 是 |
 | `npm run release` | 本地发版助手：前置检查 → 统一门禁 → 打本地 tag（不 push） | 默认要（内部跑 `npm run ci`） |
@@ -95,6 +96,7 @@ node tests/page-smoke.mjs --require-browser   # 135 项断言（11 个用例，8
 node tools/check-docs.mjs                     # 文档相对链接与锚点
 node tools/check-data.mjs                     # 题库快照与 README / data/README 数字
 node tools/check-workflows.mjs                # GitHub Actions 配置
+node tools/check-external-links.mjs           # 外链可达性（需要网络；默认只报告）
 node tools/ci.mjs --no-browser                # 无浏览器环境跑门禁的前 6 步
 ```
 
@@ -102,7 +104,7 @@ node tools/ci.mjs --no-browser                # 无浏览器环境跑门禁的�
 
 ## 统一门禁
 
-`npm run ci` 就是 `node tools/ci.mjs`，本地、`selftest.yml`、`release.yml` 共用这一份清单；任何一步非零退出即整体失败，不吞异常。共 8 步，顺序固定：
+`npm run ci` 就是 `node tools/ci.mjs`，本地、`selftest.yml` 与 `release.yml` 的 `verify` job 共用这一份清单；任何一步非零退出即整体失败，不吞异常。共 8 步，顺序固定：
 
 | # | 展示名 | 实际命令 | 检查什么 | 失败先看 |
 | --- | --- | --- | --- | --- |

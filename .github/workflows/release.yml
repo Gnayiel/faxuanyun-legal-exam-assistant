@@ -1,7 +1,7 @@
 name: 发版
 
-# 推送 vX.Y.Z tag 时自动发布 Release：先做 tag/版本/CHANGELOG 门禁与全套自检，
-# 再建 Release、上传 .user.js 与同名 .sha256，最后下载远端附件复算校验和。
+# 推送 vX.Y.Z tag 时自动发布 Release：verify job 只读跑 tag/版本/CHANGELOG 门禁与全套自检，
+# release job 才拿最小写权限，建 Release、上传 .user.js/.sha256 与构建来源证明。
 # `v*` tag 受 protect-release-tags 规则集保护（不能删除 / 改指向）：tag 打错请改用新版本号；
 # 确实要重打 tag 时先临时停用该 ruleset。未开启 immutable releases 时脚本用 --clobber 覆盖附件，
 # 验证失败修好后可直接重跑本 workflow；开启 immutable releases 后不能覆盖已发布资产，只能发新 patch。
@@ -9,9 +9,9 @@ on:
   push:
     tags: ['v*']
 
-# 建 Release / 上传附件需要写权限；其余步骤用不到更多权限
+# verify 只读；release 在 job 内按需声明 contents: write + attestations/id-token。
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   # 全局串行：两个 tag 同时发版会竞争 latest Release / 校验步骤，宁可排队也不并发。
@@ -19,21 +19,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       # 第三方 action 全部 pin 到 commit SHA，升级由 Dependabot 开 PR。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           # 版本单调 / 历史比较要读完整 tag 历史，浅克隆下会退化。
           fetch-depth: 0
-          # 这个 job 只读：不把 GITHUB_TOKEN 留在 .git/config 里，少一个被后续步骤拿去推代码的面
+          # verify 只读：不把 GITHUB_TOKEN 留在 .git/config 里
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: '22'
-
       # 发版门禁 1：推送的 tag 必须正好等于脚本 // @version，且 CHANGELOG 有本版非空章节。
       # 不一致直接红，避免「v2.0.5 的 Release 里挂 2.0.4 的脚本」或空说明发布。
       - name: 校验 tag 与脚本版本 / CHANGELOG 章节
@@ -43,10 +44,24 @@ jobs:
 
       # 发版门禁 2：与 selftest.yml、本地 `npm run ci` 完全同一条命令——语法、元数据、
       # 内置断言、数据/文档数字漂移、工作流配置、题库合并冒烟与两种浏览器冒烟一次跑完。
-      # 任一失败即中止，不会产出可发布的附件（不再手抄步骤，避免本地/CI 清单漂移）。
+      # 任一失败即中止，release job 不会启动（不再手抄步骤，避免本地/CI 清单漂移）。
       - name: 发版前自检（统一门禁）
         run: npm run ci
 
+  release:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      # 发布 job 只做校验和、Release 与来源证明，不再跑 npm；浅克隆 tag 快照即可。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
       - name: 生成校验和与发布说明
         run: |
           set -euo pipefail
@@ -70,6 +85,11 @@ jobs:
             printf -- '- 脚本体积：%s KB（预算 512 KB）\n' "$(awk -v b="$size_bytes" 'BEGIN{printf "%.1f", b/1024}')"
             printf -- '- 校验和：`%s`\n' "$(cut -d' ' -f1 faxuanyun-legal-exam-assistant.user.js.sha256)"
           } > release-notes.md
+
+      - name: 生成构建来源证明
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: faxuanyun-legal-exam-assistant.user.js
 
       - name: 创建或更新 Release
         env:

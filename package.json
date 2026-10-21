@@ -10,6 +10,7 @@
   "scripts": {
     "test": "node tests/selftest.mjs && node tests/merge-smoke.mjs",
     "check": "node tools/check-syntax.mjs && node tools/check-docs.mjs && node tests/selftest.mjs && node tools/check-data.mjs && node tools/check-workflows.mjs && node tests/merge-smoke.mjs",
+    "check:external": "node tools/check-external-links.mjs",
     "merge-smoke": "node tests/merge-smoke.mjs",
     "ci": "node tools/ci.mjs",
     "smoke": "node tests/panel-smoke.mjs --require-browser && node tests/page-smoke.mjs --require-browser",

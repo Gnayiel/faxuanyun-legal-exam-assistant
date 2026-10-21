@@ -141,8 +141,7 @@ v2.0.2 起在真实油猴环境下持续验证：成绩弹窗解析、交卷后�
 │   └── workflows/
 │       ├── selftest.yml          # CI：语法 + 内置自检 + 数据/工作流 + 合并/面板/页面冒烟（统一 npm run ci）
 │       ├── release.yml           # 推送 v* tag 时自动建 Release、上传 .user.js + .sha256，并做更新链校验
-│       ├── auto-merge.yml        # Dependabot 依赖升级 PR：自检全绿后自动合并
-│       └── backfill-release-notes.yml  # 手动触发：把旧 Release 说明里的 raw/main 安装链换成 tag 级 jsDelivr 链接
+│       └── auto-merge.yml        # Dependabot 依赖升级 PR：自检全绿后自动合并
 ├── docs/                         # README 顶部预览图与 GitHub 社交预览图（panel.webp、social-preview-*.webp）
 ├── data/
 │   ├── README.md                 # 题库快照的命名规范与提交规则

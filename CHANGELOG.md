@@ -42,7 +42,8 @@
 ### 新增
 
 - 新增 `tools/backfill-release-notes.mjs` 与手动触发的 `.github/workflows/backfill-release-notes.yml`：
-  分页把旧 Release 说明里的 `raw/main` 安装链替换为 tag 级 jsDelivr 链接，支持 `--dry-run` / `--self-test`。
+  分页把旧 Release 说明里的 `raw/main` 安装链替换为 tag 级 jsDelivr 链接，支持 `--dry-run` / `--self-test`
+  （旧 Release 全部回填完成后，该一次性 workflow 已在 v2.0.18 后移除；离线脚本保留并继续在 CI 自测）。
 
 ### 变更
 

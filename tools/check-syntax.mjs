@@ -6,7 +6,7 @@
  *
  * 以前 `npm run check` 只检查用户脚本 + 各工具的语义检查，新增的 .mjs 如果没有被
  * 单独 node --check，语法错误要等到真正执行时才暴露（CI 里表现为某一步莫名失败）。
- * 这里统一扫 tools/ 下所有 .mjs 和单文件用户脚本，并顺手校验 package.json 是合法 JSON。
+ * 这里统一扫 tools/、tests/ 下所有 .mjs 和单文件用户脚本，并顺手校验 package.json 是合法 JSON。
  *
  * 退出码：0 全部通过；1 有文件语法错误。
  */
@@ -19,6 +19,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
 const USER_JS = join(ROOT, 'faxuanyun-legal-exam-assistant.user.js');
 const TOOLS = join(ROOT, 'tools');
+const TESTS = join(ROOT, 'tests');
 
 let failed = 0;
 const ok = (name, cond, extra = '') => {
@@ -27,11 +28,11 @@ const ok = (name, cond, extra = '') => {
     console.error(`  ✗ ${name}${extra ? `  → ${extra}` : ''}`);
 };
 
-const toolScripts = readdirSync(TOOLS)
+const listScripts = dir => readdirSync(dir)
     .filter(f => f.endsWith('.mjs'))
     .sort()
-    .map(f => join(TOOLS, f));
-const targets = [USER_JS, ...toolScripts];
+    .map(f => join(dir, f));
+const targets = [USER_JS, ...listScripts(TOOLS), ...listScripts(TESTS)];
 
 console.log(`\n[1/2] 语法检查（${targets.length} 个文件）`);
 for (const file of targets) {

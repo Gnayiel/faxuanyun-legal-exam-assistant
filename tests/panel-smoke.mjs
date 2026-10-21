@@ -1,7 +1,7 @@
 // 面板冒烟测试：把用户脚本内联进一个最小页面，用真实的 Chromium 内核（Edge / Chrome）
 // 跑一遍「面板能不能建起来、按钮还全不全、导出文件名对不对」。
 //
-// 用法： node tools/panel-smoke.mjs [用户脚本路径] [--require-browser]
+// 用法： node tests/panel-smoke.mjs [用户脚本路径] [--require-browser]
 // 找不到浏览器时默认跳过（退出码 0），方便在没装浏览器的机器上跑；
 // 加 --require-browser（或设置 FX_REQUIRE_BROWSER=1）则改为失败（退出码 2），
 // CI 用它来防止「没装浏览器 → 静默跳过 → 假绿」。

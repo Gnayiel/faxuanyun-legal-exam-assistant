@@ -37,7 +37,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      # 统一门禁：语法检查、内置断言、数据/文档一致性、工作流检查、题库合并冒烟、
+      # 统一门禁：语法检查、文档链接、内置断言、数据/文档一致性、工作流检查、题库合并冒烟、
       # 面板冒烟与页面适配冒烟。与本地 `npm run ci`、release.yml 共用同一份步骤清单，
       # 不再手抄；--require-browser 让缺浏览器时直接失败而不是静默跳过。
       - name: 统一门禁（npm run ci）

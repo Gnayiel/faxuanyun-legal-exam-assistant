@@ -169,10 +169,10 @@ if (m1) {
     ok('README 快照数字与实际一致', n === count && s === typeCount.single && mu === typeCount.multi && j === typeCount.judge,
         `README=${n}/${s}/${mu}/${j} 实际=${count}/${typeCount.single}/${typeCount.multi}/${typeCount.judge}`);
 }
-// 目录树属维护者向内容，已迁到 CONTRIBUTING.md
-const contributing = readDoc('CONTRIBUTING.md');
-const m2 = contributing.match(/随仓库分发的 (\d+) 题快照（6 列）/);
-ok('CONTRIBUTING 目录树里写的是 6 列 / N 题快照', !!m2 && Number(m2[1]) === count, m2 ? m2[0] : '找不到');
+// 目录树属维护者向内容，已迁到 docs/DEVELOPMENT.md
+const development = readDoc('docs/DEVELOPMENT.md');
+const m2 = development.match(/随仓库分发的 (\d+) 题快照（6 列）/);
+ok('DEVELOPMENT 目录树里写的是 6 列 / N 题快照', !!m2 && Number(m2[1]) === count, m2 ? m2[0] : '找不到');
 const m3 = dataReadme.match(/\*\*(\d+) 题\*\*（单选\s*(\d+)\s*\/\s*多选\s*(\d+)\s*\/\s*判断\s*(\d+)/);
 ok('data/README 写了快照数字', !!m3, '找不到数字段落');
 if (m3) {
@@ -194,7 +194,7 @@ const planFix = (file, from, to, label) => { if (doFix && from && from !== to) f
 if (doFix) {
     const exp = `${count} 题（单选 ${typeCount.single} / 多选 ${typeCount.multi} / 判断 ${typeCount.judge}`;
     if (m1) planFix('README.md', m1[0], exp, 'README 快照数字');
-    if (m2) planFix('CONTRIBUTING.md', m2[0], `随仓库分发的 ${count} 题快照（6 列）`, 'README 目录树数字');
+    if (m2) planFix('docs/DEVELOPMENT.md', m2[0], `随仓库分发的 ${count} 题快照（6 列）`, 'DEVELOPMENT 目录树数字');
     if (m3) planFix('data/README.md', m3[0], `**${count} 题**（单选 ${typeCount.single} / 多选 ${typeCount.multi} / 判断 ${typeCount.judge}`, 'data/README 快照数字');
     for (const f of fixes) {
         const text = readDoc(f.file);

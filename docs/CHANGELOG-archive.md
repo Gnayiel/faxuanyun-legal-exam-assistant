@@ -1,7 +1,7 @@
 # 更新日志（归档）
 
 本文件是 `CHANGELOG.md` 的归档部分，收录 **v2.0.0 – v2.0.14** 的历史记录，内容与当时发布时一致，不再更新。
-当前版本与最近三个版本的记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本与最近三个版本的记录见 [CHANGELOG.md](../CHANGELOG.md)。
 
 ---
 

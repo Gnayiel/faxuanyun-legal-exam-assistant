@@ -2,7 +2,7 @@
 /**
  * 题库合并冒烟（离线、只读仓库、所有临时文件写系统临时目录）。
  *
- *   node tools/merge-smoke.mjs
+ *   node tests/merge-smoke.mjs
  *
  * tools/merge-bank.mjs 是发版流程里唯一会「写题库」的工具，但以前没有任何自动测试：
  * 冲突计数、用户答案优先、错题并集、重复合并幂等、CSV 公式消毒都只能靠人肉验。

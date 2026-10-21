@@ -8,11 +8,29 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "node tools/check-syntax.mjs && node tools/selftest.mjs && node tools/check-data.mjs && node tools/check-workflows.mjs && node tools/merge-smoke.mjs",
-    "merge-smoke": "node tools/merge-smoke.mjs",
+    "test": "node tests/selftest.mjs && node tests/merge-smoke.mjs",
+    "check": "node tools/check-syntax.mjs && node tools/check-docs.mjs && node tests/selftest.mjs && node tools/check-data.mjs && node tools/check-workflows.mjs && node tests/merge-smoke.mjs",
+    "merge-smoke": "node tests/merge-smoke.mjs",
     "ci": "node tools/ci.mjs",
-    "smoke": "node tools/panel-smoke.mjs --require-browser && node tools/page-smoke.mjs --require-browser",
+    "smoke": "node tests/panel-smoke.mjs --require-browser && node tests/page-smoke.mjs --require-browser",
     "docs:images": "node tools/generate-docs-images.mjs",
     "release": "node tools/release.mjs"
-  }
+  },
+  "author": "Gnayiel",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Gnayiel/faxuanyun-legal-exam-assistant.git"
+  },
+  "homepage": "https://github.com/Gnayiel/faxuanyun-legal-exam-assistant#readme",
+  "bugs": {
+    "url": "https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/issues"
+  },
+  "keywords": [
+    "tampermonkey",
+    "userscript",
+    "faxuanyun",
+    "legal-exam",
+    "automation",
+    "javascript"
+  ]
 }

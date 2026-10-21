@@ -2,7 +2,7 @@
 /**
  * 无依赖自检：校验用户脚本的元数据块，并在 Node 里跑脚本自带的内置断言。
  *
- *   node tools/selftest.mjs [用户脚本路径]
+ *   node tests/selftest.mjs [用户脚本路径]
  *
  * 不联网、不写盘、不需要浏览器。脚本在最小 DOM / 油猴 API 打桩下加载，
  * 因此这里跑的就是面板「自检」按钮调用的同一批用例。
@@ -210,8 +210,8 @@ const readDoc = p => { try { return readFileSync(join(ROOT, p), 'utf8'); } catch
 const n = res.total;
 const docs = [
     ['README.md', `self--test-${n}%20passing`, 'README 自检徽章'],
-    ['CONTRIBUTING.md', `内置的 ${n} 项断言`, 'CONTRIBUTING 质量门禁'],
-    ['CONTRIBUTING.md', `${n} 项断言`, 'CONTRIBUTING 目录结构'],
+    ['docs/DEVELOPMENT.md', `内置的 ${n} 项断言`, 'DEVELOPMENT 自检数字'],
+    ['docs/DEVELOPMENT.md', `${n} 项断言`, 'DEVELOPMENT 断言数字'],
     [SCRIPT.replace(/^.*[\\/]/, ''), `含 ${n} 项内置自检`, '脚本 @description'],
     [SCRIPT.replace(/^.*[\\/]/, ''), `${n} 项纯函数断言`, '脚本文件结构注释'],
 ];
@@ -228,21 +228,21 @@ ok(`README 版本徽章与 @version 一致（${ver}）`,
 
 // panel-smoke 的断言数在 Node 里跑不出来（要真浏览器），但可以数它源码里的 ok(...)
 // 调用：改了那个数字却忘了同步 README / CHANGELOG，这里就会红。
-const m = (readDoc('tools/panel-smoke.mjs').match(/^\s+ok\(/gm) || []).length;
-ok(`数得出 panel-smoke 的断言数（${m} 项）`, m > 0, '一个 ok(...) 都没数到，检查 tools/panel-smoke.mjs 是否还在');
+const m = (readDoc('tests/panel-smoke.mjs').match(/^\s+ok\(/gm) || []).length;
+ok(`数得出 panel-smoke 的断言数（${m} 项）`, m > 0, '一个 ok(...) 都没数到，检查 tests/panel-smoke.mjs 是否还在');
 for (const [file, needle, label] of [
     ['README.md', `panel--smoke-${m}%20passing`, 'README 冒烟徽章'],
-    ['CONTRIBUTING.md', `${m} 项断言`, 'CONTRIBUTING 质量门禁'],
-    ['CONTRIBUTING.md', `（${m} 项）`, 'CONTRIBUTING 目录结构'],
+    ['docs/DEVELOPMENT.md', `${m} 项断言`, 'DEVELOPMENT 面板冒烟数字'],
+    ['docs/DEVELOPMENT.md', `（${m} 项）`, 'DEVELOPMENT 面板冒烟说明'],
     ['CHANGELOG.md', `**${m} 项断言全部通过**`, 'CHANGELOG 验证方式'],
 ]) {
     ok(`${label}写着 ${m}`, readDoc(file).includes(needle), `缺「${needle}」`);
 }
 
-// page-smoke 的断言数写在 tools/page-smoke.mjs 的 EXPECTED_ASSERTIONS 常量里：浏览器冒烟
+// page-smoke 的断言数写在 tests/page-smoke.mjs 的 EXPECTED_ASSERTIONS 常量里：浏览器冒烟
 // 在 Node 侧跑不起来，但可以读常量、再核对 CASES 的 expectCount 之和。改了 fixture / 驱动
 // 却忘了同步 README / CHANGELOG 时，这里和 page-smoke 自己的运行时计数都会红。
-const pageSrc = readDoc('tools/page-smoke.mjs');
+const pageSrc = readDoc('tests/page-smoke.mjs');
 const pageConst = pageSrc.match(/const EXPECTED_ASSERTIONS = (\d+);/);
 let PAGE_N = 0;
 if (!pageConst) {
@@ -257,8 +257,8 @@ if (!pageConst) {
         `EXPECTED_ASSERTIONS=${PAGE_N}，expectCount 合计=${declared.reduce((a, b) => a + b, 0)}（${declared.length} 个用例）`);
     for (const [file, needle, label] of [
         ['README.md', `page--smoke-${PAGE_N}%20passing`, 'README 冒烟徽章'],
-        ['CONTRIBUTING.md', `${PAGE_N} 项断言`, 'CONTRIBUTING 质量门禁'],
-        ['CONTRIBUTING.md', `（${PAGE_N} 项）`, 'CONTRIBUTING 目录结构'],
+        ['docs/DEVELOPMENT.md', `${PAGE_N} 项断言`, 'DEVELOPMENT 页面冒烟数字'],
+        ['docs/DEVELOPMENT.md', `（${PAGE_N} 项）`, 'DEVELOPMENT 页面冒烟说明'],
         ['CHANGELOG.md', `**${PAGE_N} 项断言全部通过**`, 'CHANGELOG 验证方式'],
     ]) {
         ok(`${label}写着 ${PAGE_N}`, readDoc(file).includes(needle), `缺「${needle}」`);
@@ -269,7 +269,8 @@ if (!pageConst) {
 // 「数字出现过」，这里再校验「出现在正确的那条命令后面」，并全量扫描文档 / 工作流里的
 // 「N 项断言」，只允许 n / m / PAGE_N 三个真实数字（CHANGELOG 属历史记录，不扫）。
 const allowedNums = new Set([String(n), String(m), String(PAGE_N)]);
-const scanTargets = ['README.md', 'CONTRIBUTING.md', 'data/README.md'];
+const scanTargets = ['README.md', 'CONTRIBUTING.md', 'SUPPORT.md', 'data/README.md', 'tests/README.md',
+    'docs/ARCHITECTURE.md', 'docs/DEVELOPMENT.md', 'docs/RELEASING.md', 'docs/REPOSITORY_SETTINGS.md', 'docs/README.md'];
 try {
     for (const f of readdirSync(join(ROOT, '.github', 'workflows'))) {
         if (/\.ya?ml$/i.test(f)) scanTargets.push(`.github/workflows/${f}`);
@@ -283,12 +284,12 @@ for (const f of scanTargets) {
 }
 ok('文档 / 工作流里没有过期的断言数', staleNums.length === 0, staleNums.slice(0, 8).join('；'));
 
-// 维护者向的命令与断言数已迁到 CONTRIBUTING.md，README 只留面向使用者的内容。
-const docCmd = cmd => (readDoc('CONTRIBUTING.md').split('\n').find(l => l.includes(cmd)) || '').trim();
-ok(`CONTRIBUTING 的 panel-smoke 命令注释写着 ${m} 项断言`,
-    docCmd('tools/panel-smoke.mjs').includes(`${m} 项断言`), docCmd('tools/panel-smoke.mjs'));
-ok(`CONTRIBUTING 的 page-smoke 命令注释写着 ${PAGE_N} 项断言`,
-    docCmd('tools/page-smoke.mjs').includes(`${PAGE_N} 项断言`), docCmd('tools/page-smoke.mjs'));
+// 维护者向的命令与断言数在 docs/DEVELOPMENT.md，README 只留面向使用者的内容。
+const docCmd = cmd => (readDoc('docs/DEVELOPMENT.md').split('\n').find(l => l.includes(cmd)) || '').trim();
+ok(`DEVELOPMENT 的 panel-smoke 命令注释写着 ${m} 项断言`,
+    docCmd('tests/panel-smoke.mjs').includes(`${m} 项断言`), docCmd('tests/panel-smoke.mjs'));
+ok(`DEVELOPMENT 的 page-smoke 命令注释写着 ${PAGE_N} 项断言`,
+    docCmd('tests/page-smoke.mjs').includes(`${PAGE_N} 项断言`), docCmd('tests/page-smoke.mjs'));
 
 // README 里引用的本地图片必须真实存在，否则 GitHub 上就是裂图（换预览图时最容易漏提交）
 const imgRefs = [...readDoc('README.md').matchAll(/(?:src|srcset)="([^"#?]+)"/g)]

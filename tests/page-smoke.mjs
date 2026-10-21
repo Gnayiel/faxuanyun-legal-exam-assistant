@@ -14,7 +14,7 @@
  * 然后用 headless Edge/Chrome 打开这个临时页面，从 --dump-dom 里取回断言结果。
  *
  * 用法：
- *   node tools/page-smoke.mjs [用户脚本路径] [--require-browser]
+ *   node tests/page-smoke.mjs [用户脚本路径] [--require-browser]
  *
  *   --require-browser  找不到浏览器时失败（退出码 2）而不是跳过
  *                      对应环境变量 FX_REQUIRE_BROWSER=1；CI 用它防止「没装浏览器 → 静默跳过 → 假绿」。
@@ -40,7 +40,7 @@ const DUMP = process.env.FX_PAGE_SMOKE_DUMP === '1' || !!process.env.FX_PAGE_SMO
 
 // 九个用例的断言总数（README 徽章 / CHANGELOG 验证方式都写这个数）。
 // 每个用例在 CASES 里另有 expectCount；父进程会核对运行时 total 与这里的常量一致，
-// tools/selftest.mjs 也会数这一行并检查 README / CHANGELOG 是否同步，避免改了 fixture
+// tests/selftest.mjs 也会数这一行并检查 README / CHANGELOG 是否同步，避免改了 fixture
 // 却忘记更新文档。改断言时先改这里，再跑一遍确认运行时总数一致。
 const EXPECTED_ASSERTIONS = 135; // 105 + 15（AI JSON/代码块）+ 15（AI 解释文字/失败降级/强制二源）
 
@@ -685,7 +685,7 @@ for (const c of CASES) {
     } catch (e) {
         fatal++;
         console.error(`  ✗ ${c.name}：${e.message}`);
-        if (!DUMP) console.error('    排查：FX_PAGE_SMOKE_DUMP=1 node tools/page-smoke.mjs --require-browser');
+        if (!DUMP) console.error('    排查：FX_PAGE_SMOKE_DUMP=1 node tests/page-smoke.mjs --require-browser');
     }
 }
 if (total > 0 && total !== EXPECTED_ASSERTIONS) {

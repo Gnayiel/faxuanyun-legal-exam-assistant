@@ -4,9 +4,9 @@
 [![release](https://img.shields.io/github/v/release/Gnayiel/faxuanyun-legal-exam-assistant?label=release)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
-[![self-test](https://img.shields.io/badge/self--test-193%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
-[![panel--smoke](https://img.shields.io/badge/panel--smoke-40%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
-[![page--smoke](https://img.shields.io/badge/page--smoke-135%20passing-success)](CONTRIBUTING.md#质量门禁与工具)
+[![self-test](https://img.shields.io/badge/self--test-193%20passing-success)](docs/DEVELOPMENT.md#统一门禁)
+[![panel--smoke](https://img.shields.io/badge/panel--smoke-40%20passing-success)](docs/DEVELOPMENT.md#统一门禁)
+[![page--smoke](https://img.shields.io/badge/page--smoke-135%20passing-success)](docs/DEVELOPMENT.md#统一门禁)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-4.0%2B-black)](https://www.tampermonkey.net/)
 
 <p align="center">
@@ -41,6 +41,7 @@
 - [数据与隐私](#数据与隐私)
 - [常见问题](#常见问题)
 - [已知限制](#已知限制)
+- [文档](#文档)
 - [贡献](#贡献)
 - [许可](#许可)
 - [更新记录](#更新记录)
@@ -317,11 +318,20 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
   `window.close()` 可能被浏览器拒绝。被拒绝时脚本不会反复重试，也不会擅自跳走页面，
   只在日志与通知里提示手动关闭。
 
+## 文档
+
+- [架构说明](docs/ARCHITECTURE.md)：运行时分层、题库数据模型、持久化、答题与对账、测试架构
+- [开发与测试](docs/DEVELOPMENT.md)：环境、命令、9 步统一门禁、测试分层、调试与真机清单
+- [发版流程](docs/RELEASING.md)：版本同步、发布前检查、tag / Release、更新链与失败恢复
+- [仓库设置](docs/REPOSITORY_SETTINGS.md)：GitHub 侧需手动确认的 rulesets、Actions、安全与社交预览
+- [文档索引](docs/README.md)：以上文档的入口与适用读者
+
 ## 贡献
 
-- 报 bug / 提需求请用 [issue 模板](.github/ISSUE_TEMPLATE/bug_report.yml)，附浏览器与油猴版本、脚本 `@version` 与面板日志（`Alt + E` 导出）
+- 报 bug 请用 [issue 模板](.github/ISSUE_TEMPLATE/bug_report.yml)，附浏览器与油猴版本、脚本 `@version` 与面板日志（`Alt + E` 导出）；功能建议先到 [Discussions](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/discussions) 讨论
 - 安全问题（含泄露的 API Key）请按 [SECURITY.md](SECURITY.md) 私下报告，**不要**公开贴；参与讨论请遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-- 想改代码、跑测试或发版，见 [CONTRIBUTING.md](CONTRIBUTING.md)
+- 使用问题、环境配置与求助渠道见 [SUPPORT.md](SUPPORT.md)
+- 想改代码、跑测试或发版，见 [CONTRIBUTING.md](CONTRIBUTING.md)；开发细节在 [开发与测试](docs/DEVELOPMENT.md)
 
 ## 许可
 
@@ -331,4 +341,4 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 
 当前版本 **v2.0.21**（2026-10-21）：按钮缓存只对按钮相关 DOM 变化失效，考试页倒计时不再触发整表重建；v2.0.20 的题库索引保温见 CHANGELOG。
 
-每一项改动的说明与验证方式见 [CHANGELOG.md](CHANGELOG.md)，更早版本在 [CHANGELOG-archive.md](CHANGELOG-archive.md)。
+每一项改动的说明与验证方式见 [CHANGELOG.md](CHANGELOG.md)，更早版本在 [更早的版本记录](docs/CHANGELOG-archive.md)。

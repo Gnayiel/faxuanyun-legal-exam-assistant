@@ -6,10 +6,12 @@
 > **关于版本号**：仓库首次公开的版本是 `v2.0.0`（2026-10-17）。
 > 更早的 2.x 内部迭代没有随仓库公开，其记录不再维护；
 > 随仓库分发的题库快照 JSON 里 `"version": "2.0.7"` 是导出时的脚本版本号，只作溯源用。
+> 旧版本「验证方式」里的 `tools/selftest.mjs`、`tools/page-smoke.mjs` 等命令是当时目录结构的
+> 历史记录；测试脚本现已迁入 `tests/`，现行命令见 [开发文档](docs/DEVELOPMENT.md)。
 
 变更分四类：**新增**（新能力）、**变更**（行为或文案改了）、**修复**（原来不对的）、**移除**。
 每个版本末尾的「验证方式」写的是**当次真实跑出来**的结果；可复现的命令见
-[CONTRIBUTING 的质量门禁](CONTRIBUTING.md#质量门禁与工具)。
+[开发文档的统一门禁](docs/DEVELOPMENT.md#统一门禁)。
 
 ---
 
@@ -24,6 +26,19 @@
 - **面板「强制二源」开关真正生效**：作答策略改用 `CONFIG.forceCrossCheck` 参与 `dualSourcePlan()` 与
   `needSecond` 判定，勾选后即使单选也会并行查询 AI + 百度，而不是只在多选时交叉验证。
 
+### 变更
+
+- **测试与工具分层**：`selftest` / `panel-smoke` / `page-smoke` / `merge-smoke` / `_harness` / `browser`
+  迁入 `tests/`，`tests/fixtures/` 不动；`tools/` 只保留检查、发布与题库工具。`package.json` 的
+  `test` / `check` / `smoke` / `ci` / `merge-smoke` 路径同步，新增 `npm test` 作为快速入口。
+- **文档体系拆分**：新增 `docs/ARCHITECTURE.md`、`docs/DEVELOPMENT.md`、`docs/RELEASING.md`、
+  `docs/REPOSITORY_SETTINGS.md`、`docs/README.md` 与根 `SUPPORT.md`；README 增加文档入口，
+  CONTRIBUTING 只保留贡献流程与代码约定，开发/发版细节移入 docs。
+- **文档链接门禁**：新增 `tools/check-docs.mjs`，检查相对链接、Markdown 标题锚点与 HTML 本地
+  `src` / `href`；接入 `npm run check` 与统一门禁。
+- **仓库元数据**：`package.json` 补齐 `author` / `repository` / `homepage` / `bugs` / `keywords`；
+  新增 `.github/CODEOWNERS`（`* @Gnayiel`）与 `tests/README.md`。
+
 ### 测试
 
 - **AI 通道页面冒烟**：新增两个真实浏览器用例——纯 JSON / JSON 代码块两种响应；解释文字包裹 JSON、
@@ -35,9 +50,9 @@
 
 ### 验证方式
 
-- `npm run ci` 8 步全过：selftest 193/193、check-data 299 题、merge-smoke 17/17、panel 40/40、
+- `npm run ci` 9 步全过：selftest 193/193、check-data 299 题、merge-smoke 17/17、panel 40/40、
   **135 项断言全部通过**。
-- `node tools/page-smoke.mjs --require-browser` 单独复跑：135/135（11 个用例）。
+- `node tests/page-smoke.mjs --require-browser` 单独复跑：135/135（11 个用例）。
 
 ## v2.0.21
 

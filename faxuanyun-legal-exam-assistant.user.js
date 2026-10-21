@@ -2048,6 +2048,14 @@
         '多选': 'multi', '多项选择题': 'multi', '多项选择': 'multi', '不定项': 'multi', 'multi': 'multi', 'checkbox': 'multi',
         '判断': 'judge', '判断题': 'judge', '是非题': 'judge', 'judge': 'judge', 'boolean': 'judge',
     };
+    // 字母答案可能写成 A / ABC / A,B / A、B / A/B；分离注册与导入共用一套判定，
+    // 避免「splitAns 认了逗号，但 isLett / resolveType 还只认纯字母」导致 l 为空。
+    const LETTER_SEP_RE = /^[A-Za-z](?:\s*[;；,，、/]\s*[A-Za-z])*$/;
+    const isLetterAnswer = s => {
+        const raw = String(s || '').trim();
+        return /^[A-Za-z]{1,8}$/.test(raw) || LETTER_SEP_RE.test(raw);
+    };
+    const lettersOf = s => String(s || '').toUpperCase().replace(/[^A-Z]/g, '');
     /** 题型判定：题型列 → 题干文字 → 答案形态，不再只看答案长度 */
     function resolveType(rawT, ans, q) {
         const t = String(rawT || '').replace(/[\s　()（）]/g, '').toLowerCase();
@@ -2063,7 +2071,7 @@
         // 这类答案会被判成单选，随后按选项文字去匹配「正确」所在的行，题型和字母口径都会乱）
         if (/^(正确|错误|对|错|是|否|√|×|✓|✗)$/.test(String(ans || '').trim())) return 'judge';
         if (/^[01]$/.test(ans)) return 'judge';
-        if (/^[A-Za-z]{1,8}$/.test(ans)) return ans.length > 1 ? 'multi' : 'single';
+        if (isLetterAnswer(ans)) return lettersOf(ans).length > 1 ? 'multi' : 'single';
         return String(ans).split(/\s*[;；]\s*/).filter(Boolean).length > 1 ? 'multi' : 'single';
     }
 
@@ -2079,9 +2087,7 @@
         if (!raw) return [];
         // 字母答案常见「A,B」「A、B」「A/B」写法：只在整串都是短字母时才按分隔符拆，
         // 避免把选项内容里的逗号（如「A，B，C 三地…」）误切成多个答案。
-        if (/^[A-Ha-h](?:\s*[;；,，、/]\s*[A-Ha-h])*$/.test(raw)) {
-            return raw.split(/[\s;；,，、/]+/).filter(Boolean).map(x => x.toUpperCase());
-        }
+        if (isLetterAnswer(raw)) return [...lettersOf(raw)];
         return raw.split(/\s*[;；]\s*/).map(x => x.trim()).filter(Boolean);
     };
 
@@ -2092,8 +2098,8 @@
         if (!/[\u4e00-\u9fa5A-Za-z0-9]/.test(q)) return { ok: false, why: '题干没有有效文字' };
         if (!ans && !wr) return { ok: false, why: '答案与错误选项都为空' };
         if (ans) {
-            if (/^[A-Za-z]{1,8}$/.test(ans)) {
-                const u = ans.toUpperCase();
+            if (isLetterAnswer(ans)) {
+                const u = lettersOf(ans);
                 if (new Set(u).size !== u.length) return { ok: false, why: `答案字母重复：${ans}` };
                 if (!/^[A-H]{1,8}$/.test(u)) return { ok: false, why: `答案字母超出范围：${ans}` };
             } else if (!/^[01]$/.test(ans)) {
@@ -2195,10 +2201,10 @@
             }
 
             const type = resolveType(map.type >= 0 ? r[map.type] : '', ans, q);
-            const isLett = /^[A-Za-z]{1,8}$/.test(ans);
+            const isLett = isLetterAnswer(ans);
             const isJudge = /^[01]$/.test(ans);
             const incA = isLett || isJudge ? null : splitAns(ans);
-            const incL = isLett || isJudge ? ans.toUpperCase() : '';
+            const incL = isLett ? lettersOf(ans) : (isJudge ? ans.toUpperCase() : '');
 
             const exist = findEquivalent(q);
             if (exist) {                                 // 已存在：按合并策略处理
@@ -2365,8 +2371,10 @@
             if (exist) {
                 const e = b[exist];
                 const hasOld = (Array.isArray(e.a) && e.a.length) || e.l;
-                const incA = /^[A-Za-z]{1,8}$/.test(ans) || /^[01]$/.test(ans) ? null : splitAns(ans);
-                const incL = incA ? '' : ans.toUpperCase();
+                const isLett = isLetterAnswer(ans);
+                const isJudge = /^[01]$/.test(ans);
+                const incA = isLett || isJudge ? null : splitAns(ans);
+                const incL = isLett ? lettersOf(ans) : (isJudge ? ans.toUpperCase() : '');
                 const oldDisp = (Array.isArray(e.a) && e.a.length ? e.a.join('/') : (typeof e.a === 'string' && e.a ? e.a : e.l)) || '（空）';
                 const same = incA ? sameTexts(e.a, incA) : String(incL) === String(e.l || '');
                 if (normStem(q).length > normStem(e.q || '').length) e.q = q;
@@ -2388,7 +2396,7 @@
                 protect.add(exist);
                 continue;
             }
-            const isLett = /^[A-Za-z]{1,8}$/.test(ans);
+            const isLett = isLetterAnswer(ans);
             const isJudge = /^[01]$/.test(ans);
             if (byUser) userCount++;
             // 完整还原条目字段（以前丢 s/us/bad，答案里有内容时连 l 也丢）
@@ -2397,14 +2405,14 @@
                 ? blankEntry({
                     q, t: resolveType('', ans, q),
                     a: isLett || isJudge ? null : splitAns(ans),
-                    l: isLett || isJudge ? ans.toUpperCase() : '',
+                    l: isLett ? lettersOf(ans) : (isJudge ? ans.toUpperCase() : ''),
                     src: 'import',
                 })
                 : blankEntry({
                     ...v, q,
                     t: itype,
                     a: isLett || isJudge ? null : splitAns(ans),
-                    l: isLett || isJudge ? ans.toUpperCase() : (v.l || ''),
+                    l: isLett ? lettersOf(ans) : (isJudge ? ans.toUpperCase() : (v.l || '')),
                     src: v.src || 'import',
                 });
             added++;
@@ -2654,9 +2662,10 @@
             }
         }
 
-        // 2) 整段就是字母（题库命中 / AI 被要求只回字母）
-        if (/^[A-Za-z]{1,8}\s*[.。、]?$/.test(s)) {
-            const r = hit(s, 0.95, '纯字母');
+        // 2) 整段就是字母（题库命中 / AI 被要求只回字母；兼容 A,B / A、B 写法）
+        const letterish = s.replace(/[\s.。、]+$/, '');
+        if (isLetterAnswer(letterish)) {
+            const r = hit(lettersOf(letterish), 0.95, '纯字母');
             if (r) return r;
         }
 
@@ -5437,7 +5446,8 @@
         });
         t('中文夹字母的兜底仍能取出（「我认为C是对的」→ C）',
             () => extractAnswer('我认为C是对的', CASE_SINGLE_OPTS, 'single')?.letters === 'C');
-        t('多选「答案：AB」→ AB', () => extractAnswer('答案：AB', CASE_SINGLE_OPTS, 'multi')?.letters === 'AB');
+        t('多选「答案：AB」→ AB', () => extractAnswer('答案：AB', CASE_SINGLE_OPTS, 'multi')?.letters === 'AB'
+            && extractAnswer('A,B', CASE_SINGLE_OPTS, 'multi')?.letters === 'AB');
         t('多选题只给一个字母的来源作废', () => mergeCandidates([{ letters: 'A', conf: 0.9, src: 'ai' }], 'multi', CASE_SINGLE_OPTS) === null);
         t('越界字母作废', () => mergeCandidates([{ letters: 'Z', conf: 0.9, src: 'ai' }], 'single', CASE_SINGLE_OPTS) === null);
         t('两源一致时加成', () => {
@@ -5588,6 +5598,8 @@
         t('题干过短被拒收', () => !validateRow('短', 'A', '').ok);
         t('题型判定：判断 / 多选 / 单选', () => resolveType('', '1', '下列说法') === 'judge'
             && resolveType('多选题', 'ABC', 'x') === 'multi'
+            && resolveType('', 'A,B', 'x') === 'multi'
+            && splitAns('A,B').join('') === 'AB'
             && resolveType('', 'A', 'x') === 'single');
         t('题型判定：答案写「正确/错误/对/错/是/否」时按判断题处理（旧实现判成单选）', () => {
             const words = ['正确', '错误', '对', '错', '是', '否', '√', '×'];

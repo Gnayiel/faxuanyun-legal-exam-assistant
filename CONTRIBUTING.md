@@ -7,7 +7,7 @@
 - **平台改版导致的选择器失配**（最优先）
 - 脚本 bug、浏览器 / 油猴兼容性问题
 - 文档错误、题库快照问题
-- 新功能：先到 GitHub Discussions 讨论方向，避免做完才发现方向不对
+- 新功能：用 [功能建议模板](.github/ISSUE_TEMPLATE/feature_request.yml) 说明场景与方案；方向不确定时先到 GitHub Discussions 讨论，避免做完才发现方向不对
 
 ## 开始之前
 
@@ -33,7 +33,7 @@ npm run ci      # 9 步统一门禁，含两个真实浏览器冒烟
 1. 单文件 userscript，无构建、无第三方依赖；不要把 npm 包引进来。
 2. 平台相关选择器集中在「站点适配层」`SEL` / `BTN` 两组常量里，业务逻辑里不要新增散落选择器；平台改版只改这一层。
 3. 新逻辑尽量写成纯函数并挂进 `__FX_TEST__` 与内置自检用例（`selfTestCases`）；断言数变化后同步 `README.md`、`CHANGELOG.md`、脚本注解与 `docs/DEVELOPMENT.md`。
-4. 面板 DOM 在 Shadow DOM 里构建；不要用 `innerHTML` 拼接用户数据（一律 `textContent`）。
+4. 面板 DOM 在 Shadow DOM 里构建；静态骨架可以一次性 `innerHTML`，但用户/页面/网络数据一律 `createElement` / `textContent`，禁止把动态内容拼进 HTML。
 5. 不引入遥测、不请求 `@connect` 白名单之外的域名；新增域名要同步脚本头部 `@connect` 与 `CONNECT_HOSTS`（`tests/selftest.mjs` 会校验两者一一对应）。
 6. 不提交 API Key、带日期的题库导出、日志或其它个人数据；仓库只放脚本、文档、工具和一份演示快照。
 7. 文本文件 UTF-8 无 BOM、LF 换行（`.gitattributes` 已设置）；`data/README.md` 的命名与放行规则继续遵守。

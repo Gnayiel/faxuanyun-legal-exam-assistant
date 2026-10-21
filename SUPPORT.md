@@ -15,7 +15,8 @@
 | 情况 | 渠道 |
 | --- | --- |
 | 脚本 bug（报错、识别失败、导入导出异常、平台改版失配） | [提交 Issue](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/issues/new/choose)，选择「Bug 报告」模板 |
-| 使用问题、功能建议、求脚本、刷课刷视频等非 bug 讨论 | [GitHub Discussions](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/discussions)（若无法访问，可在 issue 中说明，但请勿开空白 issue） |
+| 功能建议 / 改进想法 | [功能建议模板](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/issues/new?template=feature_request.yml)；方向不确定可先到 [Discussions](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/discussions) |
+| 使用问题、求脚本、刷课刷视频等非 bug 讨论 | [GitHub Discussions](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/discussions)（若无法访问，可在 issue 中说明，但请勿开空白 issue） |
 | 安全问题、疑似凭据泄露、绕过限制的漏洞 | **不要发公开 issue**，按 [SECURITY.md](SECURITY.md) 走私密报告 |
 | 想贡献代码或文档 | 先读 [CONTRIBUTING.md](CONTRIBUTING.md)；开发与测试见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 

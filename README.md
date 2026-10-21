@@ -5,7 +5,7 @@
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![selftest CI](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml/badge.svg)](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/actions/workflows/selftest.yml)
 [![self-test](https://img.shields.io/badge/self--test-193%20passing-success)](docs/DEVELOPMENT.md#统一门禁)
-[![panel--smoke](https://img.shields.io/badge/panel--smoke-40%20passing-success)](docs/DEVELOPMENT.md#统一门禁)
+[![panel--smoke](https://img.shields.io/badge/panel--smoke-42%20passing-success)](docs/DEVELOPMENT.md#统一门禁)
 [![page--smoke](https://img.shields.io/badge/page--smoke-135%20passing-success)](docs/DEVELOPMENT.md#统一门禁)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-4.0%2B-black)](https://www.tampermonkey.net/)
 
@@ -328,7 +328,7 @@ API Key 落盘前会做一次**异或 + Base64 混淆**——请知悉这**不�
 
 ## 贡献
 
-- 报 bug 请用 [issue 模板](.github/ISSUE_TEMPLATE/bug_report.yml)，附浏览器与油猴版本、脚本 `@version` 与面板日志（`Alt + E` 导出）；功能建议先到 [Discussions](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/discussions) 讨论
+- 报 bug 请用 [Bug 模板](.github/ISSUE_TEMPLATE/bug_report.yml)，附浏览器与油猴版本、脚本 `@version` 与面板日志（`Alt + E` 导出）；功能建议用 [功能建议模板](.github/ISSUE_TEMPLATE/feature_request.yml)，方向不确定时先到 [Discussions](https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/discussions) 讨论
 - 安全问题（含泄露的 API Key）请按 [SECURITY.md](SECURITY.md) 私下报告，**不要**公开贴；参与讨论请遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - 使用问题、环境配置与求助渠道见 [SUPPORT.md](SUPPORT.md)
 - 想改代码、跑测试或发版，见 [CONTRIBUTING.md](CONTRIBUTING.md)；开发细节在 [开发与测试](docs/DEVELOPMENT.md)

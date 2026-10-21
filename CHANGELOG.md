@@ -38,11 +38,21 @@
   `src` / `href`；接入 `npm run check` 与统一门禁。
 - **仓库元数据**：`package.json` 补齐 `author` / `repository` / `homepage` / `bugs` / `keywords`；
   新增 `.github/CODEOWNERS`（`* @Gnayiel`）与 `tests/README.md`。
+- **社区模板补全**：新增 `.github/ISSUE_TEMPLATE/feature_request.yml`，`config.yml` 把功能建议、
+  使用问题与安全报告分流到不同入口；README / CONTRIBUTING / SUPPORT / 仓库设置文档同步。
+- **仓库状态文档校准**：明确 `protect-main` 当前未启用 required checks、main 仍可直接 push；
+  required check 名改为实际的 `selftest (22)` / `selftest (24)`；CodeQL default setup 已启用，
+  不再建议另加 `codeql.yml`；补充 immutable releases 下不能 `--clobber` 重跑、只能发新 patch 的说明；
+  innerHTML 约定改为「静态骨架可用，动态数据一律 textContent」。
+- **CI 双车道**：Node 22 跑完整 9 步（含浏览器冒烟），Node 24 跑快速 6 步，check-run 名称保持
+  `selftest (22)` / `selftest (24)`，避免重复启动两次 Chromium。
 
 ### 测试
 
 - **AI 通道页面冒烟**：新增两个真实浏览器用例——纯 JSON / JSON 代码块两种响应；解释文字包裹 JSON、
   AI 失败降级百度、强制二源。页面断言 105→135（共 11 个用例）。
+- **导入链路端到端**：`tests/panel-smoke.mjs` 拦截文件选择框，从面板按钮依次导入 JSON 与 CSV，
+  断言落到 `questionBank`；面板断言 40→42。
 - **CSV 表头回归**：内置自检新增 3 条（正常六列表头、两列「题目 / 答案」、无表头首行题干含「答案」不被吞），
   内置断言 190→193。
 - **文档配图生成**：新增 `tools/generate-docs-images.mjs` 与 `docs/IMAGE_PIPELINE.md`，发版时用 ffmpeg
@@ -50,8 +60,7 @@
 
 ### 验证方式
 
-- `npm run ci` 9 步全过：selftest 193/193、check-data 299 题、merge-smoke 17/17、panel 40/40、
-  **135 项断言全部通过**。
+- `npm run ci` 9 步全过：selftest 193/193、check-data 299 题、merge-smoke 17/17、panel 42/42（**42 项断言全部通过**）、page 135/135（**135 项断言全部通过**）。
 - `node tests/page-smoke.mjs --require-browser` 单独复跑：135/135（11 个用例）。
 
 ## v2.0.21

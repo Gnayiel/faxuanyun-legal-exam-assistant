@@ -1,6 +1,6 @@
 # 发版流程
 
-> 面向有写权限、负责打 tag 与发布 Release 的维护者。日常开发与测试见 [docs/DEVELOPMENT.md](DEVELOPMENT.md)；仓库侧的 rulesets、Actions 权限与安全设置见 [docs/REPOSITORY_SETTINGS.md](REPOSITORY_SETTINGS.md)，那些设置需要在 GitHub 网页上人工确认，本文默认它们已按建议开启。
+> 面向有写权限、负责打 tag 与发布 Release 的维护者。日常开发与测试见 [docs/DEVELOPMENT.md](DEVELOPMENT.md)；仓库侧的 rulesets、Actions 权限与安全设置见 [docs/REPOSITORY_SETTINGS.md](REPOSITORY_SETTINGS.md)，那些设置需要在 GitHub 网页上人工确认。**当前 `protect-main` 没有启用 required checks，main 仍可直接 push；本文按“建议启用”描述保护规则，不能当作已生效的保障。**
 
 ## 版本号
 
@@ -62,7 +62,7 @@ git push origin vx.y.z
 - **先推 main，再推 tag**。`release.yml` 会用 raw main 判断“main 是否已跟上 tag”，main 落后时发版会红。
 - `release.mjs` 只打本地 tag，**不 push**；它唯一的联网动作是带 20 秒超时的 `git fetch`。
 - 一次只推一个 tag。`git push --tags` 会把本地遗留的旧 tag 一起推上去，可能触发多次发版或推送错误版本。
-- 重复执行是安全的：如果 tag 已存在，`release.mjs` 只提示并退出 0，不会重复打 tag 或重复跑门禁；workflow 也可以安全重跑（附件用 `--clobber` 覆盖）。
+- 重复执行是安全的：如果 tag 已存在，`release.mjs` 只提示并退出 0，不会重复打 tag 或重复跑门禁；workflow 也可以重跑，但附件用 `--clobber` 覆盖**只在未开启 immutable releases 时成立**，开启后见下面第 4、5 步与回滚策略。
 - 不要跳过门禁。`--skip-tests` 只用于明确的本地调试；CI 仍会跑全套，带着失败打 tag 只会得到红色 Release。
 
 ### SSH 推不上去（22 端口被拦）
@@ -88,8 +88,8 @@ Host github.com
 | 1. 校验 tag 与版本 / CHANGELOG | `node tools/release.mjs --check-ci "$TAG"`：tag 必须等于 `@version`，CHANGELOG 章节必须非空 | 不创建 Release，tag 保留 |
 | 2. 发版前自检 | `npm run ci`：与本地相同的 9 步统一门禁 | 不创建 Release，tag 保留 |
 | 3. 生成校验和与发布说明 | `sha256sum` 生成同名 `.sha256`；用 `awk` 抽取 CHANGELOG 正文并校验非空；拼装安装/更新、体积（预算 512 KB）与校验和 | 中止，不创建 Release |
-| 4. 创建或更新 Release | `gh release create`，或对已存在的 Release `edit --draft=false` + `upload --clobber`；上传 `.user.js` 与 `.sha256` 两个附件 | Release 可能已存在，修好后重跑 |
-| 5. 验证 Release | 回读 `isDraft=false`、附件数为 2、下载附件、`sha256sum -c`、`cmp` 与复算校验和 | 报错并提示重跑；附件会被覆盖 |
+| 4. 创建或更新 Release | `gh release create`，或对已存在的 Release `edit --draft=false` + `upload --clobber`；上传 `.user.js` 与 `.sha256` 两个附件 | Release 可能已存在，修好后重跑；未开启 immutable releases 才可用 `--clobber` 覆盖 |
+| 5. 验证 Release | 回读 `isDraft=false`、附件数为 2、下载附件、`sha256sum -c`、`cmp` 与复算校验和 | 报错并提示重跑；未开启 immutable releases 时附件会被覆盖，开启后只能发新 patch |
 | 6. 更新链校验 | 主动 purge jsDelivr；以 raw main 为权威重试 6 次 × 20 秒；镜像未刷新只告警；latest Release 必须指向本 tag | raw 未跟上或 latest 不对会红 |
 
 权限与并发：
@@ -126,7 +126,7 @@ Host github.com
 | `--check-ci` 报 tag 与 `@version` 不一致 | 改版本号或改 tag；**tag 未推送**时可 `git tag -d vx.y.z` 后重来 |
 | CHANGELOG 缺失或章节为空 | 补 `## vx.y.z` 正文，提交并推 main，再发新 tag |
 | 本地门禁失败 | 修代码后重新提交；不要带着红灯打 tag |
-| Release 已创建，但“验证 Release”失败 | 先按报错修（附件数、校验和、latest）；然后在 Actions 里重跑同一 tag 的 workflow。上传步骤用 `--clobber`，可安全覆盖 |
+| Release 已创建，但“验证 Release”失败 | 先按报错修（附件数、校验和、latest）；然后在 Actions 里重跑同一 tag 的 workflow。未开启 immutable releases 时上传步骤用 `--clobber` 可覆盖；开启后不能覆盖，只能修知识性说明或发新 patch |
 | raw main 版本未跟上 tag | 确认 main 已包含本版脚本并推送；workflow 会重试 6 次（每次间隔 20 秒），仍失败则重跑 |
 | `@2` 镜像仍旧版 | 属正常缓存延迟；用固定 `@vx.y.z` 链接验证，或等待/重跑 workflow |
 | latest Release 不是本 tag | 到 Releases 页把 `vx.y.z` 设为 latest，再重跑 workflow 的更新链步骤 |
@@ -137,7 +137,7 @@ Host github.com
 
 - 不要为了“让 CI 变绿”而删除失败的 tag 或 Release 资产；已安装用户可能已经拿到该版本。正确做法是发新补丁并在 CHANGELOG / Release 说明里写清问题与修复。
 - 不要用 `--skip-tests` 发布，也不要在 workflow 里临时注释门禁步骤。
-- 如果 Release 已存在但内容错误，workflow 会 `edit --draft=false` 并用 `--clobber` 覆盖两个附件；正文也会按当前 CHANGELOG 重建。
+- 如果 Release 已存在但内容错误，且仓库未开启 immutable releases，workflow 会 `edit --draft=false` 并用 `--clobber` 覆盖两个附件，正文也会按当前 CHANGELOG 重建；开启 immutable releases 后这条修复路径不可用，只能发新 patch（见回滚策略）。
 
 ## 发布后验证
 
@@ -166,7 +166,7 @@ Host github.com
 以下 GitHub 设置会影响发版安全，但**不在 git 里**，也不是本文能保证已开启的；请按 [docs/REPOSITORY_SETTINGS.md](REPOSITORY_SETTINGS.md) 在网页上人工确认：
 
 - `protect-release-tags`：阻止 `v*` tag 被删除或改指向，是“打错不发新版”的最后一道保险；启用后重打 tag 必须先临时停用。
-- `protect-main`：要求 PR 与自检通过，避免未过门禁的代码直接进 main。
-- required checks：应包含 `selftest.yml` 的两个 Node 矩阵 job，否则“绿色的 PR”并不代表门禁通过。
+- `protect-main`：**当前未启用**，main 允许直接 push；如果以后启用，应要求 PR 与自检通过，避免未过门禁的代码直接进 main。在未启用期间，发版者必须自己保证本地 `npm run ci` 已通过，不能把“CI 绿”当成服务端已拦截。
+- required checks：若启用 `protect-main`，应包含 `selftest (22)` 与 `selftest (24)` 两个实际 check-run 名称；写成 `自检 / selftest (22)` 不会命中。未启用时，这两个 job 仍会跑，但不阻止直接 push。
 - Actions 默认权限为 read、fork PR 不自动跑带 secrets 的 workflow；`release.yml` 自身声明 `contents: write`，其余 workflow 不需要写权限。
 - Releases 的 latest 指向、immutable releases（如可用）与附件保留策略。

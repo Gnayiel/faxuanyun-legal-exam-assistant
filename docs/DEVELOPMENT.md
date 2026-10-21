@@ -92,7 +92,7 @@
 ```bash
 node tests/selftest.mjs                       # 元数据 + 内置自检（193 项断言）+ 文档数字
 node tests/merge-smoke.mjs                    # 17 项合并检查（冲突 / 幂等 / 公式消毒）
-node tests/panel-smoke.mjs --require-browser  # 40 项断言（真实 Chromium）
+node tests/panel-smoke.mjs --require-browser  # 42 项断言（真实 Chromium）
 node tests/page-smoke.mjs --require-browser   # 135 项断言（11 个用例，8 份 fixture）
 node tools/check-docs.mjs                     # 文档相对链接与锚点
 node tools/check-data.mjs                     # 题库快照与 README / data/README 数字
@@ -116,7 +116,7 @@ node tools/ci.mjs --no-browser                # 无浏览器环境跑门禁的�
 | 5 | 工作流静态检查 | `node tools/check-workflows.mjs` | `runs-on` / `permissions` / `timeout-minutes`、action pin SHA 与版本注释、本地脚本存在性、禁止 `pull_request_target` + 检出 PR 代码、发版必须 tag 触发 | 对应 workflow 与规则名 |
 | 6 | Release 回填脚本离线自测 | `node tools/backfill-release-notes.mjs --self-test` | 旧 Release 正文替换逻辑（不联网） | 替换断言名 |
 | 7 | 题库合并冒烟（冲突 / 幂等 / 公式消毒） | `node tests/merge-smoke.mjs` | 冲突取新、用户答案优先、错题并集、幂等、CSV 公式注入消毒，共 17 项合并检查 | 第几个 `[1/3]`～`[3/3]` 子段 |
-| 8 | 面板冒烟（需要真实浏览器） | `node tests/panel-smoke.mjs --require-browser` | 真实 Chromium 里建面板、按钮齐全、导出文件名，40 项断言 | 面板用例名与 DOM dump |
+| 8 | 面板冒烟（需要真实浏览器） | `node tests/panel-smoke.mjs --require-browser` | 真实 Chromium 里建面板、按钮齐全、导出文件名与 JSON/CSV 导入落库，42 项断言 | 面板用例名与 DOM dump |
 | 9 | 页面适配冒烟（需要真实浏览器） | `node tests/page-smoke.mjs --require-browser` | 8 份 fixture / 11 个用例上的识题、作答、交卷、对账，135 项断言 | `FX_PAGE_SMOKE_DUMP=1` 的落盘页面 |
 
 定位方法：
@@ -135,7 +135,7 @@ node tools/ci.mjs --no-browser                # 无浏览器环境跑门禁的�
 
 在系统临时目录里构造两份题库，连续调用 `tools/merge-bank.mjs`，验证冲突取新、用户答案优先、错题并集、幂等（两次合并除 `exportedAt` 外一致）、CSV 公式注入消毒、输入文件只读等 17 项合并检查。不需要浏览器。
 
-### 面板冒烟（40 项）
+### 面板冒烟（42 项）
 
 用 headless Chromium 打开只包含用户脚本与打桩的最小页面，等面板建好后检查宿主、Shadow DOM、顶栏按钮、折叠、导出文件名等。控件清单直接从用户脚本模板里提取 `id`，少一个按钮或改 `id` 会自动失败。没有浏览器时默认跳过；加 `--require-browser` 则改为失败（退出码 2）。
 ### 页面适配冒烟（135 项）
@@ -182,9 +182,9 @@ AI 响应由 `tests/_harness.mjs` 的 `fakeAI` 打桩，完全离线：在 `CASE
 | 位置 | 需要同步的内容 | 谁检查 |
 | --- | --- | --- |
 | `README.md` | `self--test-*`、`panel--smoke-*`、`page--smoke-*` 三个徽章 | `tests/selftest.mjs` |
-| `CHANGELOG.md` | 当前版本「验证方式」里的 `**40 项断言全部通过**`、`**135 项断言全部通过**` | `tests/selftest.mjs` |
+| `CHANGELOG.md` | 当前版本「验证方式」里的 `**42 项断言全部通过**`、`**135 项断言全部通过**` | `tests/selftest.mjs` |
 | 用户脚本 | `@description` 的「含 193 项内置自检」与文件结构注释的「193 项纯函数断言」 | `tests/selftest.mjs` |
-| `docs/DEVELOPMENT.md` | 本文档里的 193 / 40 / 135 与命令注释 | `tests/selftest.mjs` |
+| `docs/DEVELOPMENT.md` | 本文档里的 193 / 42 / 135 与命令注释 | `tests/selftest.mjs` |
 | `tests/page-smoke.mjs` | `EXPECTED_ASSERTIONS` 与各用例 `expectCount` 之和 | `tests/selftest.mjs` 与页面冒烟自身 |
 | `tests/README.md` | 测试文件表里的数字与用例数 | 人工（`check-docs` 只查链接） |
 
@@ -219,7 +219,7 @@ AI 响应由 `tests/_harness.mjs` 的 `fakeAI` 打桩，完全离线：在 `CASE
 1. **单文件、无构建**：所有运行时逻辑放在 `faxuanyun-legal-exam-assistant.user.js`，不引入打包器与第三方运行时依赖。
 2. **站点适配集中**：选择器统一走 `SEL`，按钮文案走 `BTN`；平台改版只改这一层，业务逻辑不要散落选择器。
 3. **纯函数可测**：可独立验证的逻辑写成纯函数并挂到 `__FX_TEST__`，由内置自检覆盖；不要为了测试把网络/存储耦合进来。
-4. **Shadow DOM 内不用 `innerHTML`**：面板 DOM 一律用 `createElement` / `textContent` 构建，避免注入与解析差异。
+4. **静态模板可用 `innerHTML`，动态数据一律 `textContent`**：面板骨架可以在 Shadow DOM 内用一次 `innerHTML` 写入脚本内静态模板；题干、选项、日志、设置、网络返回等动态值必须用 `createElement` / `textContent`，禁止把动态内容拼进 HTML。当前 `panel.innerHTML` 只用于静态骨架（VERSION/分组按钮文案均为脚本内常量），不是用户数据入口。
 5. **无遥测**：不主动上报任何数据；只有用户主动导出日志/诊断包时才落盘。
 6. **不提交 Key / 个人信息**：真实 API Key、考试账号、单位信息、带个人信息的导出文件都不进仓库。
 7. **UTF-8 + LF**：源码与文档统一 UTF-8、LF 换行，遵守 `.editorconfig` 与 `.gitattributes`。

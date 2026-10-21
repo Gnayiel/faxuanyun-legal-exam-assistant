@@ -18,10 +18,16 @@ concurrency:
 jobs:
   selftest:
     # Node 22 是 engines 下限，Node 24 是当前最新 LTS；两边都跑，避免只在某个版本可用的 API 溜进工具链。
+    # 浏览器冒烟与 Node 版本基本无关：22 跑完整 9 步，24 跑快速 6 步（语法/文档/自检/数据/工作流/合并），
+    # 既保留双版本兼容性检查，又不重复启动两次 Chromium。check-run 名仍是 selftest (22)/(24)。
     strategy:
       fail-fast: false
       matrix:
-        node-version: ['22', '24']
+        include:
+          - node-version: '22'
+            full: true
+          - node-version: '24'
+            full: false
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -41,4 +47,8 @@ jobs:
       # 面板冒烟与页面适配冒烟。与本地 `npm run ci`、release.yml 共用同一份步骤清单，
       # 不再手抄；--require-browser 让缺浏览器时直接失败而不是静默跳过。
       - name: 统一门禁（npm run ci）
+        if: matrix.full
         run: npm run ci
+      - name: 快速门禁（npm run check，Node 24 车道）
+        if: ${{ !matrix.full }}
+        run: npm run check

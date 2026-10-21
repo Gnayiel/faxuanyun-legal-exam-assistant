@@ -3,7 +3,8 @@ name: 发版
 # 推送 vX.Y.Z tag 时自动发布 Release：先做 tag/版本/CHANGELOG 门禁与全套自检，
 # 再建 Release、上传 .user.js 与同名 .sha256，最后下载远端附件复算校验和。
 # `v*` tag 受 protect-release-tags 规则集保护（不能删除 / 改指向）：tag 打错请改用新版本号；
-# 确实要重打 tag 时先临时停用该 ruleset。脚本用 --clobber 覆盖附件，验证失败修好后可直接重跑本 workflow。
+# 确实要重打 tag 时先临时停用该 ruleset。未开启 immutable releases 时脚本用 --clobber 覆盖附件，
+# 验证失败修好后可直接重跑本 workflow；开启 immutable releases 后不能覆盖已发布资产，只能发新 patch。
 on:
   push:
     tags: ['v*']
@@ -84,7 +85,8 @@ jobs:
           fi
 
       # 发版门禁 3：发布后回读远端状态并复算校验和，防止「UI 看起来成功、附件其实不对」。
-      # 失败时 Release 已经存在，修好后直接重跑本 workflow 即可（附件 --clobber 覆盖）。
+      # 失败时 Release 已经存在：未开启 immutable releases 可直接重跑本 workflow（附件 --clobber 覆盖）；
+      # 开启 immutable releases 后附件不可覆盖，只能修说明或发新 patch。
       - name: 验证 Release（非草稿 / 2 个附件 / SHA256 一致）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -92,7 +94,7 @@ jobs:
         run: |
           set -euo pipefail
           fail() {
-            echo "::error::$1；Release 已发布，修好后可重跑本 workflow（附件会被覆盖）"
+            echo "::error::$1；Release 已发布；未开启 immutable releases 时可重跑（附件会被覆盖），开启后只能发新 patch"
             exit 1
           }
 

@@ -6,7 +6,7 @@
 // 加 --require-browser（或设置 FX_REQUIRE_BROWSER=1）则改为失败（退出码 2），
 // CI 用它来防止「没装浏览器 → 静默跳过 → 假绿」。
 import { readFileSync, writeFileSync } from 'node:fs';
-import { gmCore, noNetwork, downloadHook } from './_harness.mjs';
+import { gmCore, noNetwork, downloadHook, filePickerHook } from './_harness.mjs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // 浏览器探测 + headless 启动抽到公共 helper，和 page-smoke.mjs 共用同一份实现
@@ -48,8 +48,9 @@ const html = `<!DOCTYPE html>
 ${gmCore({ name: 'smoke', version: '9.9.9' })}
 ${noNetwork()}
 
-/* ---------- 拦截下载 ---------- */
+/* ---------- 拦截下载 / 文件选择 ---------- */
 ${downloadHook()}
+${filePickerHook()}
 </script>
 
 <script>
@@ -209,6 +210,30 @@ ${userscript}
         ok('脏数据经 normalizeGroupState 归一（纯函数）',
             (() => { const s = window.__FX_TEST__.normalizeGroupState(window.GM_getValue('panelGroups'), ['mode', 'api', 'bank', 'log']);
                      return s.mode === false && s.api === true && s.bank === false && s.log === false && !('nope' in s); })());
+
+        // ---- 导入链路（文件选择 → FileReader → importData → 落库）----
+        // 这里不真的弹文件选择框：filePickerHook 拦截 input.click()，把队列里的内容变成 File。
+        // 先测 JSON，再测 CSV；两条都只通过面板按钮走，覆盖 importJson / importCsv 的真实入口。
+        const bankText = () => JSON.stringify(window.GM_getValue('questionBank', {}) || {});
+        window.__fileQueue.push({
+            name: 'panel-import.json',
+            type: 'application/json',
+            body: JSON.stringify({ format: 'faxuanyun-legal-exam-bank', schema: 2, bank: {
+                '导入冒烟JSON题：行政行为的合法性审查': { q: '导入冒烟JSON题：行政行为的合法性审查', a: ['A'] },
+            } }),
+        });
+        $('fx-import').click();
+        await sleep(1600);
+        ok('JSON 导入经 FileReader 落库', bankText().includes('导入冒烟JSON题'), bankText().slice(0, 160));
+
+        window.__fileQueue.push({
+            name: 'panel-import.csv',
+            type: 'text/csv',
+            body: '题目,答案\\n导入冒烟CSV题：行政处罚的听证程序,B\\n',
+        });
+        $('fx-import').click();
+        await sleep(1600);
+        ok('CSV 导入经 FileReader 落库', bankText().includes('导入冒烟CSV题'), bankText().slice(0, 160));
     } catch (e) {
         R.push({ name: '运行期异常', pass: false, extra: (e && e.stack || String(e)).split('\\n').slice(0, 3).join(' | ') });
     }

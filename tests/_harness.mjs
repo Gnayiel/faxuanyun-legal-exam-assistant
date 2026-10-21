@@ -34,6 +34,24 @@ HTMLAnchorElement.prototype.click = function () {
 }
 
 /**
+ * 拦截 <input type=file> 的 click：从队列取 {name,type,body} 构造 File 并触发 change，
+ * 让「选择文件 → FileReader → importData」整条链路可以在 headless 浏览器里端到端跑。
+ * 用法：`window.__fileQueue.push({...})`，再点面板的导入按钮。
+ */
+export function filePickerHook() {
+    return `window.__fileQueue = [];
+const realFileClick = HTMLInputElement.prototype.click;
+HTMLInputElement.prototype.click = function () {
+    if (this.type !== 'file') return realFileClick.apply(this, arguments);
+    const item = window.__fileQueue.shift();
+    if (!item) return;
+    const file = new File([item.body], item.name, { type: item.type || 'application/octet-stream' });
+    Object.defineProperty(this, 'files', { value: [file], configurable: true });
+    this.dispatchEvent(new Event('change'));
+};`;
+}
+
+/**
  * 假的 OpenAI 兼容接口（离线）：按题干 clue 返回指定形态的 content。
  * mode: plain（纯 JSON）/ code（```json 代码块）/ explain（解释文字包裹 JSON）/ error（HTTP 500）。
  * 包在 fakeBaidu 之上：非 AI 地址原样交给前一个 GM_xmlhttpRequest（百度打桩），

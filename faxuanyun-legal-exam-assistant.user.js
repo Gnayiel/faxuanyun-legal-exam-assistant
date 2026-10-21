@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         甘肃省国家工作人员学法考试平台自动答题助手
 // @namespace    https://github.com/GNAYIEL/faxuanyun-legal-exam-assistant
-// @version      2.0.17
+// @version      2.0.18
 // @description  甘肃省国家工作人员学法考试平台（法宣在线）自动答题助手：结构化题库 + 站点适配层 + AI / 百度双通道查答案，含 190 项内置自检
 // @author       Gnayiel
 // @license      MIT
@@ -480,8 +480,9 @@
         #fx-panel.collapsed .fx-content, #fx-panel.collapsed .panel-title { display: none; }
         #fx-panel.collapsed .collapse-title { display: flex; align-items: center; justify-content: center; gap: 6px;
             font-weight: 600; margin-bottom: 8px; cursor: move; user-select: none; }
-        #fx-panel.collapsed .topbar { grid-template-columns: 1fr; margin-bottom: 0; }
-        #fx-panel.collapsed #fx-stop, #fx-panel.collapsed #fx-pause { display: none; }
+        #fx-panel.collapsed .topbar { grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 0; }
+        #fx-panel.collapsed #fx-stop { display: inline-flex; }
+        #fx-panel.collapsed #fx-pause { display: none; }
 
         @media (max-width: 380px) {
             #fx-panel { width: calc(100vw - 16px); max-height: calc(100vh - 16px); padding: 8px; }

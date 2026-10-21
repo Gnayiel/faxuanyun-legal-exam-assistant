@@ -1,28 +1,26 @@
 #!/usr/bin/env node
 /**
- * 生成 README 用的三张文档图（不引入图片库）：
- *   - docs/panel.webp：用 ffmpeg 同步面板徽章与自检日志
- *   - docs/social-preview-light.webp / dark.webp：用 Chrome 渲染 HTML 海报，
- *     再交给 ffmpeg 转 WebP
+ * 生成 README 用的三张文档图：
+ *   - docs/panel.webp：用脚本自身的 PANEL_CSS + 固定演示状态渲染，Chrome 2x 截图
+ *   - docs/social-preview-light.webp / dark.webp：Chrome 渲染 HTML 海报，
+ *     右侧嵌入 panel.webp
  *
- * 之前社交预览是在旧 WebP 上反复覆盖版本号，版本字符串变短时会留下旧字形，
- * 不同字体的数字也会和原海报不一致。现在海报文字由浏览器重新排版，面板截图
- * 作为图片嵌入，版本号/自检数每次都是新的。
+ * 不再在旧 WebP 上覆盖版本号：版本字符串变短时（2.0.22 → 3.0.0）一定会留下
+ * 旧字形或色块。现在所有文字由浏览器重新排版，面板也是干净 DOM 截图。
  *
- * 依赖：ffmpeg、Chrome/Chromium、中文字体（默认 Droid Sans Fallback）。
- *   FX_FONT     面板图用的拉丁字体（默认 DejaVu Sans Bold）
- *   FX_CJK_FONT 面板图用的中文字体（默认 Droid Sans Fallback）
- *   CHROME      浏览器可执行文件（默认自动找 google-chrome / chromium）
+ * 依赖：ffmpeg、Chrome/Chromium、中文字体（由浏览器系统字体提供）。
+ *   FFMPEG       ffmpeg 路径（默认 PATH 里的 ffmpeg）
+ *   CHROME       浏览器可执行文件（默认自动找 google-chrome / chromium）
  *
  * 用法：
  *   npm run docs:images
  *   node tools/generate-docs-images.mjs --version 3.0.0 --count 193
  *
- * 只在本地手动运行；不进入 CI（CI 不保证有 ffmpeg / Chrome / 中文字体）。
+ * 只本地手动运行；不进入 CI（CI 不保证有 ffmpeg / Chrome / 中文字体）。
  */
 import { execFileSync } from 'node:child_process';
+import { basename, dirname, join, resolve } from 'node:path';
 import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -36,8 +34,6 @@ const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
 const version = arg('--version', pkg.version);
 const count = String(arg('--count', (readme.match(/self--test-(\d+)%20passing/) || [])[1] || '193'));
 const ffmpeg = process.env.FFMPEG || 'ffmpeg';
-const font = process.env.FX_FONT || '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
-const cjkFont = process.env.FX_CJK_FONT || '/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf';
 
 if (!/^\d+\.\d+\.\d+$/.test(version)) {
     console.error(`版本号格式不对：${version}（应为 x.y.z）`);
@@ -47,17 +43,11 @@ if (!/^\d+$/.test(count)) {
     console.error(`自检数格式不对：${count}`);
     process.exit(2);
 }
-for (const f of [font, cjkFont]) {
-    if (!existsSync(f)) {
-        console.error(`缺少字体：${f}\n可用 FX_FONT / FX_CJK_FONT 指定字体路径。`);
-        process.exit(2);
-    }
-}
 for (const cmd of [ffmpeg]) {
     try {
         execFileSync(cmd, ['-version'], { stdio: 'ignore' });
     } catch {
-        console.error(`找不到 ${cmd}（${cmd}）。请安装，或用 FFMPEG 指定路径。`);
+        console.error(`找不到 ${cmd}。请安装，或用 FFMPEG 指定路径。`);
         process.exit(2);
     }
 }
@@ -73,33 +63,77 @@ const chrome = [process.env.CHROME, 'google-chrome', 'chromium', 'chromium-brows
     .filter(Boolean)
     .find(cmd => canRun(cmd));
 if (!chrome) {
-    console.error('找不到 Chrome / Chromium。社交预览需要浏览器渲染；可用 CHROME 指定路径。');
+    console.error('找不到 Chrome / Chromium。文档图需要浏览器渲染；可用 CHROME 指定路径。');
     process.exit(2);
 }
+
+const scriptPath = join(ROOT, 'faxuanyun-legal-exam-assistant.user.js');
+const scriptText = readFileSync(scriptPath, 'utf8');
+const cssMatch = scriptText.match(/const PANEL_CSS = `([\s\S]*?)`;/);
+if (!cssMatch) {
+    console.error('无法从用户脚本中提取 PANEL_CSS，面板图无法渲染。');
+    process.exit(2);
+}
+const panelCss = cssMatch[1];
 
 // 临时目录必须和 docs/ 在同一个文件系统，否则 renameSync 会 EXDEV。
 const tmp = mkdtempSync(join(ROOT, 'docs', '.tmp-images-'));
 const run = args => execFileSync(ffmpeg, ['-y', '-loglevel', 'error', ...args], { stdio: 'inherit' });
-const toPng = (src, dst) => run(['-i', src, '-frames:v', '1', dst]);
 const toWebp = (src, dst) => run(['-i', src, '-c:v', 'libwebp', '-quality', '86', '-compression_level', '6', dst]);
-const draw = (fontfile, value, x, y, size, color, boxColor) => {
-    let filter = `drawtext=fontfile=${fontfile}:text='${value}':x=${x}:y=${y}:fontsize=${size}:fontcolor=${color}`;
-    if (boxColor) filter += `:box=1:boxcolor=${boxColor}:boxborderw=3`;
-    return filter;
-};
-const text = (value, x, y, size, color, boxColor) => draw(font, value, x, y, size, color, boxColor);
-const fill = (x, y, w, h, color) => `drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=${color}:t=fill`;
 
-/** panel：右上角版本徽章 + 底部「自检 N/N 项通过」 */
-function panelFilters() {
-    const digits = `${count}/${count}`;
-    return [
-        fill(454, 52, 98, 27, '0x19202b'),
-        text('v' + version, 458, 51, 21, '0xc7d2e3'),
-        text(digits, 307, 1032, 20, '0xd8e2d2', '0x0d1117'),
-        draw(cjkFont, '项通过', 410, 1031, 20, '0xd8e2d2', '0x0d1117'),
-        fill(474, 1030, 92, 27, '0x0d1117'),
-    ].join(',');
+/** 用 Chrome 截图；width/height 是 CSS 像素，scale=2 时输出 2 倍图。 */
+function shot(html, width, height, scale, pngPath) {
+    const htmlPath = pngPath.replace(/\.png$/, '.html');
+    writeFileSync(htmlPath, html, 'utf8');
+    execFileSync(chrome, [
+        '--headless=new',
+        '--no-sandbox',
+        '--disable-gpu',
+        '--disable-dev-shm-usage',
+        '--hide-scrollbars',
+        '--no-first-run',
+        '--disable-extensions',
+        `--force-device-scale-factor=${scale}`,
+        `--window-size=${width},${height}`,
+        '--virtual-time-budget=2500',
+        `--user-data-dir=${join(tmp, 'chrome-' + basename(pngPath, '.png'))}`,
+        `--screenshot=${pngPath}`,
+        `file://${htmlPath}`,
+    ], { stdio: 'inherit' });
+}
+
+/**
+ * panel.webp 的固定演示状态：不是实时数据，但布局/样式直接取用户脚本的
+ * PANEL_CSS，版本与自检数按参数生成，避免再对截图做局部覆盖。
+ */
+function panelHtml() {
+    return `<!doctype html><html><head><meta charset="utf-8"><style>${panelCss}
+html,body{margin:0;width:316px;height:561px;overflow:hidden;background:#12161d}
+#fx-panel{position:relative!important;top:auto!important;right:auto!important;margin:8px;width:300px;height:545px;max-height:none!important;overflow:hidden}
+#fx-panel .fx-content{overflow:hidden}
+</style></head><body>
+<div id="fx-panel">
+  <div class="panel-title"><span class="title-dot"></span><span>法宣在线助手</span><span class="title-ver">v${version}</span></div>
+  <div class="topbar"><button id="fx-stop">开始</button><button id="fx-pause">暂停</button><button id="fx-toggle">收起</button></div>
+  <div class="fx-content">
+    <div class="group"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">答题模式与节奏</span><span class="group-badge">百度搜索 · 标准</span></div></div>
+    <div class="group"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">接口设置</span><span class="group-badge">未配置</span></div></div>
+    <div class="group"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">题库与本场</span><span class="group-badge">题库 299 题</span></div></div>
+    <div class="group open"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">日志与自检</span><span class="group-badge">日志 2 行</span></div>
+    <div class="group-body">
+      <div class="row"><button>清空日志</button><button>复制日志</button><button>导出日志</button></div>
+      <div class="row"><button>自检</button><button>导出诊断包</button></div>
+    </div></div>
+    <div class="bar"><div class="fill"></div></div>
+    <div class="status">就绪</div>
+    <div class="stats">题库 299 题（手改 7）· 104 KB（题库 299 / 错题 0 / 墓碑 0）</div>
+    <div class="stats">模式：百度搜索 · 已停止 · 已答 0</div>
+    <div class="log-box">
+      <div class="log-line log-info">[02:35:11] 等待考试页面就绪...</div>
+      <div class="log-line log-ok">[02:35:12] 自检 ${count}/${count} 项通过</div>
+    </div>
+  </div>
+</div></body></html>`;
 }
 
 function socialHtml(theme, panelB64) {
@@ -161,37 +195,23 @@ h1 span{color:${c.blue}}
 </div></body></html>`;
 }
 
-// 1) 先更新面板图；社交预览会把它作为右侧截图。
+// 1) 面板图：Chrome 直接渲染脚本自身的 PANEL_CSS + 固定演示状态。
 const panelSrc = join(ROOT, 'docs', 'panel.webp');
 if (!existsSync(panelSrc)) {
     console.error(`缺图片：${panelSrc}`);
     process.exit(1);
 }
 const panelPng = join(tmp, 'panel.png');
-toPng(panelSrc, panelPng);
-run(['-i', panelPng, '-vf', panelFilters(), '-frames:v', '1', join(tmp, 'panel-patched.png')]);
-toWebp(join(tmp, 'panel-patched.png'), join(tmp, 'panel.webp'));
+shot(panelHtml(), 316, 561, 2, panelPng);
+toWebp(panelPng, join(tmp, 'panel.webp'));
 renameSync(join(tmp, 'panel.webp'), panelSrc);
 console.log('✓ docs/panel.webp');
 
-// 2) 重新渲染两张社交预览：文字由浏览器排版，面板截图作为图片嵌入。
+// 2) 社交预览：文字由浏览器排版，面板图作为图片嵌入。
 const panelB64 = readFileSync(panelSrc).toString('base64');
 for (const theme of ['light', 'dark']) {
-    const htmlPath = join(tmp, `social-${theme}.html`);
     const pngPath = join(tmp, `social-${theme}.png`);
-    writeFileSync(htmlPath, socialHtml(theme, panelB64), 'utf8');
-    execFileSync(chrome, [
-        '--headless=new',
-        '--no-sandbox',
-        '--disable-gpu',
-        '--hide-scrollbars',
-        '--force-device-scale-factor=1',
-        '--window-size=1280,640',
-        '--virtual-time-budget=2500',
-        `--user-data-dir=${join(tmp, `chrome-${theme}`)}`,
-        `--screenshot=${pngPath}`,
-        `file://${htmlPath}`,
-    ], { stdio: 'inherit' });
+    shot(socialHtml(theme, panelB64), 1280, 640, 1, pngPath);
     toWebp(pngPath, join(tmp, `social-${theme}.webp`));
     renameSync(join(tmp, `social-${theme}.webp`), join(ROOT, 'docs', `social-preview-${theme}.webp`));
     console.log(`✓ docs/social-preview-${theme}.webp`);

@@ -11,7 +11,7 @@
 | [docs/DEVELOPMENT.md](DEVELOPMENT.md) | 贡献者 / 维护者 | 开发环境、目录结构、第一次跑、命令表、统一门禁、测试分层、加断言与 fixture、调试、代码约定、真机回归、文档配图 |
 | [docs/RELEASING.md](RELEASING.md) | 发版维护者 | 版本号来源与副本、发布前检查、本地发版流程、`release.yml`、更新链、失败恢复、发布后验证、回滚、仓库保护依赖 |
 | [docs/REPOSITORY_SETTINGS.md](REPOSITORY_SETTINGS.md) | 仓库管理员 | GitHub 描述/topics/社交预览、Discussions/Wiki、Actions 权限、rulesets、required checks、Security、Releases（全部为建议，需人工确认） |
-| [docs/IMAGE_PIPELINE.md](IMAGE_PIPELINE.md) | 维护者 | `docs/panel.webp` 与社交预览图的生成方式、字体与 `ffmpeg` 依赖、版本号/自检数的同步 |
+| [docs/IMAGE_PIPELINE.md](IMAGE_PIPELINE.md) | 维护者 | `docs/panel.webp` 与社交预览图的生成方式、Chrome/`ffmpeg` 依赖、版本号/自检数的同步 |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | 贡献者 | 贡献流程、如何提 issue/PR、代码约定、测试要求、报告问题、发版入口 |
 | [SUPPORT.md](../SUPPORT.md) | 使用者 | 求助渠道、提问前自查、提问需要附带的材料、响应预期 |
 | [SECURITY.md](../SECURITY.md) | 报告安全问题的人 | 支持范围、私密报告入口、响应时限、披露约定 |

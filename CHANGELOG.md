@@ -19,8 +19,8 @@
 
 ### 变更
 
-- **README 社交预览重新生成**：两张 1280×640 海报改为 HTML/CSS 排版、Chrome 截图，右侧直接嵌入当前面板截图；不再在旧 WebP 上重复覆盖版本号。修复旧图在 `2.0.22 → 3.0.0` 变短时留下的残影，以及 `193` 与原海报字体不一致的问题。
-- **图片管线说明**：`npm run docs:images` 现在需要 Chrome/Chromium（可用 `CHROME` 指定）；`docs/IMAGE_PIPELINE.md` 已同步依赖与布局入口。
+- **README 社交预览重新生成**：两张 1280×640 海报改为 HTML/CSS 排版、Chrome 截图，右侧嵌入由脚本 `PANEL_CSS` 与固定演示状态重新渲染的面板；面板图和海报都不再在旧 WebP 上重复覆盖版本号。修复旧图在 `2.0.22 → 3.0.0` 变短时留下的色块/残影，以及 `193` 与原海报字体不一致的问题。
+- **图片管线说明**：`npm run docs:images` 现在需要 Chrome/Chromium（可用 `CHROME` 指定）；`docs/IMAGE_PIPELINE.md` 已同步依赖与布局入口；面板图也从 ffmpeg 覆盖改为 Chrome 干净渲染。
 - **文档校准**：补充 `@2` 别名的元数据/文件双层缓存诊断，以及社交预览当前已在 GitHub 配置的说明。
 
 ## v3.0.0
@@ -75,8 +75,8 @@
   断言落到 `questionBank`；等待改为轮询（最长 5 秒），不再依赖固定 1600ms；面板断言 40→42。
 - **CSV 表头回归**：内置自检新增 3 条（正常六列表头、两列「题目 / 答案」、无表头首行题干含「答案」不被吞），
   内置断言 190→193。
-- **文档配图生成**：新增 `tools/generate-docs-images.mjs` 与 `docs/IMAGE_PIPELINE.md`，发版时用 ffmpeg
-  把版本号 / 自检数盖到三张 README 图，不再手工改图。
+- **文档配图生成**：新增 `tools/generate-docs-images.mjs` 与 `docs/IMAGE_PIPELINE.md`，发版时用 Chrome
+  按脚本 CSS / HTML 重新渲染三张 README 图，ffmpeg 只转 WebP，不再手工改图或覆盖旧图。
 
 ### 验证方式
 

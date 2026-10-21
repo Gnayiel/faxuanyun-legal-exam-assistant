@@ -9,7 +9,7 @@
 | Node.js | ≥ 22（`.nvmrc` 为 `22`；CI 矩阵跑 22 与 24） | 运行全部测试与工具 |
 | Chromium 系浏览器 | Edge / Chrome / Chromium 任一 | `panel-smoke`、`page-smoke` 两个浏览器冒烟 |
 | git | 任意近版 | 提交、打 tag、发版 |
-| ffmpeg + 字体 | 仅重绘文档图时需要 | `npm run docs:images` |
+| ffmpeg + Chrome + 中文字体 | 仅重绘文档图时需要 | `npm run docs:images` |
 
 补充说明：
 
@@ -82,7 +82,7 @@
 | `npm run ci` | `node tools/ci.mjs`：与 CI 完全相同的 8 步统一门禁 | 是 |
 | `npm run smoke` | 只跑两个浏览器冒烟（自动带 `--require-browser`） | 是 |
 | `npm run release` | 本地发版助手：前置检查 → 统一门禁 → 打本地 tag（不 push） | 默认要（内部跑 `npm run ci`） |
-| `npm run docs:images` | 重绘 `docs/` 下三张 README 用图 | 否（要 ffmpeg / 字体） |
+| `npm run docs:images` | 重绘 `docs/` 下三张 README 用图 | 否（要 ffmpeg / Chrome / 中文字体） |
 | `npm run merge-smoke` | 只跑题库合并冒烟 | 否 |
 
 单独运行某一项（排查失败时最常用）：
@@ -218,7 +218,7 @@ AI 响应由 `tests/_harness.mjs` 的 `fakeAI` 打桩，完全离线：在 `CASE
 | 冒烟退出码 2 | 没找到浏览器，或指定了 `--require-browser` | 安装 Chromium 系浏览器或设置 `FX_BROWSER` |
 | 冒烟退出码 1 | 断言失败（脚本或页面行为回归） | 用 dump 开关保留现场，单跑该用例 |
 | `EXDEV: cross-device link not permitted` | 图片脚本的临时目录与 `docs/` 不在同一文件系统 | 把仓库放在本地磁盘；脚本默认在 `docs/.tmp-images-*` 建临时目录，不要把它指到另一挂载点 |
-| `缺少字体` / `找不到 ffmpeg` | 配图依赖缺失 | 安装 `ffmpeg` 与 DejaVu Sans Bold、Droid Sans Fallback；或用 `FFMPEG` / `FX_FONT` / `FX_CJK_FONT` 指定路径 |
+| `找不到 Chrome` / `找不到 ffmpeg` / 中文变方框 | 配图依赖缺失 | 安装 Chrome/Chromium、`ffmpeg` 与中文字体；或用 `CHROME` / `FFMPEG` 指定路径 |
 | `check-docs` 报死链 | 相对链接或锚点失效 | 按 `文件:行号 → 链接` 修正；标题改了要同步锚点 |
 | 页面冒烟超时 | 浏览器启动慢或页面脚本卡住 | 先单独跑，确认浏览器可启动；CI 上使用 `--no-sandbox` 由脚本自动加 |
 
@@ -249,6 +249,6 @@ AI 响应由 `tests/_harness.mjs` 的 `fakeAI` 打桩，完全离线：在 `CASE
 
 - 文档入口与适用读者见 [docs/README.md](README.md)；安全报告见 [SECURITY.md](../SECURITY.md)，求助渠道见 [SUPPORT.md](../SUPPORT.md)。
 - 三张 README 用图（`docs/social-preview-light.webp`、`docs/social-preview-dark.webp`、`docs/panel.webp`）由 `npm run docs:images` 重绘，原理与依赖见 [docs/IMAGE_PIPELINE.md](IMAGE_PIPELINE.md)。
-- 脚本默认读取 `package.json` 的 `version` 与 README 的 `self--test-*` 徽章；也可显式传 `--version` / `--count`。调整海报或面板布局时，先改 `tools/generate-docs-images.mjs` 里的坐标与底色。
-- 配图依赖 `ffmpeg`、DejaVu Sans Bold、Droid Sans Fallback，可用 `FFMPEG` / `FX_FONT` / `FX_CJK_FONT` 覆盖路径；该脚本只在本机手动运行，不进入 CI。
+- 脚本默认读取 `package.json` 的 `version` 与 README 的 `self--test-*` 徽章；也可显式传 `--version` / `--count`。调整海报或面板布局时，改 `tools/generate-docs-images.mjs` 的 `socialHtml()` / `panelHtml()`，让文字由浏览器重新排版，不要覆盖旧图。
+- 配图依赖 `ffmpeg`、Chrome/Chromium 与系统中文字体，可用 `FFMPEG` / `CHROME` 覆盖路径；该脚本只在本机手动运行，不进入 CI。
 - 新增或修改文档后跑一次 `node tools/check-docs.mjs`，确认相对链接与锚点都能解析。

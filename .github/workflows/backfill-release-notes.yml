@@ -1,0 +1,45 @@
+name: 回填 Release 说明
+
+# 手动触发：把历史 Release 正文里的「main 首装链」替换成该 tag 的 jsDelivr 钉版链接。
+# 用 Actions 自带的 GITHUB_TOKEN，不需要在本地保存 PAT；先跑 dry_run 看清单，再取消勾选实跑。
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '只预览，不修改（首次建议保持勾选）'
+        type: boolean
+        default: true
+
+# 编辑 Release 正文属于 contents 写权限；其余步骤只读
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill-release-notes
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # 第三方 action 全部 pin 到 commit SHA，升级由 Dependabot 开 PR。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: 回填历史 Release 首装链接
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "模式：dry-run（只打印，不写）"
+            node tools/backfill-release-notes.mjs --dry-run
+          else
+            echo "模式：实际写入"
+            node tools/backfill-release-notes.mjs
+          fi

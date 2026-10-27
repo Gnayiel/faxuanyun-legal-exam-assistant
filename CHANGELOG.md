@@ -8,6 +8,7 @@
 > 随仓库分发的题库快照 JSON 里的 `"version"` 是导出时的脚本版本号，只作溯源用（当前快照为 `3.0.0`）。
 > 旧版本「验证方式」里的 `tools/selftest.mjs`、`tools/page-smoke.mjs` 等命令是当时目录结构的
 > 历史记录；测试脚本现已迁入 `tests/`，现行命令见 [开发文档](docs/DEVELOPMENT.md)。
+> 各版本「验证方式」里的题库题数反映该版本发布时的快照；当前随仓库分发的快照数字见 [data/README.md](data/README.md)。
 
 变更分四类：**新增**（新能力）、**变更**（行为或文案改了）、**修复**（原来不对的）、**移除**。
 每个版本末尾的「验证方式」写的是**当次真实跑出来**的结果；可复现的命令见
@@ -28,6 +29,7 @@
 - **发版 workflow 权限拆分**：`release.yml` 拆成只读 `verify` job（tag/版本/CHANGELOG 校验 + `npm run ci`）与最小写权限 `release` job（校验和、构建来源证明、Release 上传、回读与更新链）；release job 不再安装 Node，checkout 改为浅克隆。
 - **外链检查**：新增 `tools/check-external-links.mjs` 与 `npm run check:external`，扫描文档外链并分级报告 403/429 与硬失败；默认不进门禁，发版前可用 `--strict` 人工复核。
 - **配置与文档小修**：开发目录树补上 `check-external-links.mjs` 与 `check:external`；Dependabot 标签改用仓库实际存在的 `github_actions`；CONTRIBUTING 的功能建议入口与 Feature request 模板统一。
+- **快照维护门禁**：`tools/check-data.mjs` 现在要求 `data/` 恰好一对 JSON+CSV，孤立 CSV 或旧 JSON 都会失败；`tools/generate-docs-images.mjs` 从最新快照自动读取题数、手改数与体积，替换题库后跑 `npm run docs:images` 即可，不再手改配图数字；`tests/merge-smoke.mjs` 的合成夹具同步到 3.0.0 / 2026-10-27。
 
 ## v3.0.0
 

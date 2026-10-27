@@ -112,7 +112,7 @@ node tools/ci.mjs --no-browser                # 无浏览器环境跑门禁的�
 | 1 | 语法检查 | `node tools/check-syntax.mjs` | 用户脚本、`tools/*.mjs`、`tests/*.mjs` 的 `node --check`，以及 `package.json` 是否为合法 JSON | 报错里的“文件:行号” |
 | 2 | 文档链接与锚点 | `node tools/check-docs.mjs` | README、CONTRIBUTING、SUPPORT、SECURITY、CODE_OF_CONDUCT、CHANGELOG、`docs/*.md`、`data/README.md` 的相对链接、图片和 `#锚点` | `文件:行号 → 链接 (原因)` |
 | 3 | 内置自检 + 文档数字 | `node tests/selftest.mjs` | 元数据、vm 加载、内置的 193 项断言，以及 README 徽章 / CHANGELOG / 脚本注解 / 本文档里的数字 | 最后一段“缺「…」”的逐条提示 |
-| 4 | 数据 / 文档一致性 | `node tools/check-data.mjs` | 快照 JSON/CSV 成对、内部自洽、CSV 对应，README 与 data/README 的 319 题（单选 96 / 多选 63 / 判断 160） | 具体哪份文档的哪个数字 |
+| 4 | 数据 / 文档一致性 | `node tools/check-data.mjs` | `data/` 恰好一对 JSON/CSV（无孤儿文件）、快照内部自洽、CSV 对应，README 与 data/README 的 319 题（单选 96 / 多选 63 / 判断 160） | 具体哪份文档的哪个数字 |
 | 5 | 工作流静态检查 | `node tools/check-workflows.mjs` | `runs-on` / `permissions` / `timeout-minutes`、action pin SHA 与版本注释、本地脚本存在性、禁止 `pull_request_target` + 检出 PR 代码、发版必须 tag 触发 | 对应 workflow 与规则名 |
 | 6 | 题库合并冒烟（冲突 / 幂等 / 公式消毒） | `node tests/merge-smoke.mjs` | 冲突取新、用户答案优先、错题并集、幂等、CSV 公式注入消毒，共 17 项合并检查 | 第几个 `[1/3]`～`[3/3]` 子段 |
 | 7 | 面板冒烟（需要真实浏览器） | `node tests/panel-smoke.mjs --require-browser` | 真实 Chromium 里建面板、按钮齐全、导出文件名与 JSON/CSV 导入落库，42 项断言 | 面板用例名与 DOM dump |
@@ -251,7 +251,7 @@ AI 响应由 `tests/_harness.mjs` 的 `fakeAI` 打桩，完全离线：在 `CASE
 ## 文档与配图
 
 - 文档入口与适用读者见 [docs/README.md](README.md)；安全报告见 [SECURITY.md](../SECURITY.md)，求助渠道见 [SUPPORT.md](../SUPPORT.md)。
-- 三张 README 用图（`docs/social-preview-light.webp`、`docs/social-preview-dark.webp`、`docs/panel.webp`）由 `npm run docs:images` 重绘，原理与依赖见 [docs/IMAGE_PIPELINE.md](IMAGE_PIPELINE.md)。
+- 三张 README 用图（`docs/social-preview-light.webp`、`docs/social-preview-dark.webp`、`docs/panel.webp`）由 `npm run docs:images` 重绘；面板题数/手改数/体积从 `data/` 最新快照自动读取，替换题库后也要重跑。原理与依赖见 [docs/IMAGE_PIPELINE.md](IMAGE_PIPELINE.md)。
 - 脚本默认读取 `package.json` 的 `version` 与 README 的 `self--test-*` 徽章；也可显式传 `--version` / `--count`。调整海报或面板布局时，改 `tools/generate-docs-images.mjs` 的 `socialHtml()` / `panelHtml()`，让文字由浏览器重新排版，不要覆盖旧图。
 - 配图依赖 `ffmpeg`、Chrome/Chromium 与系统中文字体，可用 `FFMPEG` / `CHROME` 覆盖路径；该脚本只在本机手动运行，不进入 CI。
 - 新增或修改文档后跑一次 `node tools/check-docs.mjs`，确认相对链接与锚点都能解析。

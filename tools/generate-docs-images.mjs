@@ -20,7 +20,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { basename, dirname, join, resolve } from 'node:path';
-import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -76,6 +76,28 @@ if (!cssMatch) {
 }
 const panelCss = cssMatch[1];
 
+// 面板演示数字从仓库快照读取：题库数量、手改数、体积与错题数都跟着 data/ 走，
+// 避免下次替换快照后还要手工改这里的 319 / 111 / 7。
+const dataDir = join(ROOT, 'data');
+const snapshotFiles = readdirSync(dataDir)
+    .filter(f => /^faxuanyun-legal-exam-bank-\d{8}\.json$/.test(f));
+if (snapshotFiles.length !== 1) {
+    console.error(`data/ 下应恰好有一份题库快照 JSON，实际 ${snapshotFiles.length} 份：${snapshotFiles.join(', ')}`);
+    process.exit(2);
+}
+const snapshot = JSON.parse(readFileSync(join(dataDir, snapshotFiles[0]), 'utf8'));
+const bankEntries = Object.values(snapshot.bank || {});
+if (!bankEntries.length) {
+    console.error(`快照 ${snapshotFiles[0]} 没有 bank 数据，无法渲染面板演示图。`);
+    process.exit(2);
+}
+const bankStats = {
+    count: bankEntries.length,
+    userEdited: bankEntries.filter(e => e.by === 'user').length,
+    sizeKb: Math.round(Buffer.byteLength(JSON.stringify(snapshot.bank), 'utf8') / 1024),
+    wrongCount: Object.keys(snapshot.wrong || {}).length,
+};
+
 // 临时目录必须和 docs/ 在同一个文件系统，否则 renameSync 会 EXDEV。
 const tmp = mkdtempSync(join(ROOT, 'docs', '.tmp-images-'));
 const run = args => execFileSync(ffmpeg, ['-y', '-loglevel', 'error', ...args], { stdio: 'inherit' });
@@ -104,7 +126,8 @@ function shot(html, width, height, scale, pngPath) {
 
 /**
  * panel.webp 的固定演示状态：不是实时数据，但布局/样式直接取用户脚本的
- * PANEL_CSS，版本与自检数按参数生成，避免再对截图做局部覆盖。
+ * PANEL_CSS，版本与自检数按参数生成，题库数字从 data/ 最新快照读取；
+ * 避免再对截图做局部覆盖。
  */
 function panelHtml() {
     return `<!doctype html><html><head><meta charset="utf-8"><style>${panelCss}
@@ -118,7 +141,7 @@ html,body{margin:0;width:316px;height:561px;overflow:hidden;background:#12161d}
   <div class="fx-content">
     <div class="group"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">答题模式与节奏</span><span class="group-badge">百度搜索 · 标准</span></div></div>
     <div class="group"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">接口设置</span><span class="group-badge">未配置</span></div></div>
-    <div class="group"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">题库与本场</span><span class="group-badge">题库 319 题</span></div></div>
+    <div class="group"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">题库与本场</span><span class="group-badge">题库 ${bankStats.count} 题</span></div></div>
     <div class="group open"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">日志与自检</span><span class="group-badge">日志 2 行</span></div>
     <div class="group-body">
       <div class="row"><button>清空日志</button><button>复制日志</button><button>导出日志</button></div>
@@ -126,7 +149,7 @@ html,body{margin:0;width:316px;height:561px;overflow:hidden;background:#12161d}
     </div></div>
     <div class="bar"><div class="fill"></div></div>
     <div class="status">就绪</div>
-    <div class="stats">题库 319 题（手改 7）· 111 KB（题库 319 / 错题 0 / 墓碑 0）</div>
+    <div class="stats">题库 ${bankStats.count} 题（手改 ${bankStats.userEdited}）· ${bankStats.sizeKb} KB（题库 ${bankStats.count} / 错题 ${bankStats.wrongCount} / 墓碑 0）</div>
     <div class="stats">模式：百度搜索 · 已停止 · 已答 0</div>
     <div class="log-box">
       <div class="log-line log-info">[02:35:11] 等待考试页面就绪...</div>

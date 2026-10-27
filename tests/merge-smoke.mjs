@@ -53,8 +53,9 @@ const entry = (q, t, a, l, extra = {}) => ({
     q, t, s: '学法考试', a, l, src: 'exam', by: '', ts: 1000, us: 0, hit: 0, ok: 0, bad: 0, cft: 0, ...extra,
 });
 const wrap = (bank, wrong = {}) => ({
-    format: 'faxuanyun-legal-exam-bank', schema: 2, version: '2.0.16',
-    exportedAt: '2026-10-20T00:00:00.000Z', count: Object.keys(bank).length, bank, wrong,
+    // 合成夹具：版本/日期只用于导出字段，不代表仓库当前的题库快照。
+    format: 'faxuanyun-legal-exam-bank', schema: 2, version: '3.0.0',
+    exportedAt: '2026-10-27T00:00:00.000Z', count: Object.keys(bank).length, bank, wrong,
 });
 
 const dir = mkdtempSync(join(tmpdir(), 'fx-merge-smoke-'));

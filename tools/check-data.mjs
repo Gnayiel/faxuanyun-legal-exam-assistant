@@ -68,17 +68,19 @@ const prefixSame = (a, b) => {
 
 console.log('\n[1/3] 找快照文件');
 const files = readdirSync(DATA).filter(f => /^faxuanyun-legal-exam-bank-\d{8}\.(json|csv)$/.test(f));
-const snapshotJsonCount = files.filter(f => f.endsWith('.json')).length;
-ok('data/ 只保留一份题库快照（旧版本交给 git 历史）', snapshotJsonCount <= 1,
-    `发现 ${snapshotJsonCount} 份 JSON：${files.join(', ')}`);
 const jsonFiles = files.filter(f => f.endsWith('.json')).sort();
-ok('data/ 下有题库快照 JSON', jsonFiles.length > 0, files.join(', ') || '（空）');
-if (!jsonFiles.length) process.exit(1);
+const csvFiles = files.filter(f => f.endsWith('.csv')).sort();
+ok('data/ 只保留一份题库快照 JSON（旧版本交给 git 历史）', jsonFiles.length === 1,
+    `发现 ${jsonFiles.length} 份 JSON：${jsonFiles.join(', ') || '（空）'}`);
+ok('data/ 只保留一份题库快照 CSV（旧版本交给 git 历史）', csvFiles.length === 1,
+    `发现 ${csvFiles.length} 份 CSV：${csvFiles.join(', ') || '（空）'}`);
+if (!jsonFiles.length || !csvFiles.length) process.exit(1);
 const wantDate = process.argv.slice(2).find(a => /^\d{8}$/.test(a));
-const jsonName = wantDate ? `faxuanyun-legal-exam-bank-${wantDate}.json` : jsonFiles[jsonFiles.length - 1];
+const jsonName = wantDate ? `faxuanyun-legal-exam-bank-${wantDate}.json` : jsonFiles[0];
 const date = (jsonName.match(/(\d{8})/) || [])[1];
 const csvName = jsonName.replace(/\.json$/, '.csv');
-ok(`快照 ${date} 成对（.json + .csv）`, files.includes(csvName), `缺 ${csvName}`);
+ok(`快照 ${date} 的 JSON / CSV 成对且无孤儿文件`, csvFiles.length === 1 && csvFiles[0] === csvName,
+    `期望 ${csvName}，实际 ${csvFiles.join(', ') || '（空）'}`);
 
 console.log('\n[2/3] 校验 JSON 与 CSV');
 const snap = JSON.parse(readFileSync(join(DATA, jsonName), 'utf8'));

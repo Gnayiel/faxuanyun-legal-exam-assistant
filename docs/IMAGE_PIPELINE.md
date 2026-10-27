@@ -6,7 +6,7 @@ README 使用的三张图：
 - `docs/social-preview-dark.webp`
 - `docs/panel.webp`
 
-都是仓库内的脱敏海报/截图，不包含真实账号信息。发版时版本号和自检数会变化，用脚本重新生成，避免手工维护漂移。三张图都由 Chrome 从 HTML 重新渲染：`panel.webp` 使用脚本自身的 `PANEL_CSS` 与固定演示状态，两张社交预览使用独立 HTML（右侧嵌入这张干净面板）；ffmpeg 只负责把截图转成 WebP，不再在旧图上覆盖文字：
+都是仓库内的脱敏海报/截图，不包含真实账号信息。发版时版本号和自检数会变化，用脚本重新生成，避免手工维护漂移。三张图都由 Chrome 从 HTML 重新渲染：`panel.webp` 使用脚本自身的 `PANEL_CSS` 与固定演示状态，题库题数 / 手改数 / 体积 / 错题数从 `data/` 最新快照自动读取；两张社交预览使用独立 HTML（右侧嵌入这张干净面板）；ffmpeg 只负责把截图转成 WebP，不再在旧图上覆盖文字：
 
 ```bash
 # 默认读取 package.json 的 version、README 里的 self--test-N 徽章
@@ -20,7 +20,7 @@ node tools/generate-docs-images.mjs --version 3.0.0 --count 193
 
 ## 发版检查清单
 
-1. 改版本号后执行 `npm run docs:images`，用图片查看器确认三张图的版本号/自检数正确；
+1. 改版本号后执行 `npm run docs:images`，用图片查看器确认三张图的版本号/自检数/题库数字正确；替换题库快照后也要跑一次；
 2. `npm run ci`（含页面冒烟 135 项）全绿；
 3. `node tools/release.mjs --check-ci vX.Y.Z` 通过后再打 tag；
-4. 若调整海报布局，改 `tools/generate-docs-images.mjs` 里的 `socialHtml()`；若调整面板演示状态或布局，改 `panelHtml()`（以及脚本里的 `PANEL_CSS`），再生成。不要改坐标去覆盖旧图上的文字。
+4. 若调整海报布局，改 `tools/generate-docs-images.mjs` 里的 `socialHtml()`；若调整面板演示状态或布局，改 `panelHtml()`（以及脚本里的 `PANEL_CSS`），再生成；题库数字不要手改，脚本从 `data/` 快照读取。不要改坐标去覆盖旧图上的文字。

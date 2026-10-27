@@ -49,7 +49,8 @@ npm run ci      # 8 步统一门禁，含两个真实浏览器冒烟
 
 - 随仓库分发的快照（如 `data/faxuanyun-legal-exam-bank-20261027.*`）是某一时刻的切片，**不会随每个版本自动更新**。
 - 题库有实质变化时，用面板导出新的 `.json` + `.csv`，按 `data/README.md` 的命名规则替换或新增，并在 `CHANGELOG.md` 里说明来源与日期。
-- 换成新快照时，用新日期戳的一对文件替换旧文件即可（`.gitignore` 已按命名规则通配放行）；`data/` 只保留一份快照，`tools/check-data.mjs` 会拦第二份。
+- 换成新快照时，用新日期戳的一对文件替换旧文件即可（`.gitignore` 已按命名规则通配放行）；`data/` 只保留一份快照，`tools/check-data.mjs` 会同时拦截第二份 JSON 和孤儿 CSV。
+- 替换后跑 `npm run docs:images`：配图脚本会从 `data/` 最新快照自动读取题数、手改数与体积，再跑 `npm run check` / `npm run ci` 确认文档数字和门禁。
 
 ## 真机确认
 

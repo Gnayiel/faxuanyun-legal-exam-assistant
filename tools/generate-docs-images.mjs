@@ -118,7 +118,7 @@ html,body{margin:0;width:316px;height:561px;overflow:hidden;background:#12161d}
   <div class="fx-content">
     <div class="group"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">答题模式与节奏</span><span class="group-badge">百度搜索 · 标准</span></div></div>
     <div class="group"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">接口设置</span><span class="group-badge">未配置</span></div></div>
-    <div class="group"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">题库与本场</span><span class="group-badge">题库 299 题</span></div></div>
+    <div class="group"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">题库与本场</span><span class="group-badge">题库 319 题</span></div></div>
     <div class="group open"><div class="group-head"><span class="group-caret">▶</span><span class="group-name">日志与自检</span><span class="group-badge">日志 2 行</span></div>
     <div class="group-body">
       <div class="row"><button>清空日志</button><button>复制日志</button><button>导出日志</button></div>
@@ -126,7 +126,7 @@ html,body{margin:0;width:316px;height:561px;overflow:hidden;background:#12161d}
     </div></div>
     <div class="bar"><div class="fill"></div></div>
     <div class="status">就绪</div>
-    <div class="stats">题库 299 题（手改 7）· 104 KB（题库 299 / 错题 0 / 墓碑 0）</div>
+    <div class="stats">题库 319 题（手改 7）· 111 KB（题库 319 / 错题 0 / 墓碑 0）</div>
     <div class="stats">模式：百度搜索 · 已停止 · 已答 0</div>
     <div class="log-box">
       <div class="log-line log-info">[02:35:11] 等待考试页面就绪...</div>

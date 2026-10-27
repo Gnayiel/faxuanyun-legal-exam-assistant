@@ -25,6 +25,7 @@
 - **README 社交预览重新生成**：两张 1280×640 海报改为 HTML/CSS 排版、Chrome 截图，右侧嵌入由脚本 `PANEL_CSS` 与固定演示状态重新渲染的面板；面板图和海报都不再在旧 WebP 上重复覆盖版本号。修复旧图在 `2.0.22 → 3.0.0` 变短时留下的色块/残影，以及 `193` 与原海报字体不一致的问题。
 - **图片管线说明**：`npm run docs:images` 现在需要 Chrome/Chromium（可用 `CHROME` 指定）；`docs/IMAGE_PIPELINE.md` 已同步依赖与布局入口；面板图也从 ffmpeg 覆盖改为 Chrome 干净渲染。
 - **文档校准**：补充 `@2` 别名的元数据/文件双层缓存诊断，以及社交预览当前已在 GitHub 配置的说明。
+- **社交预览流程补充**：发版检查清单增加 GitHub Settings → Social preview 重传步骤，明确 OG 不会随 README 自动更新；仓库设置文档的核验日期更新到 2026-10-27。
 - **仓库 Topics 补全**：仓库 Topics 从 8 个扩到 14 个（补 `legal-exam`、`javascript`、`greasemonkey`、`ai`、`baidu`、`chinese`），便于按考试/脚本/中文场景检索。
 - **发版 workflow 权限拆分**：`release.yml` 拆成只读 `verify` job（tag/版本/CHANGELOG 校验 + `npm run ci`）与最小写权限 `release` job（校验和、构建来源证明、Release 上传、回读与更新链）；release job 不再安装 Node，checkout 改为浅克隆。
 - **外链检查**：新增 `tools/check-external-links.mjs` 与 `npm run check:external`，扫描文档外链并分级报告 403/429 与硬失败；默认不进门禁，发版前可用 `--strict` 人工复核。

@@ -2,7 +2,7 @@
 
 > **本文所有设置均为建议，需要在 GitHub 网页上人工确认，不代表当前仓库已经这样配置。** 适用于仓库管理员 / owner。仓库侧的 rulesets、Actions 权限等不在 git 里，无法通过代码评审保证；发版流程对其中几项的依赖见 [docs/RELEASING.md](RELEASING.md)。
 
-> **当前实际状态（2026-10-21 核验）**：`protect-main` 只启用了「阻止删除」与「阻止强推」，**没有启用 PR 规则和 required status checks，`main` 仍允许直接 push**；`protect-release-tags` 已启用删除/更新保护；CodeQL default setup 已在运行。基本信息与 Features 行标了当前值，规则集等仍按建议描述，不代表已生效。
+> **当前实际状态（2026-10-27 核验）**：`protect-main` 只启用了「阻止删除」与「阻止强推」，**没有启用 PR 规则和 required status checks，`main` 仍允许直接 push**；`protect-release-tags` 已启用删除/更新保护；CodeQL default setup 已在运行；GitHub Social preview 需要随图片更新手工重传，不会自动同步。基本信息与 Features 行标了当前值，规则集等仍按建议描述，不代表已生效。
 
 仓库：`Gnayiel/faxuanyun-legal-exam-assistant`（公开仓库，MIT，纯单文件 userscript，无 npm 依赖）。
 
@@ -13,7 +13,7 @@
 | Description | 当前为中英双语长描述（含 “Gansu legal-study exam platform” 与 “甘肃法宣在线学法考试油猴脚本”）；`package.json` 用中文短描述 | 已配置；两者不要求逐字一致，保持中英双语便于搜索 |
 | Website | 当前为 `https://github.com/Gnayiel/faxuanyun-legal-exam-assistant/releases/latest`；可选再补 Greasy Fork 发布页 | 已配置；没有官方站点时不必编造 |
 | Topics | 当前 14 个：`ai`、`automation`、`baidu`、`chinese`、`education`、`faxuanyun`、`gansu`、`greasemonkey`、`javascript`、`legal-exam`、`llm`、`openai`、`tampermonkey`、`userscript` | 已覆盖考试、脚本管理器与中文场景；GitHub 上限 20，不建议再堆无关热门标签 |
-| Social preview | 当前 GitHub 仓库已配置社交预览（OG image 可访问）；如需更换，上传 `docs/social-preview-light.webp`（深色界面用户可换 dark 版） | 仓库已自带浅/深两张预览图；更换后请在分享卡片里预览确认 |
+| Social preview | 当前 GitHub 仓库已配置社交预览（OG image 可访问）；它是独立上传设置，README/仓库内图片更新后必须到 Settings → Social preview 重传，上传 `docs/social-preview-light.webp`（深色界面用户可换 dark 版） | 仓库已自带浅/深两张预览图；OG 不会随 README 自动同步，重传后请在分享卡片里预览确认 |
 | Default branch | `main` | 所有 workflow 与文档都按 `main` 写 |
 | Features → Issues | 已开启 | 需要 `bug_report.yml` 模板与 issue 检索 |
 | Features → Discussions | 已开启（Q&A / 使用交流） | 功能建议走 Feature request 模板，使用问题/开放讨论走 Discussions；[SUPPORT.md](../SUPPORT.md) 与 issue 模板的 config 已分流；开启后建议建 `Q&A`、`Announcements` 分类 |

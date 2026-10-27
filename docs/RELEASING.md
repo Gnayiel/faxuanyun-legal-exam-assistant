@@ -25,7 +25,7 @@
 按顺序完成，任何一项不通过都不要打 tag：
 
 1. **版本与说明就位**：改 `@version`、`package.json`、README 徽章，在 `CHANGELOG.md` 写 `## vx.y.z` 章节（新增 / 变更 / 修复 / 验证方式），验证方式要写真实跑出来的结果。
-2. **配图同步**：`npm run docs:images`，打开 `docs/` 下三张图确认版本号与自检数正确；再到 GitHub **Settings → Social preview** 重新上传 `docs/social-preview-light.webp`（或深色版）。OG 图是独立设置，不会随 README 自动更新。原理见 [docs/IMAGE_PIPELINE.md](IMAGE_PIPELINE.md)。
+2. **配图同步**：`npm run docs:images`，打开 `docs/` 下三张图确认版本号、自检数与题库数字正确；再到 GitHub **Settings → Social preview** 重新上传 `docs/social-preview-light.webp`（或深色版）。OG 图是独立设置，不会随 README 自动更新。原理见 [docs/IMAGE_PIPELINE.md](IMAGE_PIPELINE.md)。
 3. **统一门禁全绿**：`npm run ci`（8 步，含两个浏览器冒烟）。不要用 `--no-browser` 的结果代替发布前的全量门禁；CI 也不会跳过。
 4. **发版门禁自检**：`node tools/release.mjs --check-ci vx.y.z`，确认输出通过。该命令校验 tag 字符串与 `@version` 一致、CHANGELOG 对应章节非空，并打印脚本体积。
 5. **工作区干净**：`git status --porcelain` 为空；本地 `main` 与 `origin/main` 同步，且 `origin/main` 是当前 HEAD 的祖先。

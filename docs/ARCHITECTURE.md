@@ -339,7 +339,7 @@ flowchart LR
 | 页面冒烟 | `tests/page-smoke.mjs` | Chromium | 用 `tests/fixtures` 的考试页/成绩页验证适配与对账 |
 | 文档检查 | `tools/check-docs.mjs` | Node | 链接、图片、锚点是否存在 |
 
-`npm run check` 是快速本地门禁（6 步）：语法、文档链接、自检与文档数字、数据快照一致性、工作流静态规则、题库合并冒烟依次执行；`npm run smoke` 需要真实 Chromium；`npm run ci` 才是统一门禁，串起全部九步。自检只把纯函数挂到 `window.__FX_TEST__`，写库与联网函数不挂，避免页面脚本借测试钩子改数据。
+`npm run check` 是快速本地门禁（6 步）：语法、文档链接、自检与文档数字、数据快照一致性、工作流静态规则、题库合并冒烟依次执行；`npm run smoke` 需要真实 Chromium；`npm run ci` 才是统一门禁，串起全部八步。自检只把纯函数挂到 `window.__FX_TEST__`，写库与联网函数不挂，避免页面脚本借测试钩子改数据。
 
 ## 13. 扩展点
 

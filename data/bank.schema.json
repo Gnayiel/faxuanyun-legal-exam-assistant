@@ -27,7 +27,7 @@
     "version": {
       "type": "string",
       "pattern": "^\\d+\\.\\d+\\.\\d+$",
-      "description": "导出时的脚本 @version，仅作溯源；仓库随附快照是 2026-10-20 导出的 2.0.7"
+      "description": "导出时的脚本 @version，仅作溯源；当前随附快照的版本与日期见同目录 README.md，不在 schema 里写死"
     },
     "exportedAt": {
       "type": "string",

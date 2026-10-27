@@ -303,6 +303,34 @@ ok(`DEVELOPMENT 的 panel-smoke 命令注释写着 ${m} 项断言`,
 ok(`DEVELOPMENT 的 page-smoke 命令注释写着 ${PAGE_N} 项断言`,
     docCmd('tests/page-smoke.mjs').includes(`${PAGE_N} 项断言`), docCmd('tests/page-smoke.mjs'));
 
+// 统一门禁步数散落在多份文档里，改 ci.mjs 后最容易漏改其中一处。直接数
+// ALL_STEPS 的条目，再核对 README / CONTRIBUTING / DEVELOPMENT / ARCHITECTURE /
+// RELEASING / REPOSITORY_SETTINGS 里与它相关的步数声明。
+const ciSrc = readDoc('tools/ci.mjs');
+const allSteps = ciSrc.match(/const ALL_STEPS = \[([\s\S]*?)\n\];/);
+const ciSteps = allSteps ? (allSteps[1].match(/^\s*\['/gm) || []).length : 0;
+ok(`数得出统一门禁步骤数（${ciSteps} 步）`, ciSteps > 0, '未找到 ALL_STEPS 或没有步骤条目');
+const zhDigit = { 零: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+const asStepNumber = value => /^\d+$/.test(value) ? +value : zhDigit[value];
+const stepClaims = [
+    ['docs/DEVELOPMENT.md', /共\s*(\d+)\s*步，顺序固定/, 'DEVELOPMENT 统一门禁步数'],
+    ['docs/ARCHITECTURE.md', /全部\s*([0-9]+|[一二三四五六七八九十]+)\s*步/, 'ARCHITECTURE 统一门禁步数'],
+    ['docs/RELEASING.md', /`npm run ci`\s*（\s*(\d+)\s*步/, 'RELEASING 发版门禁步数'],
+    ['CONTRIBUTING.md', /#\s*(\d+)\s*步统一门禁/, 'CONTRIBUTING 统一门禁步数'],
+    ['README.md', /(\d+)\s*步统一门禁/, 'README 统一门禁步数'],
+    ['docs/REPOSITORY_SETTINGS.md', /完整\s*(\d+)\s*步/, 'REPOSITORY_SETTINGS Node 22 门禁步数'],
+];
+const stepDrift = [];
+for (const [file, re, label] of stepClaims) {
+    const hit = readDoc(file).match(re);
+    if (!hit) {
+        stepDrift.push(`${file} 找不到「${label}」`);
+        continue;
+    }
+    if (asStepNumber(hit[1]) !== ciSteps) stepDrift.push(`${file} 写 ${hit[1]} 步，ci.mjs 是 ${ciSteps} 步`);
+}
+ok('文档里的统一门禁步数与 ci.mjs 一致', stepDrift.length === 0, stepDrift.join('；'));
+
 // README 里引用的本地图片必须真实存在，否则 GitHub 上就是裂图（换预览图时最容易漏提交）
 const imgRefs = [...readDoc('README.md').matchAll(/(?:src|srcset)="([^"#?]+)"/g)]
     .map(mm => mm[1])

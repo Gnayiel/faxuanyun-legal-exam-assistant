@@ -26,7 +26,7 @@ npm run check   # 语法、文档链接、数字、数据、工作流
 npm run ci      # 8 步统一门禁，含两个真实浏览器冒烟
 ```
 
-`npm run ci` 每一步查什么、失败怎么定位，见 [开发文档的统一门禁](docs/DEVELOPMENT.md#统一门禁)。浏览器冒烟在没有浏览器时默认跳过；CI 用 `--require-browser` 强制失败，避免「没装浏览器 → 静默跳过 → 假绿」。
+`npm run ci` 每一步查什么、失败怎么定位，见 [开发文档的统一门禁](docs/DEVELOPMENT.md#统一门禁)。直接跑 `tests/panel-smoke.mjs` / `tests/page-smoke.mjs` 时没有浏览器会跳过；`npm run ci` 会加 `--require-browser` 强制失败，避免「没装浏览器 → 静默跳过 → 假绿」；本机没有浏览器请用 `node tools/ci.mjs --no-browser`。
 
 ## 代码约定
 

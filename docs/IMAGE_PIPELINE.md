@@ -21,7 +21,7 @@ node tools/generate-docs-images.mjs --version 3.0.0 --count 193
 ## 发版检查清单
 
 1. 改版本号后执行 `npm run docs:images`，用图片查看器确认三张图的版本号/自检数/题库数字正确；替换题库快照后也要跑一次；
-2. `npm run ci`（含页面冒烟 135 项）全绿；
+2. `npm run ci`（含面板冒烟 42 项 / 页面冒烟 135 项）全绿；
 3. 到 GitHub 仓库 **Settings → Social preview** 重新上传 `docs/social-preview-light.webp`（或深色版），确认分享卡片；
 4. `node tools/release.mjs --check-ci vX.Y.Z` 通过后再打 tag；
 5. 若调整海报布局，改 `tools/generate-docs-images.mjs` 里的 `socialHtml()`；若调整面板演示状态或布局，改 `panelHtml()`（以及脚本里的 `PANEL_CSS`），再生成；题库数字不要手改，脚本从 `data/` 快照读取。不要改坐标去覆盖旧图上的文字。
